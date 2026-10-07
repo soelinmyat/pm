@@ -1704,7 +1704,7 @@ function buildCanonicalReport(
               finding.confidence >= 80 &&
               (finding.fix_kind === "mechanical" ||
                 (finding.fix_kind === "behavioral" &&
-                  /^1\.13\.(?:5[6-9]|[6-9]\d|[1-9]\d{2,})$/.test(target.generator?.version || "") &&
+                  boundTargetGeneratorVersion(target.generator?.version, "1.13.56") &&
                   Boolean(target.dev_context?.acceptance_sha256) &&
                   target.dev_context.acceptance_sha256 !==
                     crypto.createHash("sha256").update("[]").digest("hex"))) &&
@@ -2133,22 +2133,26 @@ function sha(value) {
 function sha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
-function boundTargetGeneratorVersion(value) {
+function boundTargetGeneratorVersion(value, minimum = "1.13.22") {
   const canonical = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-  const candidate = String(value || "").match(canonical);
-  const current = PLUGIN_VERSION.match(canonical);
-  if (!candidate || !current) return false;
-  const [major, minor, patchVersion] = candidate.slice(1).map(Number);
-  const [currentMajor, currentMinor, currentPatch] = current.slice(1).map(Number);
-  return (
-    major === 1 &&
-    minor === 13 &&
-    currentMajor === 1 &&
-    currentMinor === 13 &&
-    patchVersion >= 22 &&
-    patchVersion <= currentPatch
-  );
+  const parse = (version) => {
+    const match = typeof version === "string" && version.match(canonical);
+    if (!match) return null;
+    const parts = match.slice(1).map(Number);
+    return parts.every(Number.isSafeInteger) ? parts : null;
+  };
+  const candidate = parse(value),
+    current = parse(PLUGIN_VERSION),
+    floor = parse(minimum);
+  if (!candidate || !current || !floor) return false;
+  const compare = (left, right) => {
+    for (let index = 0; index < 3; index += 1)
+      if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+    return 0;
+  };
+  return compare(candidate, floor) >= 0 && compare(candidate, current) <= 0;
 }
+
 function slug(value) {
   return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }

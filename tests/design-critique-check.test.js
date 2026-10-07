@@ -5520,50 +5520,7 @@ test("third Design Critique round requires immutable failure history and grounde
   fixture.report.outcome = "failed";
   fixture.report.reason = "The desktop density still fails the accepted readable layout.";
   fixture.report.top_issue = fixture.report.reason;
-  const git = (args) => execFileSync("git", args, { cwd: fixture.root, encoding: "utf8" }).trim();
-  git(["init", "-q", "-b", "main"]);
-  git(["config", "user.name", "Recovery fixture"]);
-  git(["config", "user.email", "fixture@example.com"]);
-  fs.writeFileSync(path.join(fixture.root, ".gitignore"), "/evidence/\n/history/\n");
-  fs.writeFileSync(path.join(fixture.root, "source.txt"), "base\n");
-  git(["add", ".gitignore", "source.txt"]);
-  git(["commit", "-qm", "fixture base"]);
-  const base = git(["rev-parse", "HEAD"]);
-  fs.writeFileSync(path.join(fixture.root, "source.txt"), "initial implementation\n");
-  git(["add", "source.txt"]);
-  git(["commit", "-qm", "initial implementation"]);
-  const oldCommit = git(["rev-parse", "HEAD"]);
-  const origin = `${fixture.root}-origin.git`;
-  execFileSync("git", ["init", "-q", "--bare", origin]);
-  execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
-  git(["remote", "add", "origin", origin]);
-  git(["push", "-q", "origin", `${base}:refs/heads/main`]);
-  t.after(() => fs.rmSync(origin, { recursive: true, force: true }));
-  fixture.route.source = {
-    commit: oldCommit,
-    base_ref: "origin/main",
-    base_commit: base,
-    diff_sha256: digest(
-      execFileSync("git", ["diff", "--binary", `${base}...${oldCommit}`], { cwd: fixture.root })
-    ),
-  };
-  rewrite(fixture.root, fixture.routePath, fixture.route);
-  fixture.captures.commit = oldCommit;
-  fixture.captures.route = binding(fixture.root, fixture.routePath);
-  for (const entry of fixture.captures.evidence)
-    rewriteNormalizedAudit(fixture, entry, (audit) => {
-      audit.commit = oldCommit;
-    });
-  refreshTrustedCaptureObservations(fixture);
-  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
-  fixture.report.commit = oldCommit;
-  fixture.report.route = fixture.captures.route;
-  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
-  rewriteReportAndHtml(fixture);
-  assert.equal(
-    check(fixture, oldCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }).ok,
-    true
-  );
+  const { git, base, oldCommit } = bindRecoveryDCSource(fixture, t);
   // Freeze every predecessor binding; its result and human artifact remain untouched.
   const priorCaptures = write(
     fixture.root,
@@ -5786,6 +5743,48 @@ test("third Design Critique round requires immutable failure history and grounde
     baseCommit: base,
   });
   assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
+  const savedBlockedReport = structuredClone(fixture.report),
+    savedBlockedReviews = structuredClone(fixture.reviews);
+  // The actual current report is a genuine unavailable dependency, not a failed
+  // layout narrated as a pass. Rebind JSON and human artifact, then run the checker.
+  fixture.report.outcome = "blocked";
+  fixture.report.reason = "Required independent accessibility collector is unavailable.";
+  fixture.report.top_issue = fixture.report.reason;
+  fixture.reviews.rounds[2].recovery.classification = "external-dependency";
+  fixture.reviews.rounds[2].recovery.scope_assessment = "decision-required";
+  rewriteReviewsAndReport(fixture);
+  const checkedBlocked = check(fixture, newCommit, {
+    verifyGit: true,
+    baseRef: "origin/main",
+    baseCommit: base,
+  });
+  assert.equal(checkedBlocked.ok, true, JSON.stringify(checkedBlocked.issues));
+  const session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "design-critique";
+  session.phase_attempt = 3;
+  const blocked = recordResult(
+    session,
+    dcRunnerResult(session, {
+      status: "blocked",
+      commit: newCommit,
+      evidence: [dcReportEvidence(fixture)],
+      blocker: collectorBlocker(),
+    })
+  );
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.phase_attempt, 3, "blocked persistence does not advance the attempt");
+  assert.deepEqual(validateSession(blocked), []);
+  const anchor = blocked.evidence["design-critique"].recovery_history[0];
+  assert.equal(anchor.attempt, 3);
+  assert.equal(anchor.round, 3);
+  assert.equal(anchor.outcome, "blocked");
+  assert.equal(blocked.evidence["design-critique"].commit, null);
+  const resumed = resumeBlocked(blocked, "Accessibility collector restored");
+  assert.equal(resumed.phase_attempt, 4);
+  assert.deepEqual(resumed.evidence["design-critique"].recovery_history, [anchor]);
+  fixture.report = savedBlockedReport;
+  fixture.reviews = savedBlockedReviews;
+  rewriteReviewsAndReport(fixture);
   for (const variant of [
     "missing",
     "unknown-evidence",
@@ -5832,4 +5831,142 @@ test("third Design Critique round requires immutable failure history and grounde
     false,
     "a fresh pass cannot attest the predecessor source commit"
   );
+});
+
+const {
+  createSession,
+  recordResult,
+  resumeBlocked,
+  validateSession,
+} = require("../scripts/lib/dev-session-schema");
+function collectorBlocker() {
+  return {
+    code: "environment-unavailable",
+    reason: "Independent collector unavailable",
+    remediation: "Restore the collector",
+  };
+}
+function dcReportEvidence(fixture) {
+  return {
+    kind: "review",
+    command: "node scripts/design-critique-check.js --verify-browser false",
+    exit_code: 0,
+    artifact: path.join(fixture.root, fixture.reportPath),
+  };
+}
+function dcRunnerResult(session, fields) {
+  return {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: session.phase,
+    attempt: session.phase_attempt,
+    summary: "Checked DC producer and actual Dev runner regression",
+    files_changed: [],
+    runtime: { provider: "codex", model: "test-model", reasoning: "high" },
+    ...fields,
+  };
+}
+function bindRecoveryDCSource(fixture, t) {
+  const git = (args) => execFileSync("git", args, { cwd: fixture.root, encoding: "utf8" }).trim();
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.name", "Recovery fixture"]);
+  git(["config", "user.email", "fixture@example.com"]);
+  fs.writeFileSync(path.join(fixture.root, ".gitignore"), "/evidence/\n/history/\n");
+  fs.writeFileSync(path.join(fixture.root, "source.txt"), "base\n");
+  git(["add", ".gitignore", "source.txt"]);
+  git(["commit", "-qm", "fixture base"]);
+  const base = git(["rev-parse", "HEAD"]);
+  fs.writeFileSync(path.join(fixture.root, "source.txt"), "initial implementation\n");
+  git(["add", "source.txt"]);
+  git(["commit", "-qm", "initial implementation"]);
+  const oldCommit = git(["rev-parse", "HEAD"]);
+  const origin = `${fixture.root}-origin.git`;
+  execFileSync("git", ["init", "-q", "--bare", origin]);
+  execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
+  git(["remote", "add", "origin", origin]);
+  git(["push", "-q", "origin", `${base}:refs/heads/main`]);
+  t.after(() => fs.rmSync(origin, { recursive: true, force: true }));
+  fixture.route.source = {
+    commit: oldCommit,
+    base_ref: "origin/main",
+    base_commit: base,
+    diff_sha256: digest(
+      execFileSync("git", ["diff", "--binary", `${base}...${oldCommit}`], { cwd: fixture.root })
+    ),
+  };
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.commit = oldCommit;
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  for (const entry of fixture.captures.evidence)
+    rewriteNormalizedAudit(fixture, entry, (audit) => {
+      audit.commit = oldCommit;
+    });
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.commit = oldCommit;
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.equal(
+    check(fixture, oldCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }).ok,
+    true
+  );
+  return { git, base, oldCommit };
+}
+
+test("DC runner regression: pre-report dependency does not invent a report predecessor", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const { base, oldCommit } = bindRecoveryDCSource(fixture, t);
+  // A current policy first report, produced with real Git identity, complete
+  // capture/audit bytes and two independent reviewer fixture receipts.
+  fixture.reviews.recovery_policy = "scoped-diagnosis-v1";
+  rewriteReviewsAndReport(fixture);
+  const checkedFirst = check(fixture, oldCommit, {
+    verifyGit: true,
+    baseRef: "origin/main",
+    baseCommit: base,
+  });
+  assert.equal(checkedFirst.ok, true, JSON.stringify(checkedFirst.issues));
+  assert.equal(fixture.report.rounds, 1);
+  assert.equal(fixture.reviews.rounds[0].previous_report, undefined);
+  let session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "design-critique";
+  session.routing.required_phases = ["design-critique", "review", "ship"];
+  const preReportBlocked = recordResult(
+    session,
+    dcRunnerResult(session, {
+      status: "blocked",
+      commit: oldCommit,
+      evidence: [],
+      blocker: collectorBlocker(),
+    })
+  );
+  assert.equal(preReportBlocked.status, "blocked");
+  assert.equal(preReportBlocked.evidence["design-critique"]?.recovery_history, undefined);
+  session = resumeBlocked(preReportBlocked, "Accessibility collector restored");
+  assert.equal(session.phase_attempt, 2, "attempt history still retains the real dependency");
+  const accepted = recordResult(
+    session,
+    dcRunnerResult(session, {
+      status: "passed",
+      commit: oldCommit,
+      evidence: [
+        dcReportEvidence(fixture),
+        {
+          kind: "test",
+          command: "node --test scoped-layout.test.js",
+          exit_code: 0,
+          artifact: null,
+        },
+      ],
+      blocker: null,
+    })
+  );
+  const anchor = accepted.evidence["design-critique"].recovery_history[0];
+  assert.equal(anchor.attempt, 2);
+  assert.equal(anchor.round, 1, "unavailable-dependency attempts are not observed DC rounds");
+  assert.equal(anchor.outcome, "passed");
+  assert.equal(accepted.evidence["design-critique"].commit, oldCommit);
+  assert.equal(fixture.reviews.rounds[0].previous_report, undefined);
 });

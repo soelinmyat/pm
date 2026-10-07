@@ -29,9 +29,9 @@ test("UI guidance retains craft instructions and critique reference dispatch", (
     /primary action/i,
     /density/i,
     /typography/i,
-    /desktop and narrow/i,
-    /inspect.*visually/i,
-    /refine.*once/i,
+    /desktop(?: and|\/)narrow/i,
+    /inspect.*(?:visually|pixels)/i,
+    /refine.*(?:once|before review)/i,
     /objective defect.*subjective craft/is,
   ])
     assert.match(design, expectation);

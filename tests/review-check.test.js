@@ -3927,3 +3927,108 @@ function advanceRecoveryReviewFixture(fixture, round, recoveryPath) {
     return relative;
   });
 }
+
+function recoveryPhaseResult(session, fixture, status, evidence) {
+  return {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: "review",
+    attempt: session.phase_attempt,
+    status,
+    summary: "Actual producer and runner recovery boundary",
+    commit: fixture.target.source.commit,
+    files_changed: [],
+    evidence,
+    blocker:
+      status === "blocked"
+        ? {
+            code: "decision-required",
+            reason: "A real decision is required",
+            remediation: "Resolve the decision",
+          }
+        : null,
+    runtime: { provider: "codex", model: "test-model", reasoning: "high" },
+  };
+}
+function recoveryReportEvidence(fixture) {
+  return {
+    kind: "review",
+    command: "Checked actual Review fixture report",
+    exit_code: 0,
+    artifact: path.join(fixture.root, fixture.reportPath),
+  };
+}
+test("checked blocked Review persists its current anchor then resumes with an advanced attempt", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  fixture.reportPath = fixture.roundReportPath;
+  fixture.htmlPath = fixture.roundHtmlPath;
+  setFindingForLens(fixture, "bug", {
+    ...validFinding("bug"),
+    decision_required: true,
+    fix_kind: "decision",
+  });
+  const checked = generate(fixture);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.report.outcome, "blocked");
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.reportPath,
+    outputPath: fixture.htmlPath,
+  });
+  const session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "review";
+  const blocked = recordResult(
+    session,
+    recoveryPhaseResult(session, fixture, "blocked", [recoveryReportEvidence(fixture)])
+  );
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.phase_attempt, 1);
+  assert.equal(blocked.evidence.review.commit, null);
+  const anchors = structuredClone(blocked.evidence.review.recovery_history);
+  const resumed = resumeBlocked(blocked, "Required decision resolved");
+  assert.equal(resumed.phase_attempt, 2);
+  assert.deepEqual(resumed.evidence.review.recovery_history, anchors);
+  assert.throws(
+    () =>
+      recordResult(
+        { ...resumed, phase_attempt: 1 },
+        recoveryPhaseResult({ ...resumed, phase_attempt: 1 }, fixture, "blocked", [])
+      ),
+    /reset/
+  );
+});
+test("a pre-report dependency block preserves attempts without inventing a Review round", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const checked = generate(fixture);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.report.review_round, 1);
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.reportPath,
+    outputPath: fixture.htmlPath,
+  });
+  let session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "review";
+  session = recordResult(session, recoveryPhaseResult(session, fixture, "blocked", []));
+  assert.equal(session.evidence.review?.recovery_history, undefined);
+  session = resumeBlocked(session, "Required independent reviewer restored");
+  assert.equal(session.phase_attempt, 2);
+  const accepted = recordResult(
+    session,
+    recoveryPhaseResult(session, fixture, "passed", [
+      recoveryReportEvidence(fixture),
+      { kind: "test", command: "Focused fixture check", exit_code: 0, artifact: null },
+    ])
+  );
+  assert.equal(accepted.evidence.review.recovery_history[0].attempt, 2);
+  assert.equal(accepted.evidence.review.recovery_history[0].round, 1);
+  assert.equal(accepted.attempts.length, 2);
+});

@@ -369,10 +369,16 @@ function reviewedCode(sourceRoot, source, paths, fixtureDirectory) {
     .sort();
   if (canonical([...paths].sort()) !== canonical(changed))
     throw new Error("reviewed paths must cover exactly the committed preview source changes");
+  const records = new Map(
+    git(sourceRoot, "ls-tree", "-z", source.head_commit, "--", ...paths)
+      .split("\0")
+      .filter(Boolean)
+      .map((record) => [record.slice(record.indexOf("\t") + 1), record])
+  );
   return [...paths].sort().map((file) => {
     if (within(file, fixtureDirectory))
       throw new Error("reviewed code cannot include mock fixture directory");
-    const record = git(sourceRoot, "ls-tree", source.head_commit, "--", file);
+    const record = records.get(file);
     if (!record) return { path: file, sha256: null, deleted: true };
     if (!record.startsWith("100644 blob ") && !record.startsWith("100755 blob "))
       throw new Error(`reviewed path must be a regular source file: ${file}`);

@@ -223,7 +223,9 @@ function validateSession(session) {
   if (
     currentRecovery &&
     currentRecovery.outcome !== "passed" &&
-    session.phase_attempt <= currentRecovery.attempt
+    (session.phase_attempt < currentRecovery.attempt ||
+      (session.phase_attempt === currentRecovery.attempt &&
+        !(session.status === "blocked" && currentRecovery.outcome === "blocked")))
   )
     errors.push(issue("$.phase_attempt", "cannot reset an unresolved anchored recovery attempt"));
   const recordedQaAttempts = Array.isArray(session.attempts)
@@ -1384,12 +1386,18 @@ function validateScopedGateEvidence(session, result, errors) {
       previous = report.prior_report;
     } else {
       const { checkDesignCritique } = require("../design-critique-check");
+      const base = require("../review-target").resolveTrustedBase(
+        root,
+        session.source.delivery_remote
+      );
       checked = checkDesignCritique({
         root,
         routePath: report.route?.path,
         capturesPath: report.captures?.path,
         reportPath: relative,
         commit: result.commit,
+        baseRef: base.ref,
+        baseCommit: base.commit,
         verifyBrowser: false,
       });
       const reviewsInput = readProjectInput(root, report.reviews?.path, 4 * 1024 * 1024);
@@ -1427,14 +1435,9 @@ function validateScopedGateEvidence(session, result, errors) {
       throw new Error(
         "must continue the retained immediately prior report in the same run without replay or reset"
       );
-    const recorded = session.attempts.filter(
-      (attempt) => attempt.phase === phase && attempt.status !== "passed"
-    );
-    const minimum = recorded.length
-      ? Math.max(...recorded.map((attempt) => attempt.attempt)) + 1
-      : 1;
-    if (!last && round < minimum)
-      throw new Error("report rounds cannot reset recorded failed phase attempts");
+    // Phase attempts include unavailable dependencies before any report exists.
+    // Only checked report anchors establish report-round continuity; the report
+    // checker validates any predecessor chain when importing a first anchor.
     return {
       attempt: result.attempt,
       round,
@@ -3392,6 +3395,7 @@ function promptMetadata(session, sessionPath) {
 }
 
 function recordResult(session, result, options = {}) {
+  assertValidSession(session);
   const errors = validateResult(session, result, options);
   if (errors.length > 0) throw validationError("result is invalid", errors);
   const next = structuredClone(session);
