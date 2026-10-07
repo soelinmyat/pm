@@ -25,6 +25,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - For backend-only, docs-only, generated-only, lockfile-only, or non-UI configuration changes with proven no visual impact. Record the routed Dev skip instead.
 - For a Markdown-only product document with no rendered artifact. Review its content in the owning product skill.
 
+Scores summarize observed craft; required evidence and consequential findings determine passage. Assess hierarchy, action grouping and cumulative friction in the core journey. An unusable drawer/detail composition can block even when its individual pixels look polished; minor presentation preferences need contextual judgment and a visible disposition.
+
 ## Modes and status
 
 Subject mode is explicit and independent from execution context:

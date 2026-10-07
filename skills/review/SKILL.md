@@ -7,7 +7,7 @@ description: "Review committed source changes with bound findings, coverage and 
 
 ## Purpose
 
-Review the exact current branch diff for source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system violations, and risk-triggered security failures. Produce a commit-bound `target.json`, reviewer results, canonical `report.json`, and, when presentation is required, readable `report.html` that Dev and Ship can verify without trusting a prose claim.
+Review the exact current branch diff for source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system violations, and risk-triggered security failures. Produce a commit-bound `target.json`, reviewer results, canonical `report.json`, and, when requested, readable `report.html` that Dev and Ship can verify without trusting a prose claim.
 
 ## Iron Law
 
@@ -35,7 +35,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 | Design Critique | Rendered hierarchy, density, responsive/print craft, presentation accessibility |
 | QA | Live behavior, navigation, state transitions, integrations, runtime recovery |
 
-Review may create Design Critique or QA handoffs. Those handoffs stay visible but cannot block or pass Review.
+Review may create Design Critique or QA handoffs. Those handoffs stay visible but cannot block or pass Review. Canonical current JSON is sufficient source Review evidence; file count, risk and findings do not force report-rendering work. Optional HTML has its own presentation checks, and this does not reduce actual product UX gates.
 
 ## Status definitions
 

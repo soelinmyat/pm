@@ -3936,14 +3936,15 @@ test("rejects a human report whose visible score diverges from JSON", () => {
   assert.match(JSON.stringify(result.issues), /visible score hierarchy must match report JSON/);
 });
 
-test("rejects a passed report whose noncompensatory scores fall below three", () => {
+test("evidence-backed low craft scores are advisory when consequential findings are absent", () => {
   const fixture = makeFixture();
-  for (const score of Object.values(fixture.report.scores)) score.value = 1;
+  fixture.report.scores.hierarchy.value = 2;
+  fixture.report.scores.hierarchy.rationale =
+    "Core entry and action remain usable; secondary grouping has notable craft opportunities.";
   rewriteReportAndHtml(fixture);
 
   const result = check(fixture);
-  assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /passed requires every score to be at least 3/);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
 test("rejects score evidence from the wrong modality", () => {

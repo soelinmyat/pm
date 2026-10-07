@@ -358,7 +358,7 @@ Reviewer finding IDs use `drf-` plus the first 16 lowercase hex characters of SH
 }
 ```
 
-Artifact mode replaces `state-clarity` with `print-navigation`. Every score has an integer `value`, a concrete `rationale`, and one or more valid `evidence_ids`. Final report scores must exactly equal the final-round Primary scores.
+Artifact mode replaces `state-clarity` with `print-navigation`. Every score has an integer `value`, a concrete `rationale`, and one or more valid `evidence_ids`. Final report scores must exactly equal the final-round Primary scores. Scores describe observed craft and remain evidence-backed diagnostics; they are not an independent passing threshold. Derive the outcome from required evidence and consequential findings. A score rationale describing a failed core task, inaccessible primary action or unusable composition requires the corresponding blocking finding, not a cosmetic label. Minor preferences remain visible P2/P3 concerns with a reason and owner; do not split cumulative core-journey failure into minor rows.
 
 | Score | Anchor |
 |---|---|
