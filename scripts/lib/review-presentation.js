@@ -91,59 +91,22 @@ function reviewPresentationPolicy({ report, target }) {
   };
 }
 
-// Structured publication deliberately has a narrower contract than compact HTML.
-// Recompute eligibility from validated canonical inputs; it is never a waiver flag.
-function structuredReviewPolicy({ report, target, session = null }) {
-  const compact = reviewPresentationPolicy({ report, target });
-  if (compact.mode !== "compact") return { eligible: false, reason: compact.reason };
-  if (
-    report.findings.length !== 0 ||
-    report.decisions !== null ||
-    target.review_round !== 1 ||
-    target.prior_report !== null ||
-    target.changed_files.length > 5
-  )
-    return { eligible: false, reason: "findings, decisions, prior rounds, or broad change" };
-  if (!["full", "code-scan"].includes(target.mode))
-    return { eligible: false, reason: "unknown review mode" };
-  const { deriveLensApplicability } = require("./review-contract");
-  if (
-    JSON.stringify(target.lenses) !==
-    JSON.stringify(deriveLensApplicability(target.mode, target.changed_files, target.dev_context))
-  )
-    return { eligible: false, reason: "unknown review lens inventory" };
-  const paths = target.changed_files.flatMap((row) => [row.path, row.old_path].filter(Boolean));
-  if (
-    paths.some((name) => !/\.(?:js|ts|py|rb|go|rs|java)$/.test(name)) ||
-    deriveLensApplicability(
-      "full",
-      paths.map((name) => ({ path: name }))
-    ).some((lens) => ["design", "security"].includes(lens.name) && lens.applicable)
-  )
-    return { eligible: false, reason: "sensitive or unknown source paths" };
-  if (target.dev_context) {
-    const risk = session?.task?.risk;
-    const dimensions = [
-      "behavioral",
-      "security",
-      "auth",
-      "data",
-      "external_contract",
-      "operational",
-      "ui",
-      "reversibility",
-      "cross_module",
-    ];
-    if (
-      !risk ||
-      !["low", "medium"].includes(session.task.risk_tier) ||
-      risk.destructive_data !== false ||
-      dimensions.some((key) => !Number.isInteger(risk[key]) || risk[key] < 0 || risk[key] > 1) ||
-      ["security", "auth", "data", "ui", "operational"].some((key) => risk[key] !== 0)
-    )
-      return { eligible: false, reason: "high or unknown canonical risk" };
-  }
-  return { eligible: true, reason: "bounded clean source review" };
+// Presentation eligibility does not certify source quality. The owning checker
+// validates the complete current target/results/report before applying this
+// policy; risk, findings and round history remain source-review obligations.
+function structuredReviewPolicy({ report, target }) {
+  const eligible =
+    target?.schema_version === 2 &&
+    target?.relevance_policy === "changed-hunk-anchor-v1" &&
+    target?.generator?.name === "pm:review" &&
+    report?.schema_version === 1 &&
+    report?.generator?.name === "pm:review";
+  return {
+    eligible,
+    reason: eligible
+      ? "canonical source Review; HTML is optional"
+      : "unknown or legacy source contract",
+  };
 }
 
 // This binds presentation only. The delivery gate separately validates the

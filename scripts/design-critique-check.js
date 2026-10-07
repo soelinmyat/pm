@@ -98,7 +98,6 @@ const {
   minVisualDistance: MIN_CROSS_STATE_VISUAL_DISTANCE,
   minChangedTileRatio: MIN_CROSS_STATE_CHANGED_TILE_RATIO,
 } = PRODUCT_UI_VISUAL_THRESHOLDS;
-const PASSING_SCORE_FLOOR = 3;
 const PRODUCT_UI_STATES = Object.freeze([
   "primary",
   "empty",
@@ -2353,7 +2352,7 @@ function validateReport(
     );
   if ((captures.captures || []).some((item) => item.round > report.rounds))
     add(issues, "report.rounds", "must include every recorded capture round");
-  validateScores(root, report.scores, route, captures, report.outcome, issues);
+  validateScores(root, report.scores, route, captures, issues);
   validateFindings(root, report.findings, route, captures, report.outcome, issues);
   if (report.schema_version === 2 && reviewState) {
     validateReconciliation(report, route, captures, reviewState, issues);
@@ -4031,7 +4030,7 @@ function validateSourceBlockingOutcome(report, reviewState, issues) {
   }
 }
 
-function validateScores(root, scores, route, captures, outcome, issues) {
+function validateScores(root, scores, route, captures, issues) {
   if (!object(scores)) return add(issues, "report.scores", "must be an object");
   const expected = new Set(SCORE_KEYS[route.mode] || []);
   const evidenceIds = new Set([
@@ -4049,12 +4048,6 @@ function validateScores(root, scores, route, captures, outcome, issues) {
     closed(score, ["value", "rationale", "evidence_ids"], `report.scores.${key}`, issues);
     if (!Number.isInteger(score.value) || score.value < 1 || score.value > 5)
       add(issues, `report.scores.${key}.value`, "must be an integer from 1 to 5");
-    else if (outcome === "passed" && score.value < PASSING_SCORE_FLOOR)
-      add(
-        issues,
-        `report.scores.${key}.value`,
-        `passed requires every score to be at least ${PASSING_SCORE_FLOOR}`
-      );
     if (!text(score.rationale)) add(issues, `report.scores.${key}.rationale`, "is required");
     if (
       !Array.isArray(score.evidence_ids) ||

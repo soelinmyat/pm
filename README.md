@@ -43,6 +43,8 @@ Release and Review can use the original Dev session across registered Git worktr
 
 PM is a free, open-source plugin for Claude Code, Codex, and OpenCode V2 (interactive workflows). It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo — context that compounds over time, not another doc that decays after the meeting.
 
+Quality gates focus on consequential task, data, access and evidence failures. QA finding indexes and Design Critique scores remain visible diagnostics; minor concerns use contextual judgment. Source Review publishes canonical JSON without requiring browser-rendered reports. Actual core-journey UX, source identity, required assertions and product/security/privacy authority retain their gates.
+
 ## Why PM?
 
 Product context decays. The research doc goes stale, the strategy deck is six months old, and nobody remembers why you decided against that feature.

@@ -277,6 +277,115 @@ test("strict QA report bounds collection traversal and caps validation diagnosti
   );
 });
 
+test("minor QA findings can be disclosed as concerns regardless of the numerical index", () => {
+  const report = passingReport(SHA_A);
+  report.verdict = "pass-with-concerns";
+  report.findings = [
+    finding({
+      id: "qa-secondary-label",
+      severity: "low",
+      summary: "A secondary label could be clearer; the required action succeeds.",
+    }),
+  ];
+  report.finding_counts.low = 1;
+  report.category_breakdown = categoryRows({ functional: 97 });
+  report.health_score = 99;
+  Object.assign(report.runs[0], {
+    verdict: report.verdict,
+    health_score: report.health_score,
+    finding_ids: ["qa-secondary-label"],
+  });
+  assert.deepEqual(validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }), []);
+  report.findings[0].severity = "high";
+  report.finding_counts.low = 0;
+  report.finding_counts.high = 1;
+  report.category_breakdown = categoryRows({ functional: 85 });
+  report.health_score = 96;
+  report.runs[0].health_score = 96;
+  const issues = validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true });
+  assert.match(JSON.stringify(issues), /unresolved Critical or High/);
+});
+
+test("actual QA gate consumer accepts advisory evidence once and rechecks altered inputs", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  fs.writeFileSync(path.join(repo.root, ".gitignore"), ".pm/\n");
+  execFileSync("git", ["add", ".gitignore"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-qm", "ignore private evidence"], { cwd: repo.root });
+  const remote = repo.root + "-origin.git";
+  t.after(() => fs.rmSync(remote, { recursive: true, force: true }));
+  execFileSync("git", ["init", "--bare", "-b", "main", remote]);
+  execFileSync("git", ["remote", "add", "origin", remote], { cwd: repo.root });
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: repo.root });
+  execFileSync("git", ["checkout", "-qb", "fix/qa-context"], { cwd: repo.root });
+  let session = createSession({ slug: "qa-context", sourceDir: repo.root });
+  session.phase = "qa";
+  session.task.acceptance_criteria = ["The required action completes without losing data."];
+  const { reportPath, outputPath } = writePassingReport(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.verdict = "pass-with-concerns";
+  report.findings = [
+    finding({
+      id: "secondary-label",
+      severity: "low",
+      summary: "Secondary label could be clearer; the core action passes.",
+    }),
+  ];
+  report.finding_counts.low = 1;
+  report.category_breakdown = categoryRows({ functional: 97 });
+  report.health_score = 99;
+  Object.assign(report.runs[0], {
+    verdict: report.verdict,
+    health_score: report.health_score,
+    finding_ids: ["secondary-label"],
+  });
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  session = recordResult(session, phaseResult(session, repo.head(), reportPath));
+  const sessionPath = path.join(repo.root, ".pm/dev-sessions/qa-context/session.json");
+  writeSession(sessionPath, session);
+  const writer = require("../scripts/lib/dev-gate-writer");
+  const deps = writer.defaultDeps(),
+    originalCheck = deps.validateQa;
+  let validations = 0;
+  deps.validateQa = (...args) => {
+    validations += 1;
+    return originalCheck(...args);
+  };
+  const request = { sessionPath, session, name: "qa" };
+  const valid = writer.planGateWrite(request, deps);
+  assert.equal(validations, 1);
+  assert.equal(valid.row.status, "passed");
+  const cli = () =>
+    spawnSync(
+      process.execPath,
+      [
+        path.join(__dirname, "../scripts/dev-session.js"),
+        "gate",
+        "--session",
+        sessionPath,
+        "--name",
+        "qa",
+        "--json",
+      ],
+      { cwd: repo.root, encoding: "utf8" }
+    );
+  const written = cli();
+  assert.equal(written.status, 0, written.stdout + written.stderr);
+  const gateBytes = fs.readFileSync(valid.manifestPath);
+  fs.appendFileSync(outputPath, "\n");
+  assert.throws(() => writer.planGateWrite(request, deps), /canonical QA report/);
+  assert.equal(validations, 2, "later operations must revalidate instead of retaining a cache");
+  assert.notEqual(cli().status, 0);
+  assert.deepEqual(
+    fs.readFileSync(valid.manifestPath),
+    gateBytes,
+    "rejection must not write a passing gate"
+  );
+  fs.writeFileSync(reportPath, JSON.stringify({ ...report, commit: "b".repeat(40) }));
+  assert.notEqual(cli().status, 0, "a wrong-source report must remain blocked");
+  assert.deepEqual(fs.readFileSync(valid.manifestPath), gateBytes);
+});
+
 test("passing QA verdict rejects unresolved Critical or High findings", () => {
   const report = passingReport(SHA_A);
   report.findings = [finding({ id: "qa-core-flow", severity: "high" })];

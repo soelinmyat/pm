@@ -600,7 +600,7 @@ Assign severity from the effect on the user's task, data, and recovery, includin
 
 ### Health Score Computation
 
-The persisted `health_score` is a **tested-scope finding index**, retained for schema/verdict compatibility. It summarizes observed finding deductions; it is not a probability of correctness, product certainty, coverage percentage, or evidence that unexamined categories are healthy. State the exercised journey, fixtures, viewports, and unexamined dimensions in the report narrative. No findings means no findings observed in that scope. Required coverage that cannot execute yields `blocked`, not a manufactured passed assertion or a high-confidence 100.
+The persisted `health_score` is a **tested-scope finding index**, retained for schema compatibility. It is diagnostic, not a verdict threshold. It summarizes observed finding deductions; it is not a probability of correctness, product certainty, coverage percentage, or evidence that unexamined categories are healthy. State the exercised journey, fixtures, viewports, and unexamined dimensions in the report narrative. No findings means no findings observed in that scope. Required coverage that cannot execute yields `blocked`, not a manufactured passed assertion or a high-confidence 100.
 
 ```
 Start at 100.
@@ -662,9 +662,9 @@ NEVER report a finding without evidence. Choose the observation method that supp
 
 | Verdict | Criteria | Action |
 |---------|----------|--------|
-| **Pass** | Health >= 80, no unresolved Critical or High finding | Continue with the current QA evidence. |
-| **Pass with concerns** | Health >= 60 and < 80, no unresolved Critical or High finding | Continue only with the remaining Medium/Low concerns called out explicitly. |
-| **Fail** | Health < 60, OR any unresolved Critical or High finding | Do not ship. Fix and re-verify. |
+| **Pass** | Required assertions pass and no unresolved Critical or High finding remains | Continue with the current QA evidence. |
+| **Pass with concerns** | Required assertions pass; remaining Medium/Low concerns are explicitly assessed | Continue with those concerns and their effect on the tested journey visible. |
+| **Fail** | A required assertion fails or a consequential Critical/High task, data or access failure remains | Do not ship. Fix and re-verify. |
 | **Blocked** | Servers won't start, can't authenticate, env broken | Cannot test. Fix environment first. |
 
 ```
@@ -722,6 +722,8 @@ it does not claim a browser DOM was used. Record the actual Maestro or Appium
 command and native hierarchy assertions. If a wrapper launches the driver,
 retain the wrapper provenance separately and bind the executed child command;
 do not add a browser label to an otherwise unidentified command to pass validation.
+
+An adapted harness can supply genuine execution evidence. State its observed scope in the existing `probe`, `observed`, `expected`, command and report narrative fields. Retain the effective child command, executed inputs and relevant transformation differences when a claim depends on unchanged committed flows. Claim the adapted scope when those inputs differ; actual child execution, a successful wrapper or matching receipt hashes alone do not prove original-flow equivalence. Owned harness repairs are permitted; review changes that affect the oracle or exercised behavior. A coordinator grouping/verifier defect is not automatically a product defect.
 
 ```json
 {
@@ -947,7 +949,7 @@ Append the diagnosis as optional `recovery` on the new run in the existing canon
 }
 ```
 
-`classification` is `product-defect`, `harness-environment`, `stale-evidence`, `external-dependency`, `product-decision`, or `scope-risk-change`. Bind `evidence_receipt_ids` to retained prior-run receipts. When no prior execution receipts exist and the latest retained run is blocked, use an empty list: the existing immutable `previous_report` binding grounds that pre-execution failure. Preserve its original bytes and anchors; a passing recovery still requires fresh executed assertions. `observed`, `cause`, `change` and `next_check` are specific evidence-supported explanations, not generic retry promises. A stale report or capture repair does not invent a product regression or fresh acceptance passage; rejected evidence remains preserved and the owning current-source/report checks still apply. A source fix requires affected acceptance re-verification; a harness repair needs its setup check and affected acceptance assertions, without pretending source changed. If impact is uncertain, use conservative full QA.
+`classification` is `product-defect`, `harness-environment`, `stale-evidence`, `external-dependency`, `product-decision`, or `scope-risk-change`. Bind `evidence_receipt_ids` to retained prior-run receipts. When no prior execution receipts exist and the latest retained run is blocked, use an empty list: the existing immutable `previous_report` binding grounds that pre-execution failure. Preserve its original bytes and anchors; a passing recovery still requires fresh executed assertions. `observed`, `cause`, `change` and `next_check` are specific evidence-supported explanations, not generic retry promises. A stale report or capture repair does not invent a product regression or fresh acceptance passage; rejected evidence remains preserved and the owning current-source/report checks still apply. A source fix requires affected acceptance re-verification; a harness repair needs its setup check and affected acceptance assertions, without pretending source changed. Retest affected claims and retain unaffected evidence at its original source/scope; never count retained assertions as newly executed or relabel their commit. Use the existing canonical recertification/ledger contract, not an invented passing run. An irrelevant report format or ambient-tool change does not by itself invalidate a product claim; recheck the binding and broaden execution when it could affect that claim. If impact is uncertain, use conservative full QA.
 
 Use `scope_assessment: "decision-required"` and a `blocked` verdict for a genuinely unresolved external dependency, product decision or material scope/risk change. A scoped environment recovery may itself remain blocked until its prerequisite is restored. The diagnosis field describes the assessed boundary; it grants neither new scope nor platform, source-write, delivery or other authority. Resolve an actual missing decision through its owner; never request approval simply to continue an already authorized QA round.
 

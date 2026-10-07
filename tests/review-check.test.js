@@ -277,17 +277,10 @@ test(
   }
 );
 
-test("documented synthesis routes structured drafts before publication and retains HTML fallback", () => {
-  const synthesis = fs.readFileSync(
-    path.join(__dirname, "../skills/review/steps/03-synthesize.md"),
-    "utf8"
-  );
-  assert.match(synthesis, /initially omitting `--human-report`/);
-  assert.match(synthesis, /skip draft HTML rendering/);
-  assert.match(synthesis, /HTML presentation required/);
-  for (const needsHtml of [false, true]) {
+test("structured drafts keep minor findings and requested HTML remains independently checked", () => {
+  for (const hasFinding of [false, true]) {
     const fixture = makeFixture({ maxWorkers: 3 });
-    if (needsHtml)
+    if (hasFinding)
       setFindingForLens(fixture, "bug", { ...validFinding("bug"), severity: "medium" });
     const round = path.dirname(fixture.targetPath);
     for (const stage of ["draft", "final"]) {
@@ -301,23 +294,18 @@ test("documented synthesis routes structured drafts before publication and retai
         reportStage: stage,
         writeReport: true,
       };
-      let result = checkReview(options);
-      if (needsHtml) {
-        assert.equal(result.ok, false);
-        assert.ok(result.issues.every((issue) => issue.path === "report.presentation"));
-        assert.match(JSON.stringify(result.issues), /HTML presentation required/);
-        assert.equal(fs.existsSync(path.join(fixture.root, reportPath)), false);
-        options.humanReportPath = htmlPath;
-        result = checkReview(options);
-        assert.equal(result.ok, true, JSON.stringify(result.issues));
-        renderReviewReport({ root: fixture.root, reportPath, outputPath: htmlPath });
-        // Browser behavior is covered by the existing rendered-evidence tests;
-        // this sequence verifies routing, bindings and structural validation.
-      } else {
-        assert.equal(result.ok, true, JSON.stringify(result.issues));
-        assert.equal(result.report.human_report, null);
-        assert.equal(fs.existsSync(path.join(fixture.root, htmlPath)), false);
-      }
+      const structured = checkReview(options);
+      assert.equal(structured.ok, true, JSON.stringify(structured.issues));
+      assert.equal(structured.report.human_report, null);
+      assert.equal(structured.report.findings.length, hasFinding ? 1 : 0);
+      assert.equal(fs.existsSync(path.join(fixture.root, htmlPath)), false);
+      const requested = checkReview({
+        ...options,
+        humanReportPath: htmlPath,
+        verifyBrowser: false,
+      });
+      assert.equal(requested.ok, true, JSON.stringify(requested.issues));
+      renderReviewReport({ root: fixture.root, reportPath, outputPath: htmlPath });
       const checked = checkReview(
         expandFromReport({
           root: fixture.root,
@@ -328,6 +316,26 @@ test("documented synthesis routes structured drafts before publication and retai
         })
       );
       assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+      const absoluteHtml = path.join(fixture.root, htmlPath);
+      const html = fs.readFileSync(absoluteHtml, "utf8");
+      assert.match(html, /data-review-outcome="passed"/);
+      fs.writeFileSync(
+        absoluteHtml,
+        html.replaceAll('data-review-outcome="passed"', 'data-review-outcome="failed"')
+      );
+      assert.equal(
+        checkReview(
+          expandFromReport({
+            root: fixture.root,
+            reportPath,
+            fromReport: true,
+            reportStage: stage,
+            verifyBrowser: false,
+          })
+        ).ok,
+        false,
+        "requested HTML cannot misstate the canonical outcome"
+      );
     }
   }
 });
@@ -413,7 +421,7 @@ test("routine clean source review publishes structured evidence without a browse
   assert.equal(checked().ok, false);
 });
 
-test("structured publication conservatively excludes risky, unknown and presentation inputs", () => {
+test("structured publication is independent of source risk, findings and report presentation", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
   const report = generate(fixture).report;
   const { structuredReviewPolicy } = require("../scripts/lib/review-presentation");
@@ -423,7 +431,7 @@ test("structured publication conservatively excludes risky, unknown and presenta
   for (const name of ["src/view.tsx", "src/auth.js", "README.md", "scripts/review-check.js"]) {
     const target = structuredClone(fixture.target);
     target.changed_files[0].path = name;
-    assert.equal(eligible(report, target), false, name);
+    assert.equal(eligible(report, target), true, name);
   }
   for (const patch of [
     { findings: [validFinding("bug")] },
@@ -431,12 +439,78 @@ test("structured publication conservatively excludes risky, unknown and presenta
     { unresolved_disagreements: ["dispute"] },
     { decisions: { path: "decision.json" } },
   ])
-    assert.equal(eligible({ ...report, ...patch }), false);
-  assert.equal(eligible(report, { ...fixture.target, lenses: [] }), false);
-  assert.equal(eligible(report, { ...fixture.target, review_round: 2 }), false);
-  const target = { ...fixture.target, dev_context: { security_review_required: false } };
-  assert.equal(eligible(report, target), false, "unknown canonical risk");
-  assert.equal(eligible(report, target, { task: { risk_tier: "high", risk: {} } }), false);
+    assert.equal(eligible({ ...report, ...patch }), true);
+  assert.equal(eligible(report, { ...fixture.target, review_round: 2 }), true);
+  const target = { ...fixture.target, dev_context: { security_review_required: true } };
+  assert.equal(eligible(report, target, { task: { risk_tier: "high", risk: {} } }), true);
+  assert.equal(eligible(report, { ...fixture.target, schema_version: 1 }), false);
+  assert.equal(eligible({ ...report, schema_version: 2 }), false);
+});
+
+test("broad security source Review publishes and gates without ambient browser evidence", () => {
+  const fixture = makeFixture({
+    maxWorkers: 4,
+    additionalPaths: [
+      "src/auth.js",
+      "src/parser.js",
+      "src/service.js",
+      "src/router.js",
+      "src/worker.js",
+    ],
+  });
+  const options = {
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    writeReport: true,
+    browserPath: "/unavailable/browser",
+  };
+  const published = checkReview(options);
+  assert.equal(published.ok, true, JSON.stringify(published.issues));
+  assert.equal(published.report.human_report, null);
+  assert.equal(fixture.target.changed_files.length, 6);
+  assert.ok(published.report.coverage.completed.includes("security"));
+  const { checkGateManifest } = require("../scripts/dev-gate-check");
+  const row = {
+    name: "review",
+    status: "passed",
+    commit: fixture.target.source.commit,
+    artifact: fixture.reportPath,
+    evidence_kind: "review-report-v1",
+    report_sha256: binding(fixture.root, fixture.reportPath).sha256,
+    lenses: published.report.coverage.completed,
+    reason: "",
+    checked_at: new Date().toISOString(),
+  };
+  const gate = () =>
+    checkGateManifest(
+      { schema_version: 1, gates: [row] },
+      {
+        currentCommit: fixture.target.source.commit,
+        requiredGates: ["review"],
+        artifactRoot: fixture.root,
+        manifestPath: "gates.json",
+      }
+    );
+  assert.equal(gate().ok, true, JSON.stringify(gate().issues));
+  const securityWorker = fixture.resultPaths.find((relative) =>
+    JSON.parse(fs.readFileSync(path.join(fixture.root, relative))).lenses.includes("security")
+  );
+  const bytes = fs.readFileSync(path.join(fixture.root, securityWorker));
+  fs.unlinkSync(path.join(fixture.root, securityWorker));
+  assert.equal(gate().ok, false, "security reviewer evidence remains mandatory");
+  fs.writeFileSync(path.join(fixture.root, securityWorker), bytes);
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  const failed = checkReview({ ...options, reportPath: fixture.roundReportPath });
+  assert.equal(failed.ok, true, JSON.stringify(failed.issues));
+  assert.equal(failed.report.outcome, "failed");
+  assert.ok(failed.report.blockers.length > 0);
+  assert.equal(
+    gate().ok,
+    false,
+    "a current consequential source finding cannot reuse the prior pass"
+  );
 });
 
 test("line range validation counts newline-dense buffers without materializing lines", () => {
@@ -3459,6 +3533,7 @@ function makeFixture({
   multiline = false,
   remote = "origin",
   includePluginConfig = true,
+  additionalPaths = [],
 }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
@@ -3497,6 +3572,10 @@ function makeFixture({
       },
     })
   );
+  for (const relative of additionalPaths) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), "module.exports = { value: 1 };\n");
+  }
   git(root, ["init", "-q", "-b", "main"]);
   git(root, ["config", "user.email", "test@example.com"]);
   git(root, ["config", "user.name", "Test"]);
@@ -3517,6 +3596,8 @@ function makeFixture({
         ? "const stable = true;\nmodule.exports = { value: 2, stable };\n"
         : "module.exports = { value: 2 };\n"
   );
+  for (const relative of additionalPaths)
+    fs.writeFileSync(path.join(root, relative), "module.exports = { value: 2 };\n");
   if (deleteFile) fs.rmSync(path.join(root, "src/deleted.js"));
   if (renameFile) {
     fs.renameSync(path.join(root, "src/old-name.js"), path.join(root, "src/renamed.js"));

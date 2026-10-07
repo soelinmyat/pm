@@ -770,7 +770,6 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
       )
         add(issues, `${runAt}.receipt_ids`, "passing runs require every receipt assertion to pass");
     }
-    validateScoreVerdict(run.verdict, run.health_score, runAt, issues);
     if (Object.hasOwn(run, "recovery")) {
       validateRecoveryDiagnosis(run, previous, report, runAt, issues);
     }
@@ -1663,7 +1662,6 @@ function canonicalValue(value) {
 function validateVerdict(report, issues, requirePassing) {
   const openCritical = openCount(report.findings, "critical");
   const openHigh = openCount(report.findings, "high");
-  validateScoreVerdict(report.verdict, report.health_score, "report", issues);
   if (["pass", "pass-with-concerns"].includes(report.verdict)) {
     if (openCritical > 0 || openHigh > 0) {
       add(issues, "report.verdict", "cannot pass with unresolved Critical or High findings");
@@ -1676,27 +1674,8 @@ function validateVerdict(report, issues, requirePassing) {
       add(issues, "report.assertions.passed", "a passing QA report must pass an assertion");
     }
   }
-  if (
-    report.verdict === "fail" &&
-    Number.isInteger(report.health_score) &&
-    report.health_score >= 60 &&
-    openCritical === 0 &&
-    openHigh === 0
-  ) {
-    add(issues, "report.verdict", "fail requires health below 60 or an unresolved Critical/High");
-  }
   if (requirePassing && !["pass", "pass-with-concerns"].includes(report.verdict)) {
     add(issues, "report.verdict", "must be pass or pass-with-concerns for QA gate evidence");
-  }
-}
-
-function validateScoreVerdict(verdict, score, at, issues) {
-  if (!Number.isInteger(score)) return;
-  if (verdict === "pass" && score < 80) {
-    add(issues, `${at}.verdict`, "pass requires health_score >= 80");
-  }
-  if (verdict === "pass-with-concerns" && (score < 60 || score >= 80)) {
-    add(issues, `${at}.verdict`, "pass-with-concerns requires health_score from 60 through 79");
   }
 }
 

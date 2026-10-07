@@ -8,11 +8,13 @@ Hashes bind the package's internal consistency and make post-production drift vi
 
 The default assurance level is `local-observation`. An optional future externally attested mode may bind the same package to a protected CI or other trusted service identity, but no external attestation is attempted by this contract.
 
+Canonical current JSON is sufficient for source Review, including high-risk or non-passing reviews and later rounds. Its complete source/lens/finding/decision chain remains mandatory. HTML is optional presentation; actual product UI keeps its separate QA/Design Critique obligations. Choosing HTML retains its structural and browser checks. A missing browser does not erase source findings or prevent canonical JSON publication.
+
 ## Browser compatibility and method context
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/browser-evidence-preflight.md` at target creation when HTML may be required and recheck it before collection. Current tool documentation and executor policy determine permitted methods; this evidence contract does not authorize a separate browser or CDP. Retain bounded session-local method context through supported evidence/dispatch inputs, reuse it for unchanged retries within existing authority, and refresh it when capabilities, policy, target or action scope change. Context is not approval and cannot override platform cross-thread authorization.
 
-CUA observations may supplement a narrative but do not replace the renderer's browser-computed metrics, marker observations and compact/full manifest. There is no trusted CUA producer for product-UI route schema v2; do not confuse that Design Critique capture contract with Review presentation or QA receipts. An unavailable collector blocks required presentation while retaining the source findings. Only the existing checker may select eligible structured publication or compact evidence; missing browser access never authorizes downgrade, hand-authored observations or producer impersonation.
+CUA observations may supplement a narrative but do not replace the renderer's browser-computed metrics, marker observations and compact/full manifest. There is no trusted CUA producer for product-UI route schema v2; do not confuse that Design Critique capture contract with Review presentation or QA receipts. An unavailable collector blocks required presentation while retaining the source findings. Only the existing checker may select compact HTML evidence; missing browser access never authorizes fabricated observations or producer impersonation. Structured source publication is independent of browser availability.
 
 ## Files
 
