@@ -37,6 +37,7 @@ const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-
 const {
   MAX_RECOVERY_ROUNDS,
   RECOVERY_POLICY,
+  recoveryRequiresAuthority,
   recoveryRequiresDecision,
   validateScopedRecovery,
 } = require("./lib/scoped-recovery");
@@ -2465,7 +2466,9 @@ function validateDesignRecovery(root, row, at, reviews, report, issues) {
       "must preserve every predecessor reviewer row exactly; no reset or rewritten failure history"
     );
   const previous = priorReviews.value.rounds?.at(-1);
-  if (Object.hasOwn(row, "recovery"))
+  const previousDecisionRequired =
+    prior.value.outcome === "deferred" || recoveryRequiresAuthority(previous?.recovery);
+  if (Object.hasOwn(row, "recovery") || previousDecisionRequired)
     issues.push(
       ...validateScopedRecovery(row.recovery, {
         path: `${at}.recovery`,
@@ -2475,10 +2478,14 @@ function validateDesignRecovery(root, row, at, reviews, report, issues) {
           ...(previous?.reviews || []).map((review) => review.review_id),
         ],
         previousRecovery: previous?.recovery,
-        previousDecisionRequired: prior.value.outcome === "deferred",
+        previousDecisionRequired,
       })
     );
-  if (recoveryRequiresDecision(row.recovery) && report.outcome !== "blocked")
+  if (
+    row.round === report.rounds &&
+    recoveryRequiresDecision(row.recovery) &&
+    report.outcome !== "blocked"
+  )
     add(
       issues,
       `${at}.recovery`,

@@ -5513,7 +5513,7 @@ test("offline verifier recomputes sparse native loading pixels and rejects chang
   }
 });
 
-test("third Design Critique round requires immutable failure history and grounded scoped recovery", (t) => {
+function thirdRecoveryDCFixture(t) {
   const fixture = makeFixture();
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
   configureResolvedPrimaryFinding(fixture);
@@ -5743,6 +5743,11 @@ test("third Design Critique round requires immutable failure history and grounde
     baseCommit: base,
   });
   assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
+  return { fixture, base, newCommit, after, git };
+}
+
+test("third Design Critique round requires immutable failure history and grounded scoped recovery", (t) => {
+  const { fixture, base, newCommit, after } = thirdRecoveryDCFixture(t);
   const savedBlockedReport = structuredClone(fixture.report),
     savedBlockedReviews = structuredClone(fixture.reviews);
   // The actual current report is a genuine unavailable dependency, not a failed
@@ -5832,6 +5837,320 @@ test("third Design Critique round requires immutable failure history and grounde
     "a fresh pass cannot attest the predecessor source commit"
   );
 });
+
+function freezeRecoveryDCRound(fixture, round) {
+  const captures = write(
+    fixture.root,
+    `history/round-${round}/captures.json`,
+    JSON.stringify(fixture.captures)
+  );
+  const reviewsValue = { ...fixture.reviews, captures };
+  const reviews = write(
+    fixture.root,
+    `history/round-${round}/reviews.json`,
+    JSON.stringify(reviewsValue)
+  );
+  const reportValue = {
+    ...fixture.report,
+    captures,
+    reviews,
+    human_report: { path: `history/round-${round}/report.html` },
+  };
+  const report = write(
+    fixture.root,
+    `history/round-${round}/report.json`,
+    JSON.stringify(reportValue)
+  );
+  write(
+    fixture.root,
+    reportValue.human_report.path,
+    htmlReport(report, captures, reviews, reviewsValue, reportValue)
+  );
+  return { report, reportValue, reviewsValue };
+}
+
+function recoveryDCFiles(root) {
+  const retained = new Map();
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(path.join(root, directory), { withFileTypes: true })) {
+      const relative = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) visit(relative);
+      else retained.set(relative, fs.readFileSync(path.join(root, relative)));
+    }
+  };
+  visit("evidence");
+  visit("history");
+  return retained;
+}
+
+function publishRecoveryDC(fixture) {
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.captures = fixture.reviews.captures;
+  rewrite(fixture.root, fixture.reviewsPath, fixture.reviews);
+  fixture.report.reviews = binding(fixture.root, fixture.reviewsPath);
+  rewrite(fixture.root, fixture.reportPath, fixture.report);
+  write(
+    fixture.root,
+    fixture.report.human_report.path,
+    htmlReport(
+      binding(fixture.root, fixture.reportPath),
+      fixture.report.captures,
+      fixture.report.reviews,
+      fixture.reviews,
+      fixture.report
+    )
+  );
+}
+
+function advanceFourthRecoveryDC(context, predecessor, retained) {
+  const { fixture, git, base } = context;
+  fs.writeFileSync(
+    path.join(fixture.root, "source.txt"),
+    "restored collector and scoped verification\n"
+  );
+  git(["add", "source.txt"]);
+  git(["commit", "-qm", "restored prerequisite and scoped recovery"]);
+  const commit = git(["rev-parse", "HEAD"]);
+  fixture.route.source.commit = commit;
+  fixture.route.source.diff_sha256 = digest(
+    execFileSync("git", ["diff", "--binary", `${base}...${commit}`], { cwd: fixture.root })
+  );
+  fixture.routePath = "evidence/round-4/route.json";
+  fixture.capturesPath = "evidence/round-4/captures.json";
+  fixture.reviewsPath = "evidence/round-4/reviews.json";
+  fixture.reportPath = "evidence/round-4/report.json";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.commit = commit;
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  let marker = 50;
+  for (const capture of fixture.captures.captures.filter((item) => item.active)) {
+    capture.active = false;
+    const bytes = validPng(capture.width, capture.height, marker++);
+    const fresh = {
+      ...capture,
+      ...write(fixture.root, `evidence/files/${capture.id}-r4.png`, bytes),
+      id: `${capture.id}-r4`,
+      round: 4,
+      active: true,
+      pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+      captured_at: "2026-07-12T01:45:00Z",
+    };
+    fixture.captures.captures.push(fresh);
+    fixture.captures.evidence.push(
+      auditEvidenceFile(
+        fixture.root,
+        `a11y-${fresh.id}`,
+        "accessibility-tree",
+        [fresh],
+        2,
+        "account-detail",
+        commit
+      ),
+      auditEvidenceFile(
+        fixture.root,
+        `dom-${fresh.id}`,
+        "dom-audit",
+        [fresh],
+        2,
+        "account-detail",
+        commit
+      )
+    );
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      fixture.captures.route,
+      fresh,
+      fixture.captures.evidence
+    );
+  }
+  fixture.report.commit = commit;
+  fixture.report.route = fixture.captures.route;
+  fixture.report.rounds = 4;
+  fixture.report.outcome = "passed";
+  fixture.report.reason = null;
+  fixture.report.top_issue = "No unresolved design issue.";
+  fixture.report.checked_at = "2026-07-12T02:10:00Z";
+  fixture.report.human_report = { path: "evidence/round-4/report.html" };
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      fixture.root,
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  const rebuilt = makeReviews(
+    fixture.root,
+    fixture.route,
+    fixture.captures,
+    fixture.report.scores,
+    4,
+    fixture.routePath
+  );
+  rebuilt.route = fixture.captures.route;
+  // makeReviews deliberately materializes all rounds; retained receipts and
+  // historical contexts must remain the original bytes, never be relabeled.
+  for (const [file, bytes] of retained) write(fixture.root, file, bytes);
+  rebuilt.rounds.splice(0, 3, ...structuredClone(predecessor.reviewsValue.rounds));
+  rebuilt.recovery_policy = "scoped-diagnosis-v1";
+  rebuilt.checked_at = "2026-07-12T02:05:00Z";
+  rebuilt.rounds[3].previous_report = predecessor.report;
+  rebuilt.rounds[3].recovery = {
+    classification: "product-defect",
+    observed: "The retained collector failure is restored.",
+    cause:
+      "The earlier independent collector was unavailable; current probes now return bound evidence.",
+    change: "Reacquire every current desktop and narrow state with the restored collector.",
+    next_check: "Check new source-bound probes and a fresh independent reviewer pair.",
+    evidence_ids: [predecessor.reportValue.findings[0].after_capture_id],
+    scope_assessment: "within-approved-scope",
+  };
+  const after = fixture.captures.captures.find(
+    (item) => item.active && item.coverage_id === "ui-primary"
+  );
+  const finding = {
+    ...predecessor.reportValue.findings[0],
+    after_capture_id: after.id,
+    evidence_ids: [predecessor.reportValue.findings[0].before_capture_id, after.id],
+  };
+  finding.id = findingId(finding);
+  fixture.report.findings = [finding];
+  fixture.report.reconciliation = predecessor.reportValue.reconciliation.map((row) => {
+    const next = { ...row, final_finding_id: finding.id, decision_evidence_ids: [after.id] };
+    next.id = reconciliationId(next);
+    return next;
+  });
+  const primary = rebuilt.rounds[3].reviews[0];
+  const sourceRef = predecessor.reportValue.reconciliation[0].source_finding_refs[0];
+  const sourceFinding = predecessor.reviewsValue.rounds[0].reviews[0].result.findings[0];
+  primary.input.prior_finding_refs = [sourceRef];
+  primary.input.prior_findings_source = write(
+    fixture.root,
+    "evidence/round-4/prior-findings.json",
+    JSON.stringify({
+      schema_version: 1,
+      run_id: fixture.route.run_id,
+      commit,
+      for_round: 4,
+      findings: [{ review_id: sourceRef.review_id, finding: sourceFinding }],
+      created_at: "2026-07-12T01:49:00Z",
+    })
+  );
+  const payload = { ...primary.input };
+  delete payload.payload_sha256;
+  primary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+  attachReviewReceipt(fixture.root, primary, 4);
+  fixture.reviews = rebuilt;
+  publishRecoveryDC(fixture);
+  return commit;
+}
+
+for (const classification of [
+  "external-dependency",
+  "scope-risk-change",
+  "product-decision",
+  "product-defect",
+]) {
+  test(`fourth Design Critique recovery preserves ${classification} continuity`, (t) => {
+    const context = thirdRecoveryDCFixture(t);
+    const { fixture, base, newCommit } = context;
+    fixture.report.outcome = "blocked";
+    fixture.report.reason = "The independent current prerequisite cannot yet be certified.";
+    fixture.report.top_issue = fixture.report.reason;
+    fixture.reviews.rounds[2].recovery.classification = classification;
+    fixture.reviews.rounds[2].recovery.scope_assessment = "decision-required";
+    rewriteReviewsAndReport(fixture);
+    const blocked = check(fixture, newCommit, {
+      verifyGit: true,
+      baseRef: "origin/main",
+      baseCommit: base,
+    });
+    assert.equal(blocked.ok, true, JSON.stringify(blocked.issues));
+    const predecessor = freezeRecoveryDCRound(fixture, 3);
+    let resumed;
+    if (classification === "external-dependency") {
+      const session = createSession({ slug: "example", sourceDir: fixture.root });
+      session.phase = "design-critique";
+      session.phase_attempt = 3;
+      session.routing.required_phases = ["design-critique", "review", "ship"];
+      const recorded = recordResult(
+        session,
+        dcRunnerResult(session, {
+          status: "blocked",
+          commit: newCommit,
+          evidence: [dcReportEvidence({ ...fixture, reportPath: predecessor.report.path })],
+          blocker: collectorBlocker(),
+        })
+      );
+      resumed = resumeBlocked(recorded, "Independent collector restored");
+      assert.equal(resumed.phase_attempt, 4);
+      assert.equal(resumed.evidence["design-critique"].recovery_history[0].round, 3);
+    }
+    const retained = recoveryDCFiles(fixture.root);
+    const commit = advanceFourthRecoveryDC(context, predecessor, retained);
+    const current = check(fixture, commit, {
+      verifyGit: true,
+      baseRef: "origin/main",
+      baseCommit: base,
+    });
+    if (classification === "external-dependency") {
+      assert.equal(current.ok, true, JSON.stringify(current.issues));
+      assert.equal(fixture.report.outcome, "passed");
+      // A checked blocked report can be resumed with the fresh fourth report.
+      const accepted = recordResult(
+        resumed,
+        dcRunnerResult(resumed, {
+          status: "passed",
+          commit,
+          evidence: [dcReportEvidence(fixture)],
+          blocker: null,
+        })
+      );
+      assert.deepEqual(
+        accepted.evidence["design-critique"].recovery_history.map((anchor) => [
+          anchor.round,
+          anchor.outcome,
+        ]),
+        [
+          [3, "blocked"],
+          [4, "passed"],
+        ]
+      );
+    } else {
+      assert.equal(
+        current.ok,
+        false,
+        "fresh captures cannot erase an unresolved product or explicit risk decision"
+      );
+      assert.match(JSON.stringify(current.issues), /decision|scope|authority/i);
+      fixture.reviews.rounds[3].recovery.classification = "external-dependency";
+      fixture.reviews.rounds[3].recovery.scope_assessment = "decision-required";
+      fixture.report.outcome = "blocked";
+      fixture.report.reason = "A decision is still unresolved.";
+      fixture.report.top_issue = fixture.report.reason;
+      publishRecoveryDC(fixture);
+      const laundered = check(fixture, commit, {
+        verifyGit: true,
+        baseRef: "origin/main",
+        baseCommit: base,
+      });
+      assert.equal(
+        laundered.ok,
+        false,
+        "risk authority cannot be laundered into a restorable dependency"
+      );
+    }
+    for (const [file, bytes] of retained)
+      assert.deepEqual(
+        fs.readFileSync(path.join(fixture.root, file)),
+        bytes,
+        "historical rows, receipts and reports stay immutable"
+      );
+  });
+}
 
 const {
   createSession,

@@ -21,6 +21,7 @@ const { loadDevSession } = require("./lib/dev-session-location");
 const {
   MAX_RECOVERY_ROUNDS,
   RECOVERY_POLICY,
+  recoveryRequiresAuthority,
   validateScopedRecovery,
 } = require("./lib/scoped-recovery");
 // Shared with the freshness evaluator so environment hardening cannot drift
@@ -80,21 +81,27 @@ function buildReviewTarget(options) {
   const recovery = recoveryLoaded ? JSON.parse(recoveryLoaded.bytes.toString("utf8")) : undefined;
   if (round > 3 && !recovery)
     throw new Error("recovery diagnosis is required beyond three Review rounds");
+  const priorTarget = priorLoaded?.value?.target
+    ? optionalJsonFileBinding(root, priorLoaded.value.target.path, "prior target")
+    : null;
+  if (priorTarget && priorTarget.binding.sha256 !== priorLoaded.value.target.sha256)
+    throw new Error("prior target bytes changed");
+  const previousDecisionRequired =
+    recoveryRequiresAuthority(priorTarget?.value?.recovery) ||
+    (priorLoaded?.value?.unresolved_disagreements || []).length > 0 ||
+    (priorLoaded?.value?.findings || []).some(
+      (finding) => finding.decision_required || finding.disputed
+    );
+  if (previousDecisionRequired && recovery === undefined)
+    throw new Error(
+      "unresolved predecessor decision authority requires a retained recovery diagnosis; use the trusted product-decision boundary rather than omitting the decision"
+    );
   if (recovery !== undefined) {
     if (!priorLoaded) throw new Error("recovery diagnosis requires a retained predecessor report");
-    const priorTarget = priorLoaded.value?.target
-      ? optionalJsonFileBinding(root, priorLoaded.value.target.path, "prior target")
-      : null;
-    if (priorTarget && priorTarget.binding.sha256 !== priorLoaded.value.target.sha256)
-      throw new Error("prior target bytes changed");
     const issues = validateScopedRecovery(recovery, {
       evidenceIds: (priorLoaded.value?.findings || []).map((finding) => finding.id),
       previousRecovery: priorTarget?.value?.recovery,
-      previousDecisionRequired:
-        (priorLoaded.value?.unresolved_disagreements || []).length > 0 ||
-        (priorLoaded.value?.findings || []).some(
-          (finding) => finding.decision_required || finding.disputed
-        ),
+      previousDecisionRequired,
     });
     if (issues.length)
       throw new Error(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
