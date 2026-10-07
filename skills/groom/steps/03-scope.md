@@ -16,10 +16,12 @@ Lock the smallest coherent outcome with explicit inclusions, exclusions, assumpt
 
 Read and follow `references/scope-validation.md`. Apply the 10x/table-stakes/gap-fill/parity decision, impact/effort check, strategy constraints, and existing feature/code overlap. Split independent outcomes. Every non-goal includes a reason, and every material scope item points to evidence or an assumption.
 
+Include the reference's closed `value_decision` object in the retained Scope artifact: beneficiary, buyer (including explicit unknown), user outcome, commercial hypothesis, counterevidence, uncertainty, build/test-first/defer recommendation, and smallest discriminating test with its reversal condition. Bind all citations to the proposal's existing evidence/assumption rows; commercial inferences cite an assumption. Carry this object into `decision_brief.value_decision` during proposal synthesis without changing ranking or introducing a second approval gate.
+
 Ask for confirmation only when competing scope choices would materially change the proposal. Record the chosen scope as structured phase output.
 
 ## Done-when
 
-In-scope items form one outcome, non-goals bound adjacent work, dependencies and assumptions are explicit, and the user has resolved material scope ambiguity.
+In-scope items form one outcome, non-goals bound adjacent work, dependencies and assumptions are explicit, the value recommendation preserves uncertainty and contrary evidence, and the user has resolved material scope ambiguity.
 
 **Advance:** if tier is `quick`, proceed to Step 5 (Design); otherwise proceed to Step 4 (Synthesis).
