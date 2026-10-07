@@ -774,64 +774,6 @@ function extendOwnedPopupFocus(axTree, byBackendId, axById, focusedAncestors, co
     }
   }
 
-  // A popup may itself contain the next controller. Cache physical popup
-  // ancestry so nested ownership remains linear, and reject ownership cycles
-  // before they can add focus to a modal encountered along that cycle.
-  const nearestPopup = new Map();
-  const popupParent = (owner) => {
-    const path = [],
-      seen = new Set();
-    let current = axById.get(owner.parentId),
-      result = null;
-    while (current && !seen.has(current.nodeId)) {
-      seen.add(current.nodeId);
-      if (nearestPopup.has(current.nodeId)) {
-        result = nearestPopup.get(current.nodeId);
-        break;
-      }
-      if (popupRoles.has(String(valueOf(current.role) || "").toLowerCase())) {
-        result = axProperties(current).get("modal") === true ? null : current;
-        break;
-      }
-      path.push(current.nodeId);
-      current = axById.get(current.parentId);
-    }
-    for (const id of path) nearestPopup.set(id, result);
-    return result;
-  };
-  const checked = new Set(),
-    cyclic = new Set();
-  for (const id of owners.keys()) {
-    const path = [],
-      seen = new Set();
-    let current = id;
-    while (owners.get(current) && !checked.has(current) && !seen.has(current)) {
-      path.push(current);
-      seen.add(current);
-      current = popupParent(owners.get(current))?.backendDOMNodeId;
-    }
-    const unsafe = seen.has(current) || cyclic.has(current);
-    for (const item of path) {
-      checked.add(item);
-      if (unsafe) cyclic.add(item);
-    }
-  }
-
-  const queue = [...focusedAncestors];
-  for (let index = 0; index < queue.length; index += 1) {
-    const popup = axById.get(queue[index]);
-    const owner = cyclic.has(popup?.backendDOMNodeId) ? null : owners.get(popup?.backendDOMNodeId);
-    for (
-      let current = owner;
-      current && !focusedAncestors.has(current.nodeId);
-      current = axById.get(current.parentId)
-    ) {
-      focusedAncestors.add(current.nodeId);
-      queue.push(current.nodeId);
-    }
-  }
-  // Other expanded popups owned by the same modal are foreground too, even
-  // when focus is in a sibling popup. Retain their modal membership for DOM QA.
   const physicalModals = new Map();
   const physicalModal = (owner) => {
     const path = [],
@@ -857,6 +799,97 @@ function extendOwnedPopupFocus(axTree, byBackendId, axById, focusedAncestors, co
     for (const id of path) physicalModals.set(id, result);
     return result;
   };
+  // Physical ancestry and controls ownership form one graph. Include both
+  // edges so unowned wrappers and modal boundaries cannot hide a cycle.
+  const nearestPopup = new Map();
+  const popupParent = (node) => {
+    const path = [],
+      seen = new Set();
+    let current = axById.get(node.parentId),
+      result = null;
+    while (current && !seen.has(current.nodeId)) {
+      seen.add(current.nodeId);
+      if (nearestPopup.has(current.nodeId)) {
+        result = nearestPopup.get(current.nodeId);
+        break;
+      }
+      if (owners.get(current.backendDOMNodeId)) {
+        result = current;
+        break;
+      }
+      path.push(current.nodeId);
+      current = axById.get(current.parentId);
+    }
+    for (const id of path) nearestPopup.set(id, result);
+    return result;
+  };
+  const graph = new Map();
+  for (const [id, owner] of owners) {
+    graph.set(
+      id,
+      owner
+        ? [
+            ...new Set(
+              [
+                popupParent(owner)?.backendDOMNodeId,
+                popupParent(axByBackendId.get(id))?.backendDOMNodeId,
+              ].filter((parent) => owners.get(parent))
+            ),
+          ]
+        : []
+    );
+  }
+  const checked = new Set(),
+    cyclic = new Set(),
+    visiting = new Set();
+  for (const id of owners.keys()) {
+    if (checked.has(id)) continue;
+    const stack = [{ id, next: 0, unsafe: false }];
+    visiting.add(id);
+    while (stack.length) {
+      const frame = stack[stack.length - 1],
+        parents = graph.get(frame.id);
+      if (frame.next < parents.length) {
+        const parent = parents[frame.next++];
+        if (visiting.has(parent) || cyclic.has(parent)) frame.unsafe = true;
+        else if (!checked.has(parent)) {
+          visiting.add(parent);
+          stack.push({ id: parent, next: 0, unsafe: false });
+        }
+      } else {
+        stack.pop();
+        visiting.delete(frame.id);
+        checked.add(frame.id);
+        if (frame.unsafe) {
+          cyclic.add(frame.id);
+          if (stack.length) stack[stack.length - 1].unsafe = true;
+        }
+      }
+    }
+  }
+
+  const focusedModal = [...focusedAncestors]
+    .map((id) => axById.get(id))
+    .find((node) => physicalModal(node) === node?.backendDOMNodeId);
+  const queue = [...focusedAncestors].filter(
+    (id) => !focusedModal || physicalModal(axById.get(id)) === focusedModal.backendDOMNodeId
+  );
+  for (let index = 0; index < queue.length; index += 1) {
+    const popup = axById.get(queue[index]);
+    const owner = cyclic.has(popup?.backendDOMNodeId) ? null : owners.get(popup?.backendDOMNodeId);
+    if (focusedModal && physicalModal(owner) !== focusedModal.backendDOMNodeId) continue;
+    for (
+      let current = owner;
+      current && !focusedAncestors.has(current.nodeId);
+      current = axById.get(current.parentId)
+    ) {
+      focusedAncestors.add(current.nodeId);
+      queue.push(current.nodeId);
+      if (physicalModal(current) === current.backendDOMNodeId) break;
+    }
+  }
+  // Other expanded popups owned by the same modal are foreground too, even
+  // when focus is in a sibling popup. Retain their modal membership for DOM QA.
   const popupModals = new Map();
   for (const id of owners.keys()) {
     const path = [];

@@ -3905,3 +3905,71 @@ for (const variant of [
     }
   });
 }
+
+for (const variant of ["unowned-wrapper-cycle", "modal-ancestor-cycle", "nested-modal-boundary"]) {
+  test(`browser native popup ownership boundary: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const controller = (id, target) =>
+      `<button id="${id}" aria-label="Choose assets" role="combobox" aria-haspopup="dialog" aria-expanded="true" aria-controls="${target}">Choose assets</button>`;
+    html = html.replace(
+      '<main id="account"',
+      '<main aria-hidden="true"><p>Background</p></main><div role="dialog" aria-modal="true" aria-label="Assign assets" id="account"'
+    );
+    html = html.replace("<header><h1>", "<div><h1>").replace("</h1></header>", "</h1></div>");
+    html = html.replace(
+      "<button>Save changes</button>",
+      `<button>Save changes</button>${variant === "nested-modal-boundary" ? controller("assets-owner", "assets-popup") : variant === "unowned-wrapper-cycle" ? `<div role="dialog" aria-label="Picker details" id="middle-popup">${controller("middle-owner", "assets-popup")}</div>` : ""}`
+    );
+    const popupContents =
+      variant === "unowned-wrapper-cycle"
+        ? `<input aria-label="Search assets" id="popup-search"><div role="dialog" aria-label="Unowned wrapper">${controller("cycle-owner", "middle-popup")}</div>`
+        : variant === "modal-ancestor-cycle"
+          ? `<input aria-label="Search assets" id="popup-search"><div role="dialog" aria-modal="true" aria-label="Separate modal">${controller("cycle-owner", "assets-popup")}</div>`
+          : `<h3 style="font-size:13px">Outside warning</h3><p style="font-size:36px">64.4%</p><div role="dialog" aria-modal="true" aria-label="Separate modal"><h2>Confirm assets</h2><input aria-label="Confirmation" id="popup-search"></div>`;
+    const ending = html.lastIndexOf("</main>");
+    html =
+      html.slice(0, ending) +
+      `</div><div role="dialog" aria-label="Assets" id="assets-popup" style="position:fixed;left:650px;top:300px;width:300px;padding:12px;background:white;z-index:3">${popupContents}</div><script>document.getElementById("popup-search").focus()</script>` +
+      html.slice(ending + 7);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      const observed = result.accessibility_observations;
+      const active = observed.dialogs
+        .filter((item) => item.modal && item.contains_focus)
+        .map((item) => item.name);
+      assert.deepEqual(
+        active,
+        variant === "nested-modal-boundary" ? ["Separate modal"] : [],
+        JSON.stringify(observed.dialogs)
+      );
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["popup-boundary"],
+          observations: observed,
+        },
+        { path: "raw.json", sha256: "a".repeat(64) }
+      );
+      assert.equal(
+        audit.checks.landmarks,
+        variant === "nested-modal-boundary",
+        JSON.stringify(audit)
+      );
+      if (variant === "nested-modal-boundary")
+        assert.equal(
+          result.dom_observations.hierarchy.some(
+            (item) => item.code === "body-exceeds-heading" && item.locator === "h3"
+          ),
+          false,
+          JSON.stringify(result.dom_observations.hierarchy)
+        );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
