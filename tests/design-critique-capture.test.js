@@ -1993,6 +1993,18 @@ function remountingComboboxControls(variant) {
   return `<section id="combobox-shell" role="dialog" aria-label="Unit editor" tabindex="-1"><label for="prior-input">Name</label><input id="prior-input"><label for="unit-input">Unit</label><input id="unit-input" role="combobox" aria-expanded="true" aria-controls="unit-options"><div id="popup-host">${markup(false)}</div><button type="button">Done</button></section><script>{const input=document.querySelector("#unit-input");const host=document.querySelector("#popup-host");document.querySelector("#prior-input").addEventListener("focus",()=>document.querySelector("#combobox-shell").focus());input.addEventListener("blur",()=>{host.innerHTML="";input.removeAttribute("aria-activedescendant");input.setAttribute("aria-expanded","false")});input.addEventListener("focus",()=>{if(!host.firstChild)host.innerHTML=${JSON.stringify(markup(variant === "changed"))};input.setAttribute("aria-expanded","true")});${variant === "broken" ? "" : `input.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const options=[...host.querySelectorAll("[role=option]")];const current=options.findIndex(option=>option.id===input.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;input.setAttribute("aria-activedescendant",options[next].id)})`};input.focus();}</script>`;
 }
 
+// A deeper, later tablist remounts the combobox before its retry probe.
+// Re-entering the input then remounts only its popup a second time.
+function replacedRemountingComboboxControls(variant) {
+  const fixture = remountingComboboxControls(variant);
+  const at = fixture.indexOf("<script>{");
+  const markup = fixture.slice(0, at);
+  const handlers = fixture
+    .slice(at + "<script>{".length, -"}</script>".length)
+    .replace("input.focus();", "");
+  return `<section aria-label="Replacement example"><div id="unit-panel">${markup}</div><div><div><div><div id="replacement-tabs" role="tablist" aria-label="Views"><button id="replace-a" type="button" role="tab" aria-selected="true" tabindex="0">View A</button><button id="replace-b" type="button" role="tab" aria-selected="false" tabindex="-1">View B</button></div></div></div></div></section><script>{const panel=document.querySelector("#unit-panel");const mount=()=>{panel.innerHTML=${JSON.stringify(markup)};{${handlers}}};const tabs=[...document.querySelectorAll("#replacement-tabs>[role=tab]")];const select=tab=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute("aria-selected",String(item===tab))});tab.focus();mount()};mount();document.querySelector("#unit-input").focus();tabs.forEach(tab=>tab.addEventListener("click",()=>select(tab)));document.querySelector("#replacement-tabs").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=tabs[tabs.indexOf(document.activeElement)+direction];if(next)select(next)})}</script>`;
+}
+
 // Named focusability fixtures other than the disclosure variants.
 const FOCUSABILITY_VARIANTS = {
   "remounted-tab-stop": remountedTabStopControls,
@@ -2011,6 +2023,8 @@ const FOCUSABILITY_VARIANTS = {
 // generic focus examples.
 function focusabilityControlsMarkup(name) {
   if (!name) return "";
+  if (name.startsWith("replaced-combobox-"))
+    return replacedRemountingComboboxControls(name.slice("replaced-combobox-".length));
   if (name.startsWith("remounting-combobox-"))
     return remountingComboboxControls(name.slice("remounting-combobox-".length));
   if (name.startsWith("controlled-combobox-"))
@@ -3745,6 +3759,23 @@ for (const variant of ["working", "broken", "changed"]) {
     const fixture = createBrowserFixture({
       focusabilityControls: `remounting-combobox-${variant}`,
     });
+    try {
+      const result = runBrowserCapture(fixture);
+      const options = result.accessibility_observations.controls.filter(
+        (item) => item.role === "option"
+      );
+      assert.equal(options.length, 3);
+      for (const option of options)
+        assert.equal(option.focus_context, variant === "working" ? "composite" : "document");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["working", "broken", "changed"]) {
+  test(`browser twice remounted combobox evidence: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture({ focusabilityControls: `replaced-combobox-${variant}` });
     try {
       const result = runBrowserCapture(fixture);
       const options = result.accessibility_observations.controls.filter(

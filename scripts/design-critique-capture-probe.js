@@ -2478,9 +2478,10 @@ function candidateNodeIds(candidate) {
 // place with the same accessible role and name. Observed members still
 // certify the frozen control rows through frozen_by_live.
 async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
+  const originalId = (id) => candidate.frozen_by_live?.get(id) ?? id;
   const live = new Map();
   for (const id of candidateNodeIds(candidate)) {
-    const path = frozenNode(id)?.path;
+    const path = frozenNode(originalId(id))?.path;
     const replacement = path ? resolve(path) : null;
     if (replacement !== null) live.set(id, replacement);
   }
@@ -2493,7 +2494,7 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     return null;
   const identities = await Promise.all(
     [candidate.owner_backend_node_id, ...candidate.member_backend_node_ids].map(async (id) => {
-      const identity = frozenNode(id).identity;
+      const identity = frozenNode(originalId(id)).identity;
       return Boolean(identity) && axIdentity(await liveAxNode(client, live.get(id))) === identity;
     })
   );
@@ -2513,7 +2514,7 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     selected_backend_node_ids: map(candidate.selected_backend_node_ids ?? []),
     entry_backend_node_ids: map(candidate.entry_backend_node_ids),
     entry_probes: entryProbes,
-    frozen_by_live: new Map([...live].map(([frozen, current]) => [current, frozen])),
+    frozen_by_live: new Map([...live].map(([prior, current]) => [current, originalId(prior)])),
   };
 }
 
