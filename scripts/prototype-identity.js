@@ -25,6 +25,7 @@ function usage() {
     "",
     "Builds a deterministic bounded prototype identity for design_context.prototype.",
     "Single-file prototypes bind that file. Multi-file index.html prototypes bind the complete tree.",
+    "Runnable in-app previews use scripts/app-preview.js and design_context.app_preview instead.",
   ].join("\n");
 }
 
