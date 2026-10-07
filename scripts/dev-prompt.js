@@ -132,6 +132,12 @@ function implementationDesignInputs(input) {
         "```",
       ]
     : [];
+  if (input.phase === "implementation" && input.design_context?.app_preview) {
+    parts.push(
+      "",
+      "Reviewed in-app starting code: verify the complete app_preview identity with the explicitly supplied consumer source root, then use scripts/app-preview.js adopt into a clean isolated Dev worktree at source.base_commit. Preserve reviewed_starting_code as the implementation starting point; inspect and justify any later departure against the accepted behavior. The adoption command applies only the reviewed committed UI delta, leaves it staged for engineering, and excludes the separate fixtures.directory. Integrate production data separately, remove or guard preview fixture selectors, and prove real backend behavior through routed QA. Workflow-attested mocked journeys and structurally valid hashes do not certify backend correctness or product judgment."
+    );
+  }
   if (input.phase === "implementation" && (input.ui_impact || input.design_context?.ui_impact)) {
     parts.push(
       "",

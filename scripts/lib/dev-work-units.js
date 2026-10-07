@@ -8,6 +8,7 @@ const { GIT_DIFF_TRUST_CONFIG, gitExec } = require("./git-env");
 const { isGitObjectId } = require("./git-object-id");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
+const { validateAppPreviewIdentity, verifyAppPreviewIdentity } = require("./app-preview");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -42,6 +43,7 @@ const DESIGN_CONTEXT_FIELDS = new Set([
   "design_requirements",
   "ui_impact",
   "prototype",
+  "app_preview",
   "critical_states",
   "experience_invariants",
   "visual_invariants",
@@ -347,6 +349,7 @@ function validateWorkUnitContract(contract, unitId, options = {}) {
   }
   if (contract.design_context !== undefined) {
     validateDesignContext(contract.design_context, `work unit ${unitId} contract design_context`, {
+      ...options,
       repoRoot: options.repoRoot,
       requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
       requireExperienceClassification: options.requireExperienceClassification,
@@ -409,6 +412,13 @@ function validateDesignContext(context, label = "design_context", options = {}) 
     }
   }
   const prototype = context.prototype;
+  if (context.app_preview !== undefined) {
+    if (context.ui_impact !== true || prototype !== null) {
+      throw new Error(`${label}.app_preview requires ui_impact true and prototype null`);
+    }
+    validateAppPreviewIdentity(context.app_preview, `${label}.app_preview`);
+    if (options.repoRoot) verifyAppPreviewIdentity(context.app_preview, options);
+  }
   if (prototype === null) return context;
   if (!isObject(prototype)) throw new TypeError(`${label}.prototype must be null or an object`);
   for (const field of Object.keys(prototype)) {

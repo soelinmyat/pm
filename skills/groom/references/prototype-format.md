@@ -8,6 +8,82 @@ For shared base styles and the starter template, see:
 
 > **Legacy.** Wireframes created before this spec (most files in `{pm_dir}/backlog/wireframes/` predating it) may use older patterns. Keep them inspection-readable. A legacy prototype that loads unbound files must be recertified into the current single-file or tree-bound form before a new RFC/Dev handoff; do not silently rewrite it during inspection.
 
+## Runnable in-app preview
+
+Use this mode when consequential navigation, interaction, whole-page composition or realistic content growth needs to be experienced before product approval. Reuse the consumer app's actual components, shell and entry path in an isolated linked consumer Git worktree. A separate HTML recreation cannot establish how an incremental capability feels in that app. An established pattern with no consequential interaction ambiguity may use the inert document mode below; explain the bounded choice in the existing design requirements. A nonvisual change needs experience invariants, not an invented preview.
+
+Keep the modes distinct: `design_context.prototype` retains its exact inert file/tree behavior. An in-app preview sets `prototype: null`, `ui_impact: true` and adds the complete `app_preview` identity. Never put active application scripts into an inert prototype to get around its validator.
+
+Create realistic synthetic data in a separate **untracked or ignored fixture directory**, selected explicitly through `PM_PREVIEW_FIXTURES`. Do not copy private exports or wire preview code to real services. Commit the proposed UI source in the isolated worktree first. Preserve its exact incumbent base commit and list every committed changed path as reviewed starting code, including removals. Keep fixture files out of the committed source delta. Real components and executable interactions still require personal visual/product judgment; a mocked preview does not certify backend behavior.
+
+Use the producer before capturing evidence:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/app-preview.js" prepare \
+  --config .pm/preview-config.json --source-root /explicit/isolated/app-worktree \
+  --repo-root /explicit/artifact-repository > .pm/preview-candidate.json
+```
+
+The config names portable paths and a logical repository ID, never a stored machine path:
+
+```json
+{
+  "repository": "example-app",
+  "base_commit": "EXACT_FULL_GIT_SHA",
+  "reviewed_paths": ["src/work-order.js"],
+  "fixture_directory": ".pm/preview-fixtures",
+  "launch": {
+    "executable": "npm",
+    "args": ["run", "preview", "--", "--host", "127.0.0.1"],
+    "cwd": ".",
+    "url": "http://127.0.0.1:4311/work-orders",
+    "env": { "PM_PREVIEW_FIXTURES": ".pm/preview-fixtures" }
+  },
+  "journeys": [{
+    "id": "save-return",
+    "purpose": "Enter normally, perform the accepted action, leave/return and inspect long content",
+    "required_states": ["entry", "saved", "returned", "long-content"]
+  }]
+}
+```
+
+The producer checks the isolated clean Git source, base/head/tree, all changed source paths, bounded fixture manifest, structured launch recipe and required journeys. It returns a fresh capture UUID, start time and exact input hash. It **never executes the launch recipe**. Inspect the source and package script, then launch through the host's permitted app/runtime tools with the supplied fixture environment. The supported recipe uses `node ENTRY` or `npm|pnpm|yarn|bun run SCRIPT`, a source-relative working directory and a loopback HTTP URL; shell text is refused.
+
+Exercise declared journeys through normal navigation, primary action, leave/return and consequential alternate/content states. Retain screenshots and/or executable state evidence under the artifact repository. Create a JSON receipt containing the exact capture ID/input hash, observation time, named observer, `backend_certified: false`, executed steps and every required state's evidence path. The completion input contains those same fields plus `receipt`, a repo-relative path to the receipt bytes:
+
+```json
+{
+  "receipt": ".pm/preview-evidence/capture.json",
+  "capture_id": "UUID_FROM_CANDIDATE",
+  "input_sha256": "sha256:HASH_FROM_CANDIDATE",
+  "recorded_at": "2026-10-07T10:00:00Z",
+  "observer": "browser observation",
+  "backend_certified": false,
+  "journeys": [{
+    "id": "save-return",
+    "steps": ["Enter through app navigation", "Save", "Leave and return", "Inspect long content"],
+    "states": [
+      { "id": "entry", "evidence": ".pm/preview-evidence/entry.png" },
+      { "id": "saved", "evidence": ".pm/preview-evidence/saved.png" },
+      { "id": "returned", "evidence": ".pm/preview-evidence/returned.png" },
+      { "id": "long-content", "evidence": ".pm/preview-evidence/long.png" }
+    ]
+  }]
+}
+```
+
+Save the receipt without its `receipt` field; completion checks it against the semantic attestation and hashes all retained evidence. Do not reuse a prior capture after changing source, fixtures, launch or declared states. Missing/stale/replayed observations cannot complete a new candidate.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/app-preview.js" complete \
+  --candidate .pm/preview-candidate.json --observations .pm/preview-observations.json \
+  --source-root /explicit/isolated/app-worktree --repo-root /explicit/artifact-repository
+```
+
+Copy the complete result unchanged into `design_context.app_preview`. Pass it through the existing proposal → RFC → Dev design-context handoff. Validators recheck retained source and artifact bytes; separate source/artifact repositories require an explicitly supplied `previewSourceRoot` or keyed `previewSourceRoots` execution-context mapping. They never locate a consumer using an identity's arbitrary absolute path. Preserve pinned source commits and evidence until adoption; this identity is not a self-contained source bundle.
+
+After product acceptance, `app-preview.js adopt --identity FILE --source-root WORKTREE --repo-root ARTIFACT_ROOT --target-root DEV_WORKTREE` verifies the identity and an exact clean isolated target at the base commit, checks the patch, then stages **only reviewed committed UI code**. Fixture bytes stay separate. RFC/Dev adopt this reviewed starting code, integrate production data deliberately, guard or remove preview fixture selection, and test real backend contracts. Departures from accepted behavior need the existing product/risk decision rules. Workflow-attested observations and structural hashes do not certify the observer's judgment, pixel quality or production integration.
+
 ---
 
 ## 1. File organization
