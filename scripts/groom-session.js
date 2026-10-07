@@ -75,6 +75,7 @@ function initCommand(options) {
       slug: options.slug,
       sourceDir: path.resolve(options.sourceDir),
       tier: options.tier,
+      previewSourceRoot: options.previewSourceRoot,
       ...resolveGroomProfile(options),
     });
   } catch (error) {
@@ -155,7 +156,12 @@ function approveCommand(options) {
   if (process.env.PM_LOOP_WORKER === "1")
     throw cliError("loop workers cannot approve Groom proposals", EXIT.PRECONDITION);
   return mutateSession(options, (session) =>
-    approveSession(session, { approvedBy: options.approvedBy })
+    approveSession(session, {
+      approvedBy: options.approvedBy,
+      ...(options.delegateContentSha256 !== undefined
+        ? { delegateContentSha256: options.delegateContentSha256 }
+        : {}),
+    })
   );
 }
 

@@ -1626,7 +1626,10 @@ function proposalApprovalSnapshotHash(proposal) {
   return proposalBytesHash(Buffer.from(canonicalStringify(snapshot)));
 }
 
-function deriveApprovalDecision(proposal, { approvedBy, approvedAt } = {}) {
+function deriveApprovalDecision(
+  proposal,
+  { approvedBy, approvedAt, deliveryDelegation = null } = {}
+) {
   if (!isObject(proposal?.review_contract) || !isString(proposal.review_contract.session_id)) {
     throw new Error("canonical approval decision requires a bound proposal review session");
   }
@@ -1648,6 +1651,7 @@ function deriveApprovalDecision(proposal, { approvedBy, approvedAt } = {}) {
     review_completed_at: proposal.review?.completed_at ?? null,
     approved_by: approvedBy.trim(),
     approved_at: approvedAt,
+    ...(deliveryDelegation ? { delivery_delegation_sha256: deliveryDelegation.grant_sha256 } : {}),
   };
   return Object.freeze({
     id: decisionId,
@@ -1734,7 +1738,8 @@ function validateRevisionTransition(previous, next) {
 function validateApproval(proposal, approval, options = {}) {
   const issues = [];
   const at = options.path || "$approval";
-  if (!closed(approval, APPROVAL_FIELDS, at, issues)) return { ok: false, issues };
+  if (!closed(approval, [...APPROVAL_FIELDS, "delivery_delegation"], at, issues))
+    return { ok: false, issues };
   if (!isObject(proposal)) {
     issues.push(issue("$proposal", "approval verification requires a valid proposal object"));
     return { ok: false, issues };
@@ -1799,6 +1804,7 @@ function validateApproval(proposal, approval, options = {}) {
       const canonicalDecision = deriveApprovalDecision(proposal, {
         approvedBy: approval.approved_by,
         approvedAt: approval.approved_at,
+        deliveryDelegation: approval.delivery_delegation || null,
       });
       if (approval.decision_id !== canonicalDecision.id) {
         issues.push(
@@ -1823,6 +1829,13 @@ function validateApproval(proposal, approval, options = {}) {
     if (approval.decision_sha256 !== options.expectedDecision.sha256)
       issues.push(issue(`${at}.decision_sha256`, "does not match the session approval decision"));
   }
+  if (approval.delivery_delegation !== undefined) {
+    try {
+      assertDeliveryDelegation(approval.delivery_delegation, { proposal, approval });
+    } catch (error) {
+      issues.push(issue(`${at}.delivery_delegation`, error.message));
+    }
+  }
   if (options.bytes === undefined)
     issues.push(
       issue(`${at}.proposal_sha256`, "exact proposal bytes are required to verify approval")
@@ -1842,7 +1855,13 @@ function validateApproval(proposal, approval, options = {}) {
 function buildApproval(
   proposal,
   bytes,
-  { approvedBy, approvedAt, decisionId = null, decisionSha256 = null } = {}
+  {
+    approvedBy,
+    approvedAt,
+    decisionId = null,
+    decisionSha256 = null,
+    deliveryDelegation = null,
+  } = {}
 ) {
   const proposalResult = validateProposal(proposal);
   if (!proposalResult.ok)
@@ -1864,11 +1883,20 @@ function buildApproval(
   if (decisionSha256 !== null && !SHA256.test(decisionSha256))
     throw new Error("decisionSha256 must be a sha256 hash");
   if (isObject(proposal.review_contract)) {
-    const canonicalDecision = deriveApprovalDecision(proposal, { approvedBy, approvedAt });
+    const canonicalDecision = deriveApprovalDecision(proposal, {
+      approvedBy,
+      approvedAt,
+      deliveryDelegation,
+    });
     if (decisionId !== canonicalDecision.id || decisionSha256 !== canonicalDecision.sha256) {
       throw new Error("current proposal approval must use the canonical Groom approval decision");
     }
   }
+  if (deliveryDelegation)
+    assertDeliveryDelegation(deliveryDelegation, {
+      proposal,
+      approval: { approved_by: approvedBy, approved_at: approvedAt },
+    });
   return {
     schema_version: 1,
     kind: "proposal-approval",
@@ -1881,6 +1909,7 @@ function buildApproval(
     approved_at: approvedAt,
     decision_id: decisionId,
     decision_sha256: decisionSha256,
+    ...(deliveryDelegation ? { delivery_delegation: structuredClone(deliveryDelegation) } : {}),
   };
 }
 
@@ -1953,6 +1982,9 @@ function readApprovedProposal(filePath, options = {}) {
         .map((entry) => `${entry.path} ${entry.message}`)
         .join("; ")}`
     );
+  if (approvalSource.approval.delivery_delegation) {
+    verifyDeliveryDelegationSession(source.proposal, approvalSource.approval);
+  }
   return Object.freeze({
     kind: "approved-canonical-json",
     trustedApproval: true,
@@ -1965,6 +1997,170 @@ function readApprovedProposal(filePath, options = {}) {
     exactBytesCurrent: approvalResult.exact_bytes_current,
     approvalBasis: approvalResult.approval_basis,
   });
+}
+
+// A grant is derived at the human product decision, never from RFC intake facts.
+// Its digest participates in that decision and its canonical Groom session backs it.
+const DELIVERY_BOUNDARIES = ["product", "commercial", "security", "privacy", "operational"];
+const DELIVERY_GRANT_FIELDS = [
+  "schema_version",
+  "kind",
+  "groom_run_id",
+  "groom_repo_root",
+  "source_base_commit",
+  "proposal_id",
+  "revision",
+  "content_sha256",
+  "proposal_snapshot_sha256",
+  "approved_by",
+  "approved_at",
+  "technical_derivation",
+  "implementation",
+  "boundaries",
+  "grant_sha256",
+];
+
+function buildDeliveryDelegation(
+  proposal,
+  session,
+  { approvedBy, approvedAt, confirmedContentSha256 } = {}
+) {
+  if (
+    !proposal.review_contract ||
+    proposal.review_contract.session_id !== session.run_id ||
+    proposal.source.session_id !== session.run_id
+  )
+    throw new Error("delivery delegation requires the canonical current Groom review session");
+  if (confirmedContentSha256 !== proposalContentHash(proposal))
+    throw new Error(
+      "delivery delegation confirmation must match the exact reviewed proposal content sha256"
+    );
+  if (proposal.open_decisions.length)
+    throw new Error("delivery delegation cannot cover unresolved product decisions");
+  const grant = {
+    schema_version: 1,
+    kind: "bounded-product-delivery",
+    groom_run_id: session.run_id,
+    groom_repo_root: fs.realpathSync(session.source.repo_root),
+    source_base_commit: session.source.base_commit,
+    proposal_id: proposal.id,
+    revision: proposal.revision,
+    content_sha256: proposalContentHash(proposal),
+    proposal_snapshot_sha256: proposalApprovalSnapshotHash(proposal),
+    approved_by: approvedBy.trim(),
+    approved_at: approvedAt,
+    technical_derivation: true,
+    implementation: true,
+    boundaries: [...DELIVERY_BOUNDARIES],
+  };
+  return Object.freeze({
+    ...grant,
+    grant_sha256: proposalBytesHash(Buffer.from(canonicalStringify(grant))),
+  });
+}
+
+function assertDeliveryDelegation(grant, { proposal = null, approval = null } = {}) {
+  const issues = [];
+  if (
+    !closed(grant, DELIVERY_GRANT_FIELDS, "$delegation", issues) ||
+    DELIVERY_GRANT_FIELDS.some((field) => !Object.hasOwn(grant, field)) ||
+    issues.length
+  )
+    throw new Error("delivery delegation must be a complete closed bound grant");
+  if (
+    grant.schema_version !== 1 ||
+    grant.kind !== "bounded-product-delivery" ||
+    !/^groom_[A-Za-z0-9_-]+$/.test(grant.groom_run_id || "") ||
+    !path.isAbsolute(grant.groom_repo_root || "") ||
+    !/^[0-9a-f]{40}$/.test(grant.source_base_commit || "") ||
+    !isString(grant.approved_by) ||
+    !ISO_8601.test(grant.approved_at || "") ||
+    Number.isNaN(Date.parse(grant.approved_at)) ||
+    !Number.isInteger(grant.revision) ||
+    grant.revision < 1 ||
+    !isString(grant.proposal_id) ||
+    grant.technical_derivation !== true ||
+    grant.implementation !== true ||
+    canonicalStringify(grant.boundaries) !== canonicalStringify(DELIVERY_BOUNDARIES)
+  )
+    throw new Error(
+      "delivery delegation has invalid identity, actions or material-risk boundaries"
+    );
+  for (const field of ["content_sha256", "proposal_snapshot_sha256", "grant_sha256"])
+    if (!SHA256.test(grant[field] || ""))
+      throw new Error(`delivery delegation ${field} must be sha256`);
+  const { grant_sha256: digest, ...record } = grant;
+  if (digest !== proposalBytesHash(Buffer.from(canonicalStringify(record))))
+    throw new Error("delivery delegation grant digest mismatch");
+  if (
+    proposal &&
+    (grant.proposal_id !== proposal.id ||
+      grant.revision !== proposal.revision ||
+      grant.content_sha256 !== proposalContentHash(proposal) ||
+      (!POST_APPROVAL_LIFECYCLES.has(proposal.lifecycle) &&
+        grant.proposal_snapshot_sha256 !== proposalApprovalSnapshotHash(proposal)) ||
+      grant.groom_run_id !== proposal.review_contract?.session_id ||
+      grant.groom_run_id !== proposal.source?.session_id)
+  )
+    throw new Error("delivery delegation differs from the exact approved product/session identity");
+  if (
+    approval &&
+    (grant.approved_by !== approval.approved_by || grant.approved_at !== approval.approved_at)
+  )
+    throw new Error("delivery delegation differs from the original product decision");
+  return grant;
+}
+
+function verifyDeliveryDelegationSession(proposal, approval) {
+  const grant = assertDeliveryDelegation(approval.delivery_delegation, { proposal, approval });
+  const root = fs.realpathSync(grant.groom_repo_root);
+  if (root !== grant.groom_repo_root)
+    throw new Error("delivery delegation canonical Groom root changed");
+  try {
+    require("../loop-git.js").runGit(
+      ["cat-file", "-e", `${grant.source_base_commit}^{commit}`],
+      root,
+      { timeout: 10_000 }
+    );
+  } catch {
+    throw new Error(
+      "delivery delegation Groom source base no longer belongs to the recorded repository"
+    );
+  }
+  const active = path.join(root, ".pm", "groom-sessions", proposal.slug, "session.json");
+  const completed = path.join(
+    root,
+    ".pm",
+    "groom-sessions",
+    "completed",
+    proposal.slug,
+    grant.groom_run_id,
+    "session.json"
+  );
+  const sessionPath = fs.existsSync(completed) ? completed : active;
+  const session = JSON.parse(readBoundedNoFollow(boundedExistingFile(sessionPath, root)));
+  // Lazy import avoids the proposal/Groom producer cycle.
+  const errors = require("./groom-session-schema.js").validateSession(session);
+  if (
+    errors.length ||
+    session.run_id !== grant.groom_run_id ||
+    !["handoff", "retro"].includes(session.phase) ||
+    !["approved", "complete"].includes(session.status) ||
+    session.source.repo_root !== root ||
+    session.source.base_commit !== grant.source_base_commit ||
+    session.approval.proposal_hash !== grant.content_sha256 ||
+    session.approval.proposal_revision !== grant.revision ||
+    session.approval.proposal_snapshot_sha256 !== grant.proposal_snapshot_sha256 ||
+    session.approval.approved_by !== grant.approved_by ||
+    session.approval.approved_at !== grant.approved_at ||
+    session.approval.decision_id !== approval.decision_id ||
+    session.approval.decision_sha256 !== approval.decision_sha256 ||
+    canonicalStringify(session.approval.delivery_delegation) !== canonicalStringify(grant)
+  )
+    throw new Error(
+      "delivery delegation is not backed by its canonical Groom product decision/session"
+    );
+  return grant;
 }
 
 function deepFreeze(value) {
@@ -2168,6 +2364,10 @@ function fieldName(at) {
 }
 
 module.exports = {
+  DELIVERY_BOUNDARIES,
+  assertDeliveryDelegation,
+  buildDeliveryDelegation,
+  verifyDeliveryDelegationSession,
   SCHEMA_VERSION,
   MAX_PROPOSAL_BYTES,
   canonicalStringify,

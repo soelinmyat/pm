@@ -16,7 +16,7 @@ Record the user's explicit decision for the exact reviewed artifact without load
 
 ## How
 
-In-scope maintenance never enters this phase. Its reviewed handoff retains the original human decision; read `../references/maintenance.md`. This phase remains mandatory for an initial/material design and historical explicit-approval amendments.
+In-scope maintenance never enters this phase. Its reviewed handoff retains the original human decision; read `../references/maintenance.md`. An initial RFC with a verified exact-product delegation also bypasses this phase only after all independent preservation assessments pass. This phase remains mandatory for an ordinary initial/material design and historical explicit-approval amendments. Prior product approval without that bound grant is insufficient. A material or uncertain change under the grant returns for a new product/risk decision; it cannot borrow the earlier approval.
 
 1. Show the Decision Brief, biggest risk, unresolved product decisions, RFC path, and reviewed artifact fingerprint. State that technical review passed but approval has not been recorded.
 2. Ask one direct question: "Approve this RFC for implementation?" Silence, prior proposal approval, reviewer verdicts, loop configuration, and tracker consent are not RFC approval.

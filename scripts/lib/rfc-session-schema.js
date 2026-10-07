@@ -18,7 +18,11 @@ const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-g
 const { assertOwnsOnlyAmendment, assertMaintenanceAmendment } = require("./rfc-amendment.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
-const { readApprovedProposal } = require("./proposal-schema.js");
+const {
+  readApprovedProposal,
+  assertDeliveryDelegation,
+  DELIVERY_BOUNDARIES,
+} = require("./proposal-schema.js");
 const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const {
@@ -43,6 +47,7 @@ const STATUSES = new Set([
   "awaiting_approval",
   "approved",
   "maintained",
+  "delegated",
   "blocked",
   "complete",
 ]);
@@ -61,12 +66,14 @@ function emptyContext() {
     source_kind: null,
     proposal_path: null,
     proposal_identity: null,
+    delivery_delegation: null,
     design_context: null,
     linear_id: null,
     size: null,
     acceptance_criteria: [],
     artifact_repo_root: null,
     artifact_ownership: null,
+    preview_source_root: null,
   };
 }
 
@@ -140,7 +147,7 @@ function createAmendmentSession(archived, options) {
   assertValidSession(archived);
   if (
     archived.status !== "complete" ||
-    !["approved", "maintained"].includes(archived.approval.status) ||
+    !["approved", "maintained", "delegated"].includes(archived.approval.status) ||
     !isObject(archived.artifact)
   ) {
     throw new Error("only a completed, approved RFC run can be amended");
@@ -374,6 +381,7 @@ function renderMaintenanceArtifact(session) {
   const valid = validateRfcSidecar(next, prior.json_path, {
     expectedSlug: session.slug,
     expectedDesignContext: session.context.design_context,
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
     repoRoot: prior.repo_root,
     requireCurrentDesignContext: true,
   });
@@ -547,6 +555,7 @@ function applyContext(session, facts, options = {}) {
     "acceptance_criteria",
     "design_context",
     "artifact_repo_root",
+    "preview_source_root",
   ]);
   for (const field of Object.keys(facts)) {
     if (!contextFields.has(field)) throw new Error(`unknown RFC context field: ${field}`);
@@ -560,8 +569,12 @@ function applyContext(session, facts, options = {}) {
   if (facts.source_kind === "proposal" && !fs.existsSync(path.resolve(facts.proposal_path))) {
     throw new Error(`proposal_path does not exist: ${path.resolve(facts.proposal_path)}`);
   }
+  const previewSourceRoot = canonicalPreviewRoot(
+    facts.preview_source_root ?? session.context.preview_source_root
+  );
   let canonical = null;
   let proposalIdentity = null;
+  let deliveryDelegation = null;
   let effectiveDesignContext = null;
   let effectiveSize = facts.size;
   let effectiveAcceptanceCriteria = facts.acceptance_criteria;
@@ -583,6 +596,7 @@ function applyContext(session, facts, options = {}) {
     }
     canonical = readApprovedProposal(absoluteProposal, {
       projectRoot: proposalRoot,
+      previewSourceRoot,
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
     });
@@ -603,6 +617,9 @@ function applyContext(session, facts, options = {}) {
       throw new Error(
         "RFC acceptance_criteria contradict the canonical proposal execution contract"
       );
+    deliveryDelegation = canonical.approval.delivery_delegation
+      ? structuredClone(canonical.approval.delivery_delegation)
+      : null;
     effectiveSize = canonical.contract.size;
     effectiveAcceptanceCriteria = contractCriteria;
     effectiveDesignContext = canonical.contract.design_context
@@ -666,6 +683,7 @@ function applyContext(session, facts, options = {}) {
   }
   validateDesignContext(effectiveDesignContext, "RFC context design_context", {
     repoRoot: artifactRepoRoot,
+    previewSourceRoot,
     requireCurrentPrototypeIdentity: true,
     requireExperienceClassification: true,
   });
@@ -675,12 +693,14 @@ function applyContext(session, facts, options = {}) {
     source_kind: facts.source_kind,
     proposal_path: facts.proposal_path ? path.resolve(facts.proposal_path) : null,
     proposal_identity: proposalIdentity,
+    delivery_delegation: deliveryDelegation,
     design_context: effectiveDesignContext,
     linear_id: facts.linear_id || null,
     size: effectiveSize,
     acceptance_criteria: [...effectiveAcceptanceCriteria],
     artifact_repo_root: artifactRepoRoot,
     artifact_ownership: "helper-v1",
+    preview_source_root: previewSourceRoot,
   };
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
@@ -714,6 +734,14 @@ function nextDecision(session, sessionPath) {
     result_schema: step.resultSchema,
     artifact_hash: session.artifact ? artifactFingerprint(session.artifact) : null,
     approval_required: session.phase === "approval",
+    delivery_delegation: session.context.delivery_delegation
+      ? {
+          grant_sha256: session.context.delivery_delegation.grant_sha256,
+          product_decision_sha256: session.context.proposal_identity.decision_sha256,
+          generated_bytes_human_approved: false,
+          material_boundaries: [...DELIVERY_BOUNDARIES],
+        }
+      : null,
     ...(session.amendment
       ? {
           amendment: {
@@ -736,6 +764,7 @@ function assertCurrentSessionDesignContext(session) {
   }
   validateDesignContext(session.context.design_context, "RFC context design_context", {
     repoRoot: session.context.artifact_repo_root,
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
     requireCurrentPrototypeIdentity: true,
     requireExperienceClassification: true,
   });
@@ -858,6 +887,18 @@ function recordResult(session, result, options = {}) {
       next.phase_attempt = 1;
       reason = "validated passed result";
       if (next.phase === "approval") next.status = "awaiting_approval";
+      if (session.phase === "review" && !session.amendment && session.context.delivery_delegation) {
+        next.approval = {
+          status: "delegated",
+          approved_by: session.context.delivery_delegation.approved_by,
+          approved_at: session.context.delivery_delegation.approved_at,
+          artifact_hash: next.review.artifact_hash,
+        };
+        next.status = "delegated";
+        next.phase = "handoff";
+        reason =
+          "independently reviewed delegated derivation; original product decision retained; generated bytes are not human-approved";
+      }
       if (session.phase === "review" && session.amendment?.kind === "maintenance") {
         const prior = readCommittedApprovalAudit(readMaintenancePrior(session));
         next.approval = {
@@ -924,6 +965,7 @@ function validatePassedResult(session, result, options) {
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
       expectedDesignContext: session.context.design_context,
+      previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
       forbidApproved: true,
       requireHead: true,
     });
@@ -937,6 +979,7 @@ function validatePassedResult(session, result, options) {
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
       expectedDesignContext: session.context.design_context,
+      previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
       forbidApproved: true,
       requireHead: true,
     });
@@ -944,7 +987,8 @@ function validatePassedResult(session, result, options) {
     validateReviewerVerdicts(
       result.reviewer_verdicts,
       artifactFingerprint(result.artifact),
-      session.amendment?.kind === "maintenance"
+      session.amendment?.kind === "maintenance",
+      !session.amendment && session.context.delivery_delegation ? session : null
     );
     session.artifact = structuredClone(result.artifact);
     session.review = {
@@ -959,7 +1003,7 @@ function validatePassedResult(session, result, options) {
   if (session.phase === "handoff") {
     requireEvidence(result, "handoff");
     requireEvidence(result, "lifecycle");
-    if (!["approved", "maintained"].includes(session.approval.status)) {
+    if (!["approved", "maintained", "delegated"].includes(session.approval.status)) {
       throw new Error("handoff requires explicit human approval");
     }
     verifyArtifact(result.artifact, {
@@ -967,7 +1011,9 @@ function validatePassedResult(session, result, options) {
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
       expectedDesignContext: session.context.design_context,
+      previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
       requireApproved: true,
+      expectedHandoffLifecycle: handoffLifecycle(session),
       requireHead: true,
     });
     if (result.artifact.sidecar_hash !== session.artifact.sidecar_hash) {
@@ -980,7 +1026,7 @@ function validatePassedResult(session, result, options) {
       throw new Error("handoff HTML changed without passing lifecycle-only evidence");
     }
     if (result.artifact.html_hash !== session.artifact.html_hash) {
-      verifyLifecycleOnlyTransition(session.artifact, result.artifact);
+      verifyLifecycleOnlyTransition(session.artifact, result.artifact, handoffLifecycle(session));
     }
     requireEvidence(result, "approval-audit");
     validateApprovalAudit(session, result.artifact, result.evidence);
@@ -1021,6 +1067,7 @@ function approveSession(session, input, options = {}) {
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
       expectedDesignContext: session.context.design_context,
+      previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
       forbidApproved: true,
       requireHead: false,
     });
@@ -1042,6 +1089,7 @@ function approveSession(session, input, options = {}) {
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
     expectedDesignContext: session.context.design_context,
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
     forbidApproved: true,
     requireHead: false,
   });
@@ -1243,7 +1291,8 @@ function validateResultIdentity(session, result) {
   if (
     session.status !== "active" &&
     session.status !== "approved" &&
-    session.status !== "maintained"
+    session.status !== "maintained" &&
+    session.status !== "delegated"
   ) {
     throw new Error(`session is ${session.status}, not recordable`);
   }
@@ -1338,9 +1387,15 @@ function validateResultIdentity(session, result) {
   }
 }
 
-function validateReviewerVerdicts(verdicts, expectedArtifactHash, maintenance = false) {
+function validateReviewerVerdicts(
+  verdicts,
+  expectedArtifactHash,
+  maintenance = false,
+  delegatedSession = null
+) {
   if (!Array.isArray(verdicts)) throw new Error("reviewer verdicts must be an array");
   const byLens = new Map();
+  const reviewerIds = new Set();
   for (const item of verdicts) {
     if (!isObject(item) || !REQUIRED_REVIEW_LENSES.includes(item.lens)) {
       throw new Error(`unknown review lens: ${String(item?.lens)}`);
@@ -1353,6 +1408,7 @@ function validateReviewerVerdicts(verdicts, expectedArtifactHash, maintenance = 
       "blocking",
       "advisory",
       "maintenance_scope",
+      "delegation_scope",
     ];
     if (Object.keys(item).some((field) => !fields.includes(field))) {
       throw new Error(`review lens ${item.lens} has unknown fields`);
@@ -1379,6 +1435,12 @@ function validateReviewerVerdicts(verdicts, expectedArtifactHash, maintenance = 
         `review lens ${item.lens} must establish preserved product behavior, scope and significant risk for maintenance`
       );
     }
+    if (delegatedSession) {
+      validateDelegationAssessment(item.delegation_scope, delegatedSession, item.lens);
+      if (reviewerIds.has(item.delegation_scope.reviewer_id))
+        throw new Error("delegation requires independent technical lens reviewers");
+      reviewerIds.add(item.delegation_scope.reviewer_id);
+    }
     byLens.set(item.lens, item);
   }
   for (const lens of REQUIRED_REVIEW_LENSES) {
@@ -1387,6 +1449,70 @@ function validateReviewerVerdicts(verdicts, expectedArtifactHash, maintenance = 
   if ([...byLens.values()].some((item) => item.verdict !== "pass" || item.blocking.length > 0)) {
     throw new Error("review has blocking reviewer findings");
   }
+}
+
+function validateDelegationAssessment(scope, session, lens) {
+  const fields = [
+    "grant_sha256",
+    "product_decision_sha256",
+    "reviewer_id",
+    "boundaries",
+    "rationale",
+    "evidence",
+  ];
+  if (
+    !isObject(scope) ||
+    fields.some((field) => !Object.hasOwn(scope, field)) ||
+    Object.keys(scope).some((field) => !fields.includes(field))
+  )
+    throw new Error(`review lens ${lens} requires a bound delegation scope assessment`);
+  if (
+    scope.grant_sha256 !== session.context.delivery_delegation.grant_sha256 ||
+    scope.product_decision_sha256 !== session.context.proposal_identity.decision_sha256
+  )
+    throw new Error(`review lens ${lens} delegation grant/product decision is stale`);
+  if (
+    !isObject(scope.boundaries) ||
+    Object.keys(scope.boundaries).length !== DELIVERY_BOUNDARIES.length ||
+    DELIVERY_BOUNDARIES.some((key) => scope.boundaries[key] !== "preserved")
+  )
+    throw new Error(
+      `review lens ${lens} delegation must preserve product, commercial, security, privacy and operational boundaries; material or uncertain changes require a product/risk decision`
+    );
+  if (
+    !nonEmpty(scope.reviewer_id) ||
+    !nonEmpty(scope.rationale) ||
+    !Array.isArray(scope.evidence) ||
+    !scope.evidence.length ||
+    scope.evidence.some((entry) => !nonEmpty(entry))
+  )
+    throw new Error(
+      `review lens ${lens} delegation requires independent reviewer identity and grounded preservation evidence`
+    );
+  const generator = session.attempts.findLast(
+    (attempt) => attempt.phase === "generation" && attempt.status === "passed"
+  )?.runtime?.session_id;
+  if (generator && scope.reviewer_id === generator)
+    throw new Error("delegation review must be independent of its generating worker");
+}
+
+function handoffLifecycle(session) {
+  return session.approval.status === "delegated" ||
+    (session.approval.status === "maintained" && session.context.delivery_delegation)
+    ? "reviewed"
+    : "approved";
+}
+
+function productDecisionIdentity(session) {
+  const identity = session.context.proposal_identity;
+  return {
+    proposal_id: identity.proposal_id,
+    revision: identity.revision,
+    content_sha256: identity.content_sha256,
+    decision_id: identity.decision_id,
+    decision_sha256: identity.decision_sha256,
+    grant_sha256: session.context.delivery_delegation.grant_sha256,
+  };
 }
 
 function requireEvidence(result, kind) {
@@ -1461,6 +1587,7 @@ function verifyArtifact(artifact, options = {}) {
     sidecarHash: observed,
     repoRoot,
     expectedDesignContext: options.expectedDesignContext,
+    previewSourceRoot: options.previewSourceRoot,
     requireCurrentDesignContext: true,
   });
   if (!validation.ok) {
@@ -1481,8 +1608,13 @@ function verifyArtifact(artifact, options = {}) {
   if (options.forbidApproved && lifecycleStatus === "approved") {
     throw new Error("RFC artifact claims approval before explicit human approval");
   }
-  if (options.requireApproved && lifecycleStatus !== "approved") {
-    throw new Error("RFC handoff artifact must expose approved lifecycle status");
+  if (
+    options.requireApproved &&
+    lifecycleStatus !== (options.expectedHandoffLifecycle || "approved")
+  ) {
+    throw new Error(
+      `RFC handoff artifact must expose ${options.expectedHandoffLifecycle || "approved"} lifecycle status`
+    );
   }
   if (options.requireHead !== false) {
     const head = (options.artifactHead || defaultArtifactHead)(artifact);
@@ -1538,7 +1670,11 @@ function htmlHasClass(html, className) {
   );
 }
 
-function verifyLifecycleOnlyTransition(previousArtifact, currentArtifact) {
+function verifyLifecycleOnlyTransition(
+  previousArtifact,
+  currentArtifact,
+  expectedLifecycle = "approved"
+) {
   if (fs.realpathSync(previousArtifact.repo_root) !== fs.realpathSync(currentArtifact.repo_root)) {
     throw new Error("RFC lifecycle transition changed artifact repository");
   }
@@ -1553,11 +1689,11 @@ function verifyLifecycleOnlyTransition(previousArtifact, currentArtifact) {
   }
   const workflowLifecycle = lifecycleMarker(after);
   const artifactLifecycle = artifactLifecycleMarker(after);
-  if (workflowLifecycle.status !== "approved") {
-    throw new Error("RFC handoff lifecycle must be approved");
+  if (workflowLifecycle.status !== expectedLifecycle) {
+    throw new Error(`RFC handoff lifecycle must be ${expectedLifecycle}`);
   }
-  if (artifactLifecycle && artifactLifecycle.lifecycle !== "approved") {
-    throw new Error("RFC handoff artifact metadata lifecycle must be approved");
+  if (artifactLifecycle && artifactLifecycle.lifecycle !== expectedLifecycle) {
+    throw new Error(`RFC handoff artifact metadata lifecycle must be ${expectedLifecycle}`);
   }
 }
 
@@ -1640,11 +1776,11 @@ function lifecycleMarker(html) {
     throw new Error("RFC #rfc-lifecycle marker must contain only status");
   }
   const status = String(parsed.status).toLowerCase();
-  if (!["draft", "awaiting-approval", "approved"].includes(status)) {
+  if (!["draft", "awaiting-approval", "reviewed", "approved"].includes(status)) {
     throw new Error("RFC #rfc-lifecycle status is invalid");
   }
   const valueMatch = body.match(
-    /(["']status["']\s*:\s*["'])(draft|awaiting-approval|approved)(["'])/i
+    /(["']status["']\s*:\s*["'])(draft|awaiting-approval|reviewed|approved)(["'])/i
   );
   if (!valueMatch || body.match(/["']status["']\s*:/gi)?.length !== 1) {
     throw new Error("RFC #rfc-lifecycle marker must use one explicit status field");
@@ -1685,7 +1821,7 @@ function buildApprovalAudit(session, artifact, options = {}) {
   verifyProposalIdentity(session);
   if (
     session.phase !== "handoff" ||
-    !["approved", "maintained"].includes(session.approval.status)
+    !["approved", "maintained", "delegated"].includes(session.approval.status)
   ) {
     throw new Error("approval audit requires an explicitly approved handoff session");
   }
@@ -1694,13 +1830,15 @@ function buildApprovalAudit(session, artifact, options = {}) {
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
     expectedDesignContext: session.context.design_context,
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
     requireApproved: true,
+    expectedHandoffLifecycle: handoffLifecycle(session),
     requireHead: true,
   });
   if (artifact.sidecar_hash !== session.artifact.sidecar_hash) {
     throw new Error("approval audit sidecar differs from the approved design");
   }
-  verifyLifecycleOnlyTransition(session.artifact, artifact);
+  verifyLifecycleOnlyTransition(session.artifact, artifact, handoffLifecycle(session));
   assertAmendmentArtifact(session, artifact);
   return approvalAuditRecord(session, artifact);
 }
@@ -1709,7 +1847,16 @@ function buildApprovalAudit(session, artifact, options = {}) {
 // original approval, historical v2 re-approval, or v3 reviewed maintenance.
 function approvalAuditRecord(session, artifact) {
   const record = {
-    schema_version: session.amendment?.kind === "maintenance" ? 3 : session.amendment ? 2 : 1,
+    schema_version:
+      session.approval.status === "delegated"
+        ? 4
+        : session.amendment?.kind === "maintenance"
+          ? session.context.delivery_delegation
+            ? 5
+            : 3
+          : session.amendment
+            ? 2
+            : 1,
     run_id: session.run_id,
     slug: session.slug,
     status: session.approval.status,
@@ -1719,6 +1866,10 @@ function approvalAuditRecord(session, artifact) {
     sidecar_sha256: artifact.sidecar_hash,
     approval_transition_sha256: approvalTransitionDigest(session, artifact),
   };
+  if ([4, 5].includes(record.schema_version)) {
+    record.product_decision = productDecisionIdentity(session);
+    record.delivery_delegation = structuredClone(session.context.delivery_delegation);
+  }
   if (!session.amendment) return record;
   return {
     ...record,
@@ -1833,16 +1984,33 @@ function validateSession(session) {
       "source_kind",
       "proposal_path",
       "proposal_identity",
+      ...(Object.hasOwn(session.context || {}, "delivery_delegation")
+        ? ["delivery_delegation"]
+        : []),
       "design_context",
       "linear_id",
       "size",
       "acceptance_criteria",
       "artifact_repo_root",
       "artifact_ownership",
+      ...(Object.hasOwn(session.context || {}, "preview_source_root")
+        ? ["preview_source_root"]
+        : []),
     ],
     "$.context",
     errors,
     (value, objectPath) => {
+      if (
+        value.preview_source_root !== undefined &&
+        value.preview_source_root !== null &&
+        (!nonEmpty(value.preview_source_root) || !path.isAbsolute(value.preview_source_root))
+      )
+        errors.push(
+          issue(
+            `${objectPath}.preview_source_root`,
+            "must be null or an explicitly selected absolute preview worktree"
+          )
+        );
       if (typeof value.configured !== "boolean")
         errors.push(issue(`${objectPath}.configured`, "must be boolean"));
       if (![null, "proposal", "linear-issue"].includes(value.source_kind))
@@ -1855,10 +2023,30 @@ function validateSession(session) {
       if (![null, "helper-v1"].includes(value.artifact_ownership))
         errors.push(issue(`${objectPath}.artifact_ownership`, "invalid"));
       validateProposalIdentity(value.proposal_identity, `${objectPath}.proposal_identity`, errors);
+      if (value.delivery_delegation !== undefined && value.delivery_delegation !== null) {
+        try {
+          assertDeliveryDelegation(value.delivery_delegation);
+        } catch (error) {
+          errors.push(issue(`${objectPath}.delivery_delegation`, error.message));
+        }
+        if (
+          !value.proposal_identity ||
+          value.delivery_delegation.content_sha256 !== value.proposal_identity.content_sha256 ||
+          value.delivery_delegation.proposal_id !== value.proposal_identity.proposal_id ||
+          value.delivery_delegation.revision !== value.proposal_identity.revision
+        )
+          errors.push(
+            issue(
+              `${objectPath}.delivery_delegation`,
+              "must match trusted canonical product identity"
+            )
+          );
+      }
       if (value.design_context !== null) {
         try {
           validateDesignContext(value.design_context, `${objectPath}.design_context`, {
             repoRoot: nonEmpty(value.artifact_repo_root) ? value.artifact_repo_root : undefined,
+            previewSourceRoot: value.preview_source_root || undefined,
           });
         } catch (error) {
           errors.push(issue(`${objectPath}.design_context`, error.message));
@@ -1934,12 +2122,38 @@ function validateSession(session) {
       errors.push(issue("$.review", error.message));
     }
   }
+  if (session.approval?.status === "delegated") {
+    if (
+      !session.context?.delivery_delegation ||
+      session.amendment ||
+      session.review?.status !== "passed" ||
+      session.approval.artifact_hash !== session.review.artifact_hash ||
+      session.approval.approved_by !== session.context.delivery_delegation.approved_by ||
+      session.approval.approved_at !== session.context.delivery_delegation.approved_at
+    )
+      errors.push(
+        issue(
+          "$.approval",
+          "delegated derivation requires original product grant and current reviewed artifact"
+        )
+      );
+    try {
+      validateReviewerVerdicts(
+        session.review?.verdicts,
+        session.review?.artifact_hash,
+        false,
+        session
+      );
+    } catch (error) {
+      errors.push(issue("$.review", error.message));
+    }
+  }
   validateExecutionShape(session.execution, errors);
   if (session.status === "awaiting_approval" && session.phase !== "approval") {
     errors.push(issue("$.status", "awaiting_approval requires approval phase"));
   }
   if (
-    ["approved", "maintained"].includes(session.approval.status) &&
+    ["approved", "maintained", "delegated"].includes(session.approval.status) &&
     session.phase === "approval"
   ) {
     errors.push(issue("$.approval", "approved session must advance to handoff"));
@@ -1948,8 +2162,8 @@ function validateSession(session) {
     errors.push(issue("$.review", "approval phase requires passed review"));
   }
   if (
-    ["approved", "maintained", "complete"].includes(session.status) &&
-    !["approved", "maintained"].includes(session.approval?.status)
+    ["approved", "maintained", "delegated", "complete"].includes(session.status) &&
+    !["approved", "maintained", "delegated"].includes(session.approval?.status)
   ) {
     errors.push(issue("$.approval", `${session.status} session requires explicit approval`));
   }
@@ -2246,9 +2460,9 @@ function validateApprovalShape(value, errors) {
     "$.approval",
     errors,
     (approval) => {
-      if (!["pending", "approved", "maintained"].includes(approval.status))
+      if (!["pending", "approved", "maintained", "delegated"].includes(approval.status))
         errors.push(issue("$.approval.status", "invalid"));
-      if (["approved", "maintained"].includes(approval.status)) {
+      if (["approved", "maintained", "delegated"].includes(approval.status)) {
         if (!nonEmpty(approval.approved_by))
           errors.push(issue("$.approval.approved_by", "required"));
         if (!isIsoDate(approval.approved_at))
@@ -2306,12 +2520,30 @@ function upgradeCompatibleSession(input) {
   const session = structuredClone(input);
   if (isObject(session.context) && !Object.hasOwn(session.context, "proposal_identity"))
     session.context.proposal_identity = null;
+  if (isObject(session.context) && !Object.hasOwn(session.context, "preview_source_root"))
+    session.context.preview_source_root = null;
+  if (isObject(session.context) && !Object.hasOwn(session.context, "delivery_delegation"))
+    session.context.delivery_delegation = null;
   if (isObject(session.context) && !Object.hasOwn(session.context, "design_context"))
     session.context.design_context = null;
   if (isObject(session.context) && !Object.hasOwn(session.context, "artifact_ownership"))
     session.context.artifact_ownership = null;
   if (!Object.hasOwn(session, "amendment")) session.amendment = null;
   return session;
+}
+
+function canonicalPreviewRoot(value) {
+  if (value === undefined || value === null) return null;
+  try {
+    if (!nonEmpty(value) || !path.isAbsolute(value))
+      throw new Error("must be an absolute selected worktree");
+    const selected = fs.realpathSync(value);
+    if (fs.realpathSync(findGitRoot(selected)) !== selected)
+      throw new Error("must be a Git worktree root");
+    return selected;
+  } catch (error) {
+    throw new Error(`invalid preview_source_root: ${error.message}`);
+  }
 }
 
 function normalizeSlug(value) {
@@ -2333,6 +2565,7 @@ function gitValue(cwd, args, fallback) {
 }
 
 function verifySourceIdentity(session) {
+  canonicalPreviewRoot(session.context?.preview_source_root);
   const root = findGitRoot(session.source.worktree);
   if (!root || fs.realpathSync(root) !== fs.realpathSync(session.source.repo_root)) {
     throw new Error("source worktree no longer belongs to the recorded repository");
@@ -2369,6 +2602,7 @@ function verifyProposalIdentity(session) {
   try {
     trusted = readApprovedProposal(session.context.proposal_path, {
       projectRoot,
+      previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
       expectedDecision: {
@@ -2392,6 +2626,11 @@ function verifyProposalIdentity(session) {
     if (identity[field] !== value)
       throw new Error(`proposal identity ${field} drifted; re-run RFC intake`);
   }
+  if (
+    stableStringify(session.context.delivery_delegation || null) !==
+    stableStringify(trusted.approval.delivery_delegation || null)
+  )
+    throw new Error("proposal delivery delegation drifted; re-run RFC intake");
   const trustedDesignContext = trusted.contract.design_context || null;
   if (stableStringify(session.context.design_context) !== stableStringify(trustedDesignContext)) {
     throw new Error("proposal design_context drifted; re-run RFC intake");
@@ -2417,6 +2656,8 @@ function nonEmpty(value) {
 }
 
 module.exports = {
+  verifyProposalIdentity,
+  handoffLifecycle,
   renderMaintenanceArtifact,
   assertMaintenanceHtml,
   maintenanceLines,

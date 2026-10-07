@@ -57,3 +57,9 @@ Historical schema-v2 sidecars, early schema-v3 sidecars without the complete con
 ## Legacy migration
 
 Retain legacy `.md` sessions. Parse identity and artifact paths, then write canonical JSON. Because the old workflow could set `approved` before asking the human, legacy `rfc-review` and `approved` stages return to technical review/approval recertification and never import approval provenance as trusted.
+
+## Product-delegated delivery
+
+RFC schema-v2 context optionally includes `delivery_delegation: null | bound grant`; older sessions upgrade its absence to null. Intake derives the grant from canonical Groom audit/session, not caller facts. A passed initial technical review with three distinct independent, current five-boundary preservation assessments moves directly to `status: delegated`, `approval.status: delegated`, `phase: handoff`. The approval identity/time remain the original product decision. Initial audit v4 carries `product_decision` and exact grant; maintained descendants use v5 and retain exact lineage. HTML lifecycle is `reviewed` for that lineage. `verifyRfcApproval` verifies completed run, committed exact artifact/audit, product/grant freshness and lineage, returning `delegation` only after verification. Legacy no-grant runs retain their separate initial human approval path.
+
+An optional `context.preview_source_root` records the explicitly selected consumer preview worktree. All current design/proposal/artifact checks receive it separately from the KB artifact root; absence is compatible with old document-only sessions. A missing or changed selected worktree blocks rather than triggering path discovery.

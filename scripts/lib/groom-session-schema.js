@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { assertDeliveryDelegation, buildDeliveryDelegation } = require("./proposal-schema.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { findGitRoot, runGit } = require("../loop-git.js");
@@ -115,6 +116,7 @@ function createSession(options) {
       source_path: null,
       evidence_refs: [],
       artifact_repo_root: null,
+      preview_source_root: canonicalPreviewRoot(options.previewSourceRoot),
     },
     routing: {
       required_phases: [...ROUTES[tier]],
@@ -173,6 +175,7 @@ function applyContext(session, facts, options = {}) {
     "source_path",
     "evidence_refs",
     "artifact_repo_root",
+    "preview_source_root",
   ]);
   for (const field of Object.keys(facts))
     if (!allowed.has(field)) throw new Error(`unknown Groom context field: ${field}`);
@@ -214,6 +217,9 @@ function applyContext(session, facts, options = {}) {
     source_path: facts.source_path ? path.resolve(facts.source_path) : null,
     evidence_refs: [...facts.evidence_refs],
     artifact_repo_root: artifactRepoRoot,
+    preview_source_root: canonicalPreviewRoot(
+      facts.preview_source_root ?? session.context.preview_source_root
+    ),
   };
   const routes = session.schema_version >= GROOM_SCHEMA_VERSION ? ROUTES : LEGACY_ROUTES;
   next.routing = {
@@ -380,7 +386,9 @@ function approveSession(session, input, options = {}) {
   ) {
     let current;
     try {
-      current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
+      current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session), {
+        previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
+      });
       verifySessionProposal(session, proposalIdentityOnly(current), {
         requireCompleteReview: true,
       });
@@ -393,6 +401,14 @@ function approveSession(session, input, options = {}) {
       current.approval_snapshot_sha256 !== session.approval.proposal_snapshot_sha256
     )
       throw new Error("proposal changed after approval; revise and approve again");
+    if (
+      input.delegateContentSha256 !== undefined &&
+      (!session.approval.delivery_delegation ||
+        input.delegateContentSha256 !== session.approval.delivery_delegation.content_sha256)
+    )
+      throw new Error(
+        "delivery delegation cannot be added or changed on an approval retry; revise and request a new product decision"
+      );
     return structuredClone(session);
   }
   if (session.phase !== "approval" || session.status !== "awaiting_approval")
@@ -408,12 +424,23 @@ function approveSession(session, input, options = {}) {
     throw new Error("proposal must pass current question review before approval");
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
-  const current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
+  const current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session), {
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
+  });
   const currentProposal = JSON.parse(fs.readFileSync(session.proposal.json_path, "utf8"));
+  const deliveryDelegation =
+    input.delegateContentSha256 === undefined
+      ? null
+      : buildDeliveryDelegation(currentProposal, session, {
+          approvedBy: input.approvedBy,
+          approvedAt: now,
+          confirmedContentSha256: input.delegateContentSha256,
+        });
   const decision = currentProposal.review_contract
     ? deriveApprovalDecision(currentProposal, {
         approvedBy: input.approvedBy,
         approvedAt: now,
+        deliveryDelegation,
       })
     : {
         id: `groom-approval:${session.run_id}`,
@@ -438,6 +465,7 @@ function approveSession(session, input, options = {}) {
     proposal_snapshot_sha256: current.approval_snapshot_sha256,
     decision_id: decisionId,
     decision_sha256: decisionSha256,
+    ...(deliveryDelegation ? { delivery_delegation: structuredClone(deliveryDelegation) } : {}),
   };
   next.status = "approved";
   next.phase = "handoff";
@@ -571,7 +599,9 @@ function buildApprovalAudit(session) {
   verifySourceIdentity(session);
   if (session.approval.status !== "approved" || !session.proposal)
     throw new Error("approval audit requires an explicitly approved proposal");
-  const proposal = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
+  const proposal = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session), {
+    previewSourceRoot: canonicalPreviewRoot(session.context.preview_source_root),
+  });
   verifySessionProposal(session, proposalIdentityOnly(proposal), { requireCompleteReview: true });
   if (
     proposal.content_hash !== session.approval.proposal_hash ||
@@ -587,10 +617,11 @@ function buildApprovalAudit(session) {
     approvedAt: session.approval.approved_at,
     decisionId: session.approval.decision_id,
     decisionSha256: session.approval.decision_sha256,
+    deliveryDelegation: session.approval.delivery_delegation || null,
   });
 }
 
-function proposalIdentityFromPath(jsonPath, repoRoot) {
+function proposalIdentityFromPath(jsonPath, repoRoot, options = {}) {
   const bytes = fs.readFileSync(jsonPath);
   const parsed = JSON.parse(bytes);
   const identity = {
@@ -600,7 +631,7 @@ function proposalIdentityFromPath(jsonPath, repoRoot) {
     revision: parsed.revision,
     lifecycle: parsed.lifecycle,
   };
-  verifyProposal(identity, repoRoot);
+  verifyProposal(identity, repoRoot, options);
   return { ...identity, approval_snapshot_sha256: proposalApprovalSnapshotHash(parsed) };
 }
 
@@ -774,7 +805,7 @@ function validateQuestionOutcomes(session, outcomes, proposal) {
     validateReviewIndependence([...byId.values()], "question outcomes");
 }
 
-function verifyProposal(proposal, repoRoot) {
+function verifyProposal(proposal, repoRoot, options = {}) {
   if (!isObject(proposal)) throw new Error("proposal identity is required");
   exactFields(
     proposal,
@@ -793,7 +824,10 @@ function verifyProposal(proposal, repoRoot) {
   const parsed = JSON.parse(bytes);
   if (parsed.design_context !== undefined) {
     try {
-      validateDesignContext(parsed.design_context, "proposal design_context", { repoRoot });
+      validateDesignContext(parsed.design_context, "proposal design_context", {
+        repoRoot,
+        previewSourceRoot: options.previewSourceRoot,
+      });
     } catch (error) {
       throw new Error(`proposal prototype binding is no longer current: ${error.message}`);
     }
@@ -813,7 +847,8 @@ function verifyProposal(proposal, repoRoot) {
 
 function verifySessionProposal(session, proposal, options = {}) {
   const repoRoot = proposalRepoRoot(session);
-  const parsed = verifyProposal(proposal, repoRoot);
+  const previewSourceRoot = canonicalPreviewRoot(session.context.preview_source_root);
+  const parsed = verifyProposal(proposal, repoRoot, { previewSourceRoot });
   if (session.schema_version < GROOM_SCHEMA_VERSION) return parsed;
   if (!isObject(parsed.design_context)) {
     throw new Error("current Groom proposals require a durable design_context");
@@ -821,6 +856,7 @@ function verifySessionProposal(session, proposal, options = {}) {
   try {
     validateDesignContext(parsed.design_context, "proposal design_context", {
       repoRoot,
+      previewSourceRoot,
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
     });
@@ -946,6 +982,20 @@ function validateReviewIndependence(rows, label) {
     throw new Error(`${label} must explain evidence relevance for the individual answers`);
 }
 
+function canonicalPreviewRoot(value) {
+  if (value === undefined || value === null) return null;
+  try {
+    if (!nonEmpty(value) || !path.isAbsolute(value))
+      throw new Error("must be an absolute selected worktree");
+    const selected = fs.realpathSync(value);
+    if (fs.realpathSync(findGitRoot(selected)) !== selected)
+      throw new Error("must be a Git worktree root");
+    return selected;
+  } catch (error) {
+    throw new Error(`invalid preview_source_root: ${error.message}`);
+  }
+}
+
 function proposalRepoRoot(session) {
   return session.context.artifact_repo_root || session.source.repo_root;
 }
@@ -1053,10 +1103,25 @@ function validateSession(session) {
         "source_path",
         "evidence_refs",
         "artifact_repo_root",
+        ...(Object.hasOwn(session.context || {}, "preview_source_root")
+          ? ["preview_source_root"]
+          : []),
       ],
       "$.context",
       errors
     );
+    if (
+      session.context.preview_source_root !== undefined &&
+      session.context.preview_source_root !== null &&
+      (!nonEmpty(session.context.preview_source_root) ||
+        !path.isAbsolute(session.context.preview_source_root))
+    )
+      errors.push(
+        issue(
+          "$.context.preview_source_root",
+          "must be null or an explicitly selected absolute preview worktree"
+        )
+      );
     if (typeof session.context.configured !== "boolean")
       errors.push(issue("$.context.configured", "invalid"));
     if (!ROUTES[session.context.tier]) errors.push(issue("$.context.tier", "invalid"));
@@ -1234,10 +1299,28 @@ function validateSession(session) {
       "proposal_snapshot_sha256",
       "decision_id",
       "decision_sha256",
+      ...(Object.hasOwn(session.approval || {}, "delivery_delegation")
+        ? ["delivery_delegation"]
+        : []),
     ],
     "$.approval",
     errors
   );
+  if (session.approval?.delivery_delegation !== undefined) {
+    try {
+      assertDeliveryDelegation(session.approval.delivery_delegation);
+    } catch (error) {
+      errors.push(issue("$.approval.delivery_delegation", error.message));
+    }
+    if (
+      session.approval.status !== "approved" ||
+      session.approval.delivery_delegation.groom_run_id !== session.run_id ||
+      session.approval.delivery_delegation.content_sha256 !== session.approval.proposal_hash
+    )
+      errors.push(
+        issue("$.approval.delivery_delegation", "must retain its explicit exact-product decision")
+      );
+  }
   if (isObject(session.approval)) {
     if (!["pending", "approved"].includes(session.approval.status))
       errors.push(issue("$.approval.status", "invalid"));
@@ -1448,6 +1531,7 @@ function gitValue(cwd, args, fallback) {
   }
 }
 function verifySourceIdentity(session) {
+  canonicalPreviewRoot(session.context?.preview_source_root);
   const observed = fs.realpathSync(findGitRoot(session.source.worktree));
   if (observed !== fs.realpathSync(session.source.repo_root))
     throw new Error("Groom source worktree identity changed");
