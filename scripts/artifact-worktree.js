@@ -61,7 +61,7 @@ function artifactBranch(slug, kind) {
   return `codex/${normalized}-${kind}`;
 }
 
-function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
+function groomHandoffBase(observedRoot, worktrees, slug, contentRelative, options = {}) {
   const branch = artifactBranch(slug, "groom");
   const registered = worktrees.find((item) => item.branch === branch);
   if (!registered) return null;
@@ -79,9 +79,25 @@ function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
   );
   if (!fs.existsSync(proposalPath)) return null;
   try {
-    const approved = readApprovedProposal(proposalPath, { projectRoot: ownership.worktree });
+    const approved = readApprovedProposal(proposalPath, {
+      projectRoot: ownership.worktree,
+      previewSourceRoot: options.previewSourceRoot,
+    });
     if (approved.contract.slug !== slug) return null;
-  } catch {
+  } catch (error) {
+    // An explicit executable handoff must never silently fall back to main.
+    // Legacy incomplete/unapproved drafts retain their existing fallback.
+    let executableHandoff = false;
+    try {
+      executableHandoff = Boolean(
+        JSON.parse(fs.readFileSync(proposalPath, "utf8")).design_context?.app_preview
+      );
+    } catch {
+      // An unreadable legacy draft is not an approved handoff.
+    }
+    if (executableHandoff) {
+      throw new Error(`Groom app preview handoff cannot be verified: ${error.message}`);
+    }
     return null;
   }
   if (git(ownership.worktree, ["status", "--porcelain=v1"])) {
@@ -249,7 +265,7 @@ function prepareArtifactWorktree(options) {
     const ownedInherited = gitMaybe(observedRoot, ["config", "--get", inheritedKey]);
     const handoff =
       options.kind === "rfc"
-        ? groomHandoffBase(observedRoot, worktrees, slug, contentRelative)
+        ? groomHandoffBase(observedRoot, worktrees, slug, contentRelative, options)
         : null;
     if (
       branchExists &&
@@ -385,7 +401,7 @@ function parseArgs(argv) {
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--json") options.json = true;
-    else if (["--pm-dir", "--slug", "--kind"].includes(token)) {
+    else if (["--pm-dir", "--slug", "--kind", "--preview-source-root"].includes(token)) {
       const value = argv[index + 1];
       if (!value) throw new Error(`${token} requires a value`);
       options[token.slice(2).replaceAll("-", "_")] = value;
@@ -402,6 +418,7 @@ if (require.main === module) {
       pmDir: options.pm_dir,
       slug: options.slug,
       kind: options.kind,
+      previewSourceRoot: options.preview_source_root,
     });
     process.stdout.write(
       options.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.worktree}\n`

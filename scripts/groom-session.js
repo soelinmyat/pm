@@ -76,6 +76,7 @@ function initCommand(options) {
       sourceDir: path.resolve(options.sourceDir),
       tier: options.tier,
       previewSourceRoot: options.previewSourceRoot,
+      productContractVersion: 1,
       ...resolveGroomProfile(options),
     });
   } catch (error) {

@@ -302,6 +302,7 @@ function routeCommand(options) {
     rfcRepoRoot = findGitRoot(path.dirname(rfcSidecarPath));
     const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
       repoRoot: rfcRepoRoot,
+      previewSourceRoot: facts.preview_source_root,
       requireCurrentDesignContext: true,
     });
     if (!validation.ok) {
@@ -315,7 +316,10 @@ function routeCommand(options) {
         ...facts,
         reference: facts.reference ?? rfcSidecarPath,
         design_context: structuredClone(rfcSidecar.design_context),
-        work_units: rfcIssuesToDevWorkUnits(rfcSidecar, { repoRoot: rfcRepoRoot }),
+        work_units: rfcIssuesToDevWorkUnits(rfcSidecar, {
+          repoRoot: rfcRepoRoot,
+          previewSourceRoot: facts.preview_source_root,
+        }),
       };
     } catch (error) {
       throw cliError(error.message, EXIT.PRECONDITION);
@@ -330,6 +334,7 @@ function routeCommand(options) {
           const binding = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
             expectedSlug: session.slug,
             repoRoot: rfcRepoRoot,
+            previewSourceRoot: facts.preview_source_root,
             requireCurrentDesignContext: true,
           });
           if (!binding.ok) {

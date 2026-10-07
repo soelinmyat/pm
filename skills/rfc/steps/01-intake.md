@@ -48,3 +48,5 @@ Establish whether an RFC is warranted and persist complete, source-backed produc
 - The intake result is recorded and `rfc-session next` returns generation.
 
 **Advance:** proceed to Step 02 (RFC Generation).
+
+For `design_context.app_preview`, preserve an explicit `preview_source_root` selecting the isolated consumer worktree. Pass `--preview-source-root` to `artifact-worktree.js prepare`, proposal readers/checks and standalone RFC sidecar checks; exact source/fixture/launch/state verification must succeed before handoff. Never infer a consumer path from the artifact tree or quietly fall back to main when the approved app preview cannot be verified.
