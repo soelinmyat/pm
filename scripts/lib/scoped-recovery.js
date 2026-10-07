@@ -21,6 +21,12 @@ function recoveryRequiresDecision(recovery) {
   );
 }
 
+// A restored external prerequisite is proved by fresh current evidence. Product
+// and explicit scope/risk authority stays unresolved inside the same lineage.
+function recoveryRequiresAuthority(recovery) {
+  return recoveryRequiresDecision(recovery) && recovery?.classification !== "external-dependency";
+}
+
 function validateScopedRecovery(recovery, context = {}) {
   const issues = [];
   const at = context.path || "recovery";
@@ -72,6 +78,11 @@ function validateScopedRecovery(recovery, context = {}) {
       "scope_assessment",
       "a genuine dependency/product/scope-risk decision or unresolved dispute remains blocked"
     );
+  if (context.previousDecisionRequired && recovery.classification === "external-dependency")
+    add(
+      "classification",
+      "unresolved product/dispute/scope-risk authority cannot be reclassified as a restorable dependency"
+    );
   if (
     context.previousRecovery &&
     JSON.stringify(approach(context.previousRecovery)) === JSON.stringify(approach(recovery))
@@ -96,6 +107,7 @@ module.exports = {
   MAX_RECOVERY_ROUNDS,
   RECOVERY_POLICY,
   RECOVERY_THRESHOLDS,
+  recoveryRequiresAuthority,
   recoveryRequiresDecision,
   validateScopedRecovery,
 };

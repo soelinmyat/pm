@@ -49,6 +49,7 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 const {
   MAX_RECOVERY_ROUNDS,
   RECOVERY_POLICY,
+  recoveryRequiresAuthority,
   recoveryRequiresDecision,
   validateScopedRecovery,
 } = require("./lib/scoped-recovery");
@@ -582,7 +583,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
       "target.prior_report",
       issues
     );
-    if (object(target.recovery) && value) {
+    if (value) {
       let previousRecovery = null;
       if (object(value.target)) {
         const previousTarget = validateExactJsonBinding(
@@ -593,16 +594,29 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         );
         previousRecovery = previousTarget?.recovery;
       }
-      issues.push(
-        ...validateScopedRecovery(target.recovery, {
-          path: "target.recovery",
-          evidenceIds: (value.findings || []).map((finding) => finding.id),
-          previousRecovery,
-          previousDecisionRequired:
-            (value.unresolved_disagreements || []).length > 0 ||
-            (value.findings || []).some((finding) => finding.decision_required || finding.disputed),
-        })
-      );
+      const previousDecisionRequired =
+        recoveryRequiresAuthority(previousRecovery) ||
+        (value.unresolved_disagreements || []).length > 0 ||
+        (value.findings || []).some((finding) => finding.decision_required || finding.disputed);
+      if (
+        target.recovery === undefined &&
+        (recoveryRequiresAuthority(previousRecovery) ||
+          (target.recovery_policy === RECOVERY_POLICY && previousDecisionRequired))
+      )
+        add(
+          issues,
+          "target.recovery",
+          "unresolved predecessor decision authority requires retained diagnosis; omission cannot clear the trusted product-decision boundary"
+        );
+      if (object(target.recovery))
+        issues.push(
+          ...validateScopedRecovery(target.recovery, {
+            path: "target.recovery",
+            evidenceIds: (value.findings || []).map((finding) => finding.id),
+            previousRecovery,
+            previousDecisionRequired,
+          })
+        );
     }
     if (
       value &&

@@ -209,6 +209,15 @@ Unknown fields and ungrounded current/unknown evidence IDs fail. This verifies
 structure and retained observations; it does not establish the truth of a
 model-authored cause or independently grant authority.
 
+An external dependency may be restored through a changed approach grounded in
+the retained failure and fresh current checks. A predecessor product decision,
+scope/risk change, or other explicit `decision-required` scope assessment remains
+unresolved in the same run: diagnosis is required even below the normal threshold,
+and neither omission nor relabeling it as a restorable dependency clears authority.
+Use the existing explicit Dev product-decision version boundary and a new reviewed
+lineage when trusted direction changes the approved decision; a diagnosis never
+authenticates that direction.
+
 The immediately prior non-passing report is hash-bound, recursively checked
 against frozen Git and original upstream evidence, and belongs to the same run
 at round N−1. Current source must be a different descendant commit. Every new

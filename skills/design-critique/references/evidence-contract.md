@@ -438,6 +438,15 @@ threshold. A repeated normalized `change` and `next_check` is rejected. This
 structure supports grounded model judgment; it does not certify that a stated
 cause is true or create new permission.
 
+Validate each historical diagnosis against its immutable historical report,
+including that report's outcome. A dependency-blocked round does not force a
+later report to remain blocked after actual restoration and fresh current
+captures/reviews. Product decisions, scope/risk changes, and other explicit
+`decision-required` scope assessments remain unresolved within that lineage;
+omission, an in-scope claim, or relabeling them as a restorable dependency cannot
+substitute for trusted product direction. Preserve the original report and rows
+through restoration or a separately approved product decision.
+
 Continue authorized scoped repair with a fresh Primary/Fresh Eyes pair and
 strict capture/manifest/receipt chronology. Preserve the aggregate 2,000-capture,
 JSON/file/cache budgets and 50-round resource ceiling; report an actual resource

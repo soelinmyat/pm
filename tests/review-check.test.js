@@ -1158,7 +1158,9 @@ test("legacy targets cannot publish an authoritative final passing report", () =
 
 test("forged pre-binding and future target generators cannot publish a final pass", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
-  for (const version of ["1.13.21", "999.0.0", "1.13.022", "01.13.22", "1.013.22", "1.13.999"]) {
+  const [major, minor, patch] = PLUGIN_VERSION.split(".").map(Number);
+  const futureVersion = `${major}.${minor}.${patch + 1}`;
+  for (const version of ["1.13.21", futureVersion, "1.13.022", "01.13.22", "1.013.22"]) {
     const target = structuredClone(fixture.target);
     target.generator = { name: "pm:review", version };
     write(fixture.root, fixture.targetPath, target);
@@ -3925,6 +3927,175 @@ function advanceRecoveryReviewFixture(fixture, round, recoveryPath) {
       })),
     });
     return relative;
+  });
+}
+
+for (const [blockedRound, classification] of [
+  [2, "scope-risk-change"],
+  [4, "product-decision"],
+  [2, "product-defect"],
+  [2, "external-dependency"],
+]) {
+  test(`Review recovery preserves ${classification} authority after blocked round ${blockedRound}`, async (t) => {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    t.after(() => {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+      fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+    });
+    fixture.reportPath = fixture.roundReportPath;
+    fixture.htmlPath = fixture.roundHtmlPath;
+    const finding = { ...validFinding("bug"), fix_kind: "mechanical" };
+    setFindingForLens(fixture, "bug", finding);
+    for (let round = 1; round < blockedRound; round++) {
+      const checked = generate(fixture);
+      assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+      assert.equal(checked.report.outcome, "failed");
+      renderReviewReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        outputPath: fixture.htmlPath,
+      });
+      if (round + 1 < blockedRound) {
+        advanceRecoveryReviewFixture(fixture, round + 1);
+        setFindingForLens(fixture, "bug", finding);
+      }
+    }
+    const diagnosisPath = ".pm/decision-recovery.json";
+    const diagnosis = {
+      classification,
+      observed: "The retained contract finding exposes a prerequisite that needs resolution.",
+      cause: "The current recovery cannot safely certify the documented scope boundary.",
+      change: "Retain the non-passing report and obtain the required prerequisite resolution.",
+      next_check: "Independently check the restored prerequisite and current complete source diff.",
+      evidence_ids: [finding.id],
+      scope_assessment: "decision-required",
+    };
+    write(fixture.root, diagnosisPath, diagnosis);
+    advanceRecoveryReviewFixture(fixture, blockedRound, diagnosisPath);
+    setFindingForLens(fixture, "bug", finding);
+    const blocked = generate(fixture);
+    assert.equal(blocked.ok, true, JSON.stringify(blocked.issues));
+    assert.equal(blocked.report.outcome, "blocked");
+    assert.deepEqual(blocked.report.auto_fix_eligible, []);
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.reportPath,
+      outputPath: fixture.htmlPath,
+    });
+    const retainedPaths = [
+      fixture.targetPath,
+      fixture.reportPath,
+      fixture.htmlPath,
+      ...fixture.resultPaths,
+    ];
+    const retained = new Map(
+      retainedPaths.map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    const priorReportPath = fixture.reportPath;
+    const continued = {
+      ...diagnosis,
+      change:
+        "Keep the unresolved decision explicit while checking a new scoped source correction.",
+      next_check: "Run all independent current lenses and retain a blocked decision report.",
+    };
+    write(fixture.root, diagnosisPath, continued);
+    advanceRecoveryReviewFixture(fixture, blockedRound + 1, diagnosisPath);
+    const roundReportPath = fixture.reportPath;
+    const roundHtmlPath = fixture.htmlPath;
+    fixture.reportPath = ".pm/dev-sessions/example/review/report.json";
+    fixture.htmlPath = ".pm/dev-sessions/example/review/report.html";
+    const currentTarget = structuredClone(fixture.target);
+    const options = {
+      root: fixture.root,
+      maxWorkers: 3,
+      profile: "codex-workhorse",
+      runId: "review-test",
+      round: blockedRound + 1,
+      priorReportPath,
+    };
+    const rebind = (recovery, omitPolicy = false) => {
+      const target = structuredClone(currentTarget);
+      if (recovery === undefined) delete target.recovery;
+      else target.recovery = recovery;
+      if (omitPolicy) delete target.recovery_policy;
+      write(fixture.root, fixture.targetPath, target);
+      for (const file of fixture.resultPaths) {
+        const result = JSON.parse(fs.readFileSync(path.join(fixture.root, file), "utf8"));
+        result.target = binding(fixture.root, fixture.targetPath);
+        write(fixture.root, file, result);
+      }
+    };
+    const relabeled = {
+      ...continued,
+      classification: "product-defect",
+      scope_assessment: "within-approved-scope",
+      change: "The prerequisite is restored; correct only the accepted source behavior.",
+      next_check: "Check fresh independent evidence for the corrected complete source diff.",
+    };
+    write(fixture.root, diagnosisPath, relabeled);
+    if (classification === "external-dependency") {
+      assert.doesNotThrow(() => buildReviewTarget({ ...options, recoveryPath: diagnosisPath }));
+      rebind(relabeled);
+      const restored = generate(fixture);
+      assert.equal(restored.ok, true, JSON.stringify(restored.issues));
+      assert.equal(
+        restored.report.outcome,
+        "passed",
+        "fresh checks may certify a restored external dependency"
+      );
+    } else {
+      await t.test("producer refuses relabeling and omission", () => {
+        assert.throws(
+          () => buildReviewTarget({ ...options, recoveryPath: diagnosisPath }),
+          /decision|authority|scope/i,
+          "producer cannot erase prior risk authority by relabeling recovery"
+        );
+        assert.throws(
+          () => buildReviewTarget(options),
+          /decision|authority|recovery/i,
+          "omitting diagnosis cannot clear authority, including below the normal threshold"
+        );
+      });
+      for (const [name, variant] of [
+        ["relabeling", relabeled],
+        ["omission", undefined],
+        ["risk-to-dependency laundering", { ...continued, classification: "external-dependency" }],
+      ])
+        await t.test(`checker refuses ${name}`, () => {
+          rebind(variant);
+          const rejected = generate(fixture);
+          assert.equal(
+            rejected.ok,
+            false,
+            "checker must preserve unresolved predecessor authority"
+          );
+          assert.match(JSON.stringify(rejected.issues), /decision|authority|recovery/i);
+        });
+      if (blockedRound === 2)
+        await t.test("omitting policy cannot disguise authority as legacy", () => {
+          rebind(undefined, true);
+          const rejected = generate(fixture);
+          assert.equal(rejected.ok, false);
+          assert.match(JSON.stringify(rejected.issues), /decision authority/);
+        });
+      write(fixture.root, diagnosisPath, { ...continued, classification: "external-dependency" });
+      assert.throws(
+        () => buildReviewTarget({ ...options, recoveryPath: diagnosisPath }),
+        /decision|authority|scope/i
+      );
+      rebind(continued);
+      fixture.reportPath = roundReportPath;
+      fixture.htmlPath = roundHtmlPath;
+      const stillBlocked = generate(fixture);
+      assert.equal(stillBlocked.ok, true, JSON.stringify(stillBlocked.issues));
+      assert.equal(stillBlocked.report.outcome, "blocked");
+    }
+    for (const [file, bytes] of retained)
+      assert.deepEqual(
+        fs.readFileSync(path.join(fixture.root, file)),
+        bytes,
+        "predecessor remains immutable"
+      );
   });
 }
 
