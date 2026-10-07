@@ -3711,6 +3711,31 @@ for (const occluded of [false, true]) {
   );
 }
 
+for (const cover of ["none", "sibling", "nested"]) {
+  test(`browser native StaticText guard: ${cover}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const overlay =
+      '<span style="position:absolute;inset:0;background:black;z-index:2">Actual cover</span>';
+    const text = `<p style="position:relative">No unassigned assets${cover === "nested" ? overlay : ""}</p>`;
+    html = html.replace(
+      "<p>Stable product evidence.</p>",
+      cover === "sibling" ? `<div style="position:relative">${text}${overlay}</div>` : text
+    );
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    fixture.stateAssertion.all.push({
+      locator: { by: "role-name", value: "statictext:No unassigned assets" },
+      expect: { kind: "visible" },
+    });
+    try {
+      if (cover === "none") assert.equal(runBrowserCapture(fixture).assertion_passed, true);
+      else assert.throws(() => runBrowserCapture(fixture), /fully occluded/);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const variant of [
   "single",
   "multiple",
@@ -3784,6 +3809,165 @@ for (const variant of ["working", "broken", "changed"]) {
       assert.equal(options.length, 3);
       for (const option of options)
         assert.equal(option.focus_context, variant === "working" ? "composite" : "document");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of [
+  "controlled",
+  "nested",
+  "foreground-defect",
+  "parallel-foreground-defect",
+  "button-owner",
+  "menuitem-owner",
+  "modal-popup",
+  "unowned",
+  "ambiguous",
+  "collapsed",
+  "wrong-type",
+  "outside-owner",
+  "cycle",
+  "cycle-in-modal",
+]) {
+  test(`browser native modal popup ownership: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const controller = (id, target, label = "Assets") =>
+      `<button id="${id}" aria-label="${label}" role="${variant === "button-owner" ? "button" : variant === "menuitem-owner" ? "menuitem" : "combobox"}" aria-haspopup="${variant === "wrong-type" ? "listbox" : "dialog"}" aria-expanded="${variant === "collapsed" ? "false" : "true"}"${target ? ` aria-controls="${target}"` : ""}>${label}</button>`;
+    const target =
+      variant === "nested"
+        ? "middle-popup"
+        : variant === "unowned" || variant === "cycle" || variant === "cycle-in-modal"
+          ? null
+          : "assets-popup";
+    const owner = controller("assets-owner", target);
+    html = html.replace(
+      '<main id="account"',
+      '<main aria-hidden="true"><p>Background</p></main><div role="dialog" aria-modal="true" aria-label="Assign assets" style="max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px" id="account"'
+    );
+    html = html.replace(
+      "<button>Save changes</button>",
+      `<button>Save changes</button>${variant === "outside-owner" ? "" : owner}${variant === "ambiguous" ? controller("other-owner", "assets-popup", "Other assets") : ""}${variant === "parallel-foreground-defect" ? controller("parallel-owner", "parallel-popup", "Other assets") : ""}`
+    );
+    const ending = html.lastIndexOf("</main>");
+    const middle =
+      variant === "nested" || variant === "cycle" || variant === "cycle-in-modal"
+        ? `<div role="dialog" aria-label="Picker details" id="middle-popup">${controller("middle-owner", "assets-popup", "Choose assets")}</div>`
+        : "";
+    const popup = `<div role="dialog" aria-label="Assets" id="assets-popup"${variant === "modal-popup" ? ' aria-modal="true"' : ""} style="position:fixed;left:650px;top:400px;width:300px;padding:12px;background:white;z-index:3"><label>Search unassigned assets<input id="popup-search"></label><p>No unassigned assets</p>${variant === "foreground-defect" ? '<h3 id="popup-warning" style="font-size:13px">Warning</h3><p style="font-size:36px">64.4%</p>' : ""}${variant === "cycle" || variant === "cycle-in-modal" ? controller("cycle-owner", "middle-popup", "Picker details") : ""}</div>`;
+    html =
+      html.slice(0, ending) +
+      `${variant === "cycle-in-modal" ? middle : ""}</div>${variant === "outside-owner" ? owner : ""}${variant === "cycle-in-modal" ? "" : middle}${popup}${variant === "parallel-foreground-defect" ? '<div id="parallel-popup" role="dialog" aria-label="Other assets" style="position:fixed;left:650px;top:100px;width:300px;background:white"><h3 style="font-size:13px">Warning</h3><p style="font-size:36px">64.4%</p></div>' : ""}<script>document.getElementById("popup-search").focus()</script>` +
+      html.slice(ending + 7);
+    html = html.replace("<header><h1>", "<div><h1>").replace("</h1></header>", "</h1></div>");
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      const observed = result.accessibility_observations;
+      const modal = observed.dialogs.find((item) => item.name === "Assign assets");
+      assert.equal(modal.modal, true);
+      const owned = [
+        "controlled",
+        "nested",
+        "button-owner",
+        "menuitem-owner",
+        "foreground-defect",
+        "parallel-foreground-defect",
+      ].includes(variant);
+      assert.equal(modal.contains_focus, owned, JSON.stringify(observed.dialogs));
+      if (variant === "foreground-defect" || variant === "parallel-foreground-defect")
+        assert(
+          result.dom_observations.hierarchy.some(
+            (item) => item.code === "body-exceeds-heading" && item.locator === "h3"
+          ),
+          JSON.stringify(result.dom_observations.hierarchy)
+        );
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["modal-popup"],
+          observations: observed,
+        },
+        { path: "raw.json", sha256: "a".repeat(64) }
+      );
+      assert.equal(
+        audit.checks.landmarks,
+        owned || variant === "modal-popup",
+        JSON.stringify(audit)
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["unowned-wrapper-cycle", "modal-ancestor-cycle", "nested-modal-boundary"]) {
+  test(`browser native popup ownership boundary: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const controller = (id, target) =>
+      `<button id="${id}" aria-label="Choose assets" role="combobox" aria-haspopup="dialog" aria-expanded="true" aria-controls="${target}">Choose assets</button>`;
+    html = html.replace(
+      '<main id="account"',
+      '<main aria-hidden="true"><p>Background</p></main><div role="dialog" aria-modal="true" aria-label="Assign assets" id="account"'
+    );
+    html = html.replace("<header><h1>", "<div><h1>").replace("</h1></header>", "</h1></div>");
+    html = html.replace(
+      "<button>Save changes</button>",
+      `<button>Save changes</button>${variant === "nested-modal-boundary" ? controller("assets-owner", "assets-popup") : variant === "unowned-wrapper-cycle" ? `<div role="dialog" aria-label="Picker details" id="middle-popup">${controller("middle-owner", "assets-popup")}</div>` : ""}`
+    );
+    const popupContents =
+      variant === "unowned-wrapper-cycle"
+        ? `<input aria-label="Search assets" id="popup-search"><div role="dialog" aria-label="Unowned wrapper">${controller("cycle-owner", "middle-popup")}</div>`
+        : variant === "modal-ancestor-cycle"
+          ? `<input aria-label="Search assets" id="popup-search"><div role="dialog" aria-modal="true" aria-label="Separate modal">${controller("cycle-owner", "assets-popup")}</div>`
+          : `<h3 style="font-size:13px">Outside warning</h3><p style="font-size:36px">64.4%</p><div role="dialog" aria-modal="true" aria-label="Separate modal"><h2>Confirm assets</h2><input aria-label="Confirmation" id="popup-search"></div>`;
+    const ending = html.lastIndexOf("</main>");
+    html =
+      html.slice(0, ending) +
+      `</div><div role="dialog" aria-label="Assets" id="assets-popup" style="position:fixed;left:650px;top:300px;width:300px;padding:12px;background:white;z-index:3">${popupContents}</div><script>document.getElementById("popup-search").focus()</script>` +
+      html.slice(ending + 7);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      const observed = result.accessibility_observations;
+      const active = observed.dialogs
+        .filter((item) => item.modal && item.contains_focus)
+        .map((item) => item.name);
+      assert.deepEqual(
+        active,
+        variant === "nested-modal-boundary" ? ["Separate modal"] : [],
+        JSON.stringify(observed.dialogs)
+      );
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["popup-boundary"],
+          observations: observed,
+        },
+        { path: "raw.json", sha256: "a".repeat(64) }
+      );
+      assert.equal(
+        audit.checks.landmarks,
+        variant === "nested-modal-boundary",
+        JSON.stringify(audit)
+      );
+      if (variant === "nested-modal-boundary")
+        assert.equal(
+          result.dom_observations.hierarchy.some(
+            (item) => item.code === "body-exceeds-heading" && item.locator === "h3"
+          ),
+          false,
+          JSON.stringify(result.dom_observations.hierarchy)
+        );
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }

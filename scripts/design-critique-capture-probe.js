@@ -740,6 +740,174 @@ function compositeKeyboardCandidates(axTree, model) {
   );
 }
 
+function extendOwnedPopupFocus(axTree, byBackendId, axById, focusedAncestors, controlRoles) {
+  const popupRoles = new Set(["dialog", "alertdialog", "listbox", "menu", "tree", "grid"]);
+  const axByBackendId = new Map(
+    (axTree.nodes || [])
+      .filter((node) => node.ignored !== true && Number.isInteger(node.backendDOMNodeId))
+      .map((node) => [node.backendDOMNodeId, node])
+  );
+  const owners = new Map();
+  for (const owner of axTree.nodes || []) {
+    const properties = axProperties(owner);
+    if (
+      owner.ignored === true ||
+      !byBackendId.has(owner.backendDOMNodeId) ||
+      !controlRoles.has(String(valueOf(owner.role) || "").toLowerCase()) ||
+      properties.get("expanded") !== true
+    )
+      continue;
+    const controls = (owner.properties || []).find((item) => item.name === "controls");
+    for (const target of controls?.value?.relatedNodes || []) {
+      const popup = axByBackendId.get(target.backendDOMNodeId);
+      const role = String(valueOf(popup?.role) || "").toLowerCase();
+      if (
+        !popupRoles.has(role) ||
+        properties.get("hasPopup") !== role ||
+        axProperties(popup).get("modal") === true ||
+        !byBackendId.has(target.backendDOMNodeId)
+      )
+        continue;
+      if (!owners.has(target.backendDOMNodeId)) owners.set(target.backendDOMNodeId, owner);
+      else if (owners.get(target.backendDOMNodeId)?.nodeId !== owner.nodeId)
+        owners.set(target.backendDOMNodeId, null);
+    }
+  }
+
+  const physicalModals = new Map();
+  const physicalModal = (owner) => {
+    const path = [],
+      seen = new Set();
+    let current = owner,
+      result = null;
+    while (current && !seen.has(current.nodeId)) {
+      seen.add(current.nodeId);
+      if (physicalModals.has(current.nodeId)) {
+        result = physicalModals.get(current.nodeId);
+        break;
+      }
+      if (
+        ["dialog", "alertdialog"].includes(String(valueOf(current.role) || "").toLowerCase()) &&
+        axProperties(current).get("modal") === true
+      ) {
+        result = current.backendDOMNodeId;
+        break;
+      }
+      path.push(current.nodeId);
+      current = axById.get(current.parentId);
+    }
+    for (const id of path) physicalModals.set(id, result);
+    return result;
+  };
+  // Physical ancestry and controls ownership form one graph. Include both
+  // edges so unowned wrappers and modal boundaries cannot hide a cycle.
+  const nearestPopup = new Map();
+  const popupParent = (node) => {
+    const path = [],
+      seen = new Set();
+    let current = axById.get(node.parentId),
+      result = null;
+    while (current && !seen.has(current.nodeId)) {
+      seen.add(current.nodeId);
+      if (nearestPopup.has(current.nodeId)) {
+        result = nearestPopup.get(current.nodeId);
+        break;
+      }
+      if (owners.get(current.backendDOMNodeId)) {
+        result = current;
+        break;
+      }
+      path.push(current.nodeId);
+      current = axById.get(current.parentId);
+    }
+    for (const id of path) nearestPopup.set(id, result);
+    return result;
+  };
+  const graph = new Map();
+  for (const [id, owner] of owners) {
+    graph.set(
+      id,
+      owner
+        ? [
+            ...new Set(
+              [
+                popupParent(owner)?.backendDOMNodeId,
+                popupParent(axByBackendId.get(id))?.backendDOMNodeId,
+              ].filter((parent) => owners.get(parent))
+            ),
+          ]
+        : []
+    );
+  }
+  const checked = new Set(),
+    cyclic = new Set(),
+    visiting = new Set();
+  for (const id of owners.keys()) {
+    if (checked.has(id)) continue;
+    const stack = [{ id, next: 0, unsafe: false }];
+    visiting.add(id);
+    while (stack.length) {
+      const frame = stack[stack.length - 1],
+        parents = graph.get(frame.id);
+      if (frame.next < parents.length) {
+        const parent = parents[frame.next++];
+        if (visiting.has(parent) || cyclic.has(parent)) frame.unsafe = true;
+        else if (!checked.has(parent)) {
+          visiting.add(parent);
+          stack.push({ id: parent, next: 0, unsafe: false });
+        }
+      } else {
+        stack.pop();
+        visiting.delete(frame.id);
+        checked.add(frame.id);
+        if (frame.unsafe) {
+          cyclic.add(frame.id);
+          if (stack.length) stack[stack.length - 1].unsafe = true;
+        }
+      }
+    }
+  }
+
+  const focusedModal = [...focusedAncestors]
+    .map((id) => axById.get(id))
+    .find((node) => physicalModal(node) === node?.backendDOMNodeId);
+  const queue = [...focusedAncestors].filter(
+    (id) => !focusedModal || physicalModal(axById.get(id)) === focusedModal.backendDOMNodeId
+  );
+  for (let index = 0; index < queue.length; index += 1) {
+    const popup = axById.get(queue[index]);
+    const owner = cyclic.has(popup?.backendDOMNodeId) ? null : owners.get(popup?.backendDOMNodeId);
+    if (focusedModal && physicalModal(owner) !== focusedModal.backendDOMNodeId) continue;
+    for (
+      let current = owner;
+      current && !focusedAncestors.has(current.nodeId);
+      current = axById.get(current.parentId)
+    ) {
+      focusedAncestors.add(current.nodeId);
+      queue.push(current.nodeId);
+      if (physicalModal(current) === current.backendDOMNodeId) break;
+    }
+  }
+  // Other expanded popups owned by the same modal are foreground too, even
+  // when focus is in a sibling popup. Retain their modal membership for DOM QA.
+  const popupModals = new Map();
+  for (const id of owners.keys()) {
+    const path = [];
+    let current = id,
+      result = null;
+    while (owners.get(current) && !cyclic.has(current) && !popupModals.has(current)) {
+      path.push(current);
+      const owner = owners.get(current);
+      result = physicalModal(owner);
+      if (result !== null) break;
+      current = popupParent(owner)?.backendDOMNodeId;
+    }
+    if (popupModals.has(current)) result = popupModals.get(current);
+    for (const item of path) popupModals.set(item, result);
+  }
+  return popupModals;
+}
+
 function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set()) {
   const byBackendId = new Map(
     model
@@ -793,6 +961,13 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
     "combobox",
     "searchbox",
   ]);
+  const popupModalOwners = extendOwnedPopupFocus(
+    axTree,
+    byBackendId,
+    axById,
+    focusedAncestors,
+    controlRoles
+  );
   for (const axNode of axTree.nodes || []) {
     if (axNode.ignored === true || !Number.isInteger(axNode.backendDOMNodeId)) continue;
     const role = String(valueOf(axNode.role) || "").toLowerCase();
@@ -861,6 +1036,13 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
     controlBackendNodeIds,
     focusedBackendNodeIds,
     activeModalBackendNodeId: activeModalBackendIds.length === 1 ? activeModalBackendIds[0] : null,
+    activeModalPopupBackendNodeIds: new Set(
+      [...popupModalOwners.entries()]
+        .filter(
+          ([, modal]) => activeModalBackendIds.length === 1 && modal === activeModalBackendIds[0]
+        )
+        .map(([id]) => id)
+    ),
   };
 }
 
@@ -1460,7 +1642,11 @@ async function verifyAssertionHitTargets(
             `${error.message} (${requirement.label}, x=${point.x}, y=${point.y}, scroll=${pageX},${pageY})`
           );
         });
-      if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
+      // Native hit-testing returns a text node's author element host. Accept
+      // that exact host, but never an overlay descended from the same element.
+      const textHost = requirement.node.nodeType === 3 ? model[requirement.node.parentIndex] : null;
+      const textHostHit = textHost?.nodeType === 1 && hit.backendNodeId === textHost.backendNodeId;
+      if (textHostHit || isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
         accepted.push({ ...point, backend_node_id: hit.backendNodeId });
     }
     if (accepted.length === 0) throw new Error(`${requirement.label} is fully occluded`);
@@ -1719,7 +1905,8 @@ function domObservations(
   visibilityEvaluator = null,
   viewport = metrics.cssLayoutViewport,
   activeModalBackendNodeId = null,
-  focusedBackendNodeIds = new Set()
+  focusedBackendNodeIds = new Set(),
+  activePopupBackendNodeIds = new Set()
 ) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
@@ -1816,6 +2003,12 @@ function domObservations(
     activeModalBackendNodeId === null
       ? null
       : model.find((node) => node.backendNodeId === activeModalBackendNodeId);
+  const modalRoots = new Set([
+    modalRoot,
+    ...(activePopupBackendNodeIds.size
+      ? model.filter((node) => activePopupBackendNodeIds.has(node.backendNodeId))
+      : []),
+  ]);
   const inModal = new Map();
   const withinTypographyScope = (node) => {
     if (!modalRoot) return true;
@@ -1824,8 +2017,8 @@ function domObservations(
     let current = node;
     let included = false;
     while (current && !seen.has(current.index)) {
-      if (current === modalRoot || inModal.has(current.index)) {
-        included = current === modalRoot || inModal.get(current.index);
+      if (modalRoots.has(current) || inModal.has(current.index)) {
+        included = modalRoots.has(current) || inModal.get(current.index);
         break;
       }
       seen.add(current.index);
@@ -2854,7 +3047,8 @@ async function nativeSample(
       visibilityEvaluator,
       viewport,
       accessibility.activeModalBackendNodeId,
-      accessibility.focusedBackendNodeIds
+      accessibility.focusedBackendNodeIds,
+      accessibility.activeModalPopupBackendNodeIds
     ),
   };
 }
