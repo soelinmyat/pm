@@ -417,6 +417,12 @@ function validateDesignContext(context, label = "design_context", options = {}) 
       throw new Error(`${label}.app_preview requires ui_impact true and prototype null`);
     }
     validateAppPreviewIdentity(context.app_preview, `${label}.app_preview`);
+    const observedStates = new Set(
+      context.app_preview.journeys.flatMap((journey) => journey.required_states)
+    );
+    for (const state of context.critical_states)
+      if (!observedStates.has(state))
+        throw new Error(`${label}.app_preview lacks the declared critical state ${state}`);
     if (options.repoRoot) verifyAppPreviewIdentity(context.app_preview, options);
   }
   if (prototype === null) return context;

@@ -12,3 +12,5 @@ For product UI, use the task-first journey and composition method in
 `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-judgment.md`. Keep existing
 evidence and ownership contracts; do not substitute capture counts for usability
 judgment.
+
+Beyond the visual diagnosis threshold, continue scoped recovery with immutable earlier reports/captures and a changed approach. Historical evidence keeps its original source; active captures and final conclusions must be fresh for the current source. A counter alone does not request product reapproval.

@@ -544,6 +544,7 @@ function validateTask(task, errors) {
     "rfc_sidecar",
     "proposal",
     "design_context",
+    "preview_source_root",
     "kind",
     "size",
     "risk",
@@ -563,6 +564,7 @@ function validateTask(task, errors) {
         "rfc_contract_history",
         "proposal",
         "design_context",
+        "preview_source_root",
         "non_behavioral_reason",
         "ui_platform",
       ]).has(field)
@@ -620,6 +622,13 @@ function validateTask(task, errors) {
       errors.push(issue("$.task.native", error.message));
     }
   }
+  if (
+    task.preview_source_root !== undefined &&
+    (typeof task.preview_source_root !== "string" || !path.isAbsolute(task.preview_source_root))
+  )
+    errors.push(
+      issue("$.task.preview_source_root", "must be an explicitly selected absolute worktree path")
+    );
   validateRfcContractHistory(task.rfc_contract_history, errors);
   validateProposalIdentity(task.proposal, errors);
   if (task.design_context !== undefined && task.design_context !== null) {
@@ -635,7 +644,10 @@ function validateTask(task, errors) {
     } else {
       try {
         const repoRoot = task.native?.snapshot_root || findGitRoot(path.dirname(contractPath));
-        validateDesignContext(task.design_context, "task design_context", { repoRoot });
+        validateDesignContext(task.design_context, "task design_context", {
+          repoRoot,
+          previewSourceRoot: task.preview_source_root,
+        });
       } catch (error) {
         errors.push(issue("$.task.design_context", error.message));
       }
@@ -674,7 +686,11 @@ function validateTask(task, errors) {
       const repoRoot =
         task.native?.snapshot_root ||
         (contractPath ? findGitRoot(path.dirname(contractPath)) : null);
-      validateWorkUnits(task.work_units, { persisted: true, repoRoot });
+      validateWorkUnits(task.work_units, {
+        persisted: true,
+        repoRoot,
+        previewSourceRoot: task.preview_source_root,
+      });
     } catch (error) {
       errors.push(issue("$.task.work_units", error.message));
     }
@@ -1597,6 +1613,7 @@ function validateReadinessEvidence(session, result, errors) {
       sidecarHash: `sha256:${sha256Hex(sidecarBytes)}`,
       repoRoot: findGitRoot(path.dirname(sidecarPath)),
       requireCurrentDesignContext: true,
+      previewSourceRoot: session.task.preview_source_root,
     });
     if (!validation.ok) {
       errors.push(
@@ -1627,6 +1644,7 @@ function validateReadinessEvidence(session, result, errors) {
           artifactRepoRoot,
           devContext: session.task.design_context,
           sidecarContext: sidecar.design_context,
+          previewSourceRoot: session.task.preview_source_root,
         },
         errors
       );
@@ -1637,7 +1655,7 @@ function validateReadinessEvidence(session, result, errors) {
 }
 
 function validateRfcReadinessDesignContext(
-  { archived, artifactRepoRoot, devContext, sidecarContext },
+  { archived, artifactRepoRoot, devContext, sidecarContext, previewSourceRoot },
   errors
 ) {
   const contexts = [
@@ -1657,6 +1675,7 @@ function validateRfcReadinessDesignContext(
     try {
       validateDesignContext(context, `${label} design_context`, {
         repoRoot: artifactRepoRoot,
+        previewSourceRoot: previewSourceRoot || archived.context?.preview_source_root,
         requireCurrentPrototypeIdentity: true,
         requireExperienceClassification: true,
       });
@@ -2182,6 +2201,12 @@ function applyRouting(session, facts, options = {}) {
   if (session.status !== "active" || session.phase !== "intake") {
     throw new Error("routing can only be recorded during an active intake phase");
   }
+  const previewSourceRoot = facts.preview_source_root;
+  if (
+    previewSourceRoot !== undefined &&
+    (typeof previewSourceRoot !== "string" || !path.isAbsolute(previewSourceRoot))
+  )
+    throw new Error("preview_source_root must be an explicitly selected absolute worktree path");
   let effectiveFacts = facts;
   let proposalIdentity = null;
   let proposalDesignContext = null;
@@ -2190,6 +2215,7 @@ function applyRouting(session, facts, options = {}) {
     const projectRoot = fs.realpathSync(findGitRoot(path.dirname(proposalPath)));
     const canonical = readApprovedProposal(proposalPath, {
       projectRoot,
+      previewSourceRoot,
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
     });
@@ -2257,6 +2283,7 @@ function applyRouting(session, facts, options = {}) {
     const contractPath =
       session.task.native?.snapshot_root || options.rfcSidecar?.path || proposalIdentity?.path;
     validateDesignContext(effectiveDesignContext, "Dev design_context", {
+      previewSourceRoot,
       repoRoot:
         session.task.native?.snapshot_root ||
         (contractPath ? findGitRoot(path.dirname(contractPath)) : undefined),
@@ -2282,6 +2309,9 @@ function applyRouting(session, facts, options = {}) {
   const route = routeDevWork(effectiveFacts);
   const next = structuredClone(session);
   next.task.reference = effectiveFacts.reference ?? next.task.reference;
+  if (previewSourceRoot !== undefined)
+    next.task.preview_source_root = fs.realpathSync(previewSourceRoot);
+  else delete next.task.preview_source_root;
   next.task.proposal = proposalIdentity;
   next.task.design_context = effectiveDesignContext
     ? structuredClone(effectiveDesignContext)
@@ -2327,6 +2357,7 @@ function applyRouting(session, facts, options = {}) {
       }
     }
     validateWorkUnits(workUnits, {
+      previewSourceRoot,
       repoRoot:
         session.task.native?.snapshot_root ||
         (contractPath ? findGitRoot(path.dirname(contractPath)) : null),
@@ -3016,12 +3047,14 @@ function nextDecision(session, sessionPath = null, options = {}) {
   verifyRfcSidecarIdentity(
     session.task.rfc_sidecar,
     session.task.design_context,
-    session.task.work_units
+    session.task.work_units,
+    { previewSourceRoot: session.task.preview_source_root }
   );
   verifyProposalIdentity(
     session.task.proposal,
     session.task.design_context,
-    session.task.work_units
+    session.task.work_units,
+    { previewSourceRoot: session.task.preview_source_root }
   );
   const metadata = resolvePhaseContract(session, options);
   return {
@@ -3050,7 +3083,7 @@ function nextDecision(session, sessionPath = null, options = {}) {
   };
 }
 
-function verifyProposalIdentity(identity, expectedDesignContext, workUnits = []) {
+function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [], options = {}) {
   if (!identity) return;
   let projectRoot;
   try {
@@ -3062,6 +3095,7 @@ function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [])
   try {
     trusted = readApprovedProposal(identity.path, {
       projectRoot,
+      previewSourceRoot: options.previewSourceRoot,
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
       expectedDecision:
@@ -3112,7 +3146,7 @@ function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [])
     );
 }
 
-function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = []) {
+function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [], options = {}) {
   if (!identity) return;
   let bytes;
   try {
@@ -3140,6 +3174,7 @@ function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [
   const validation = validateRfcSidecar(sidecar, identity.path, {
     expectedSlug: identity.slug,
     expectedDesignContext,
+    previewSourceRoot: options.previewSourceRoot,
     repoRoot: findGitRoot(path.dirname(identity.path)),
     requireCurrentDesignContext: true,
   });
@@ -3213,13 +3248,16 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     );
   }
   if (observed === bound.sha256) {
-    verifyRfcSidecarIdentity(bound, session.task.design_context, session.task.work_units);
+    verifyRfcSidecarIdentity(bound, session.task.design_context, session.task.work_units, {
+      previewSourceRoot: session.task.preview_source_root,
+    });
     return { session, idempotent: true, entry: null };
   }
   verifyRfcSidecarIdentity(
     { ...bound, sha256: observed },
     session.task.design_context,
-    session.task.work_units
+    session.task.work_units,
+    { previewSourceRoot: session.task.preview_source_root }
   );
   const sidecar = JSON.parse(bytes.toString("utf8"));
   const repoRoot = findGitRoot(path.dirname(bound.path));
@@ -3235,7 +3273,10 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
       `RFC approval covers ${verified.sidecar_sha256}, not the observed RFC sidecar ${observed}; retry rebind-rfc once the sidecar is stable`
     );
   }
-  const rebuilt = rfcIssuesToDevWorkUnits(sidecar, { repoRoot });
+  const rebuilt = rfcIssuesToDevWorkUnits(sidecar, {
+    repoRoot,
+    previewSourceRoot: session.task.preview_source_root,
+  });
   const current = session.task.work_units;
   if (
     rebuilt.length !== current.length ||
@@ -3327,7 +3368,9 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
   next.task.rfc_sidecar = { ...bound, sha256: observed };
   next.task.rfc_contract_history = [...(session.task.rfc_contract_history || []), entry];
   assertValidSession(next);
-  verifyRfcSidecarIdentity(next.task.rfc_sidecar, next.task.design_context, next.task.work_units);
+  verifyRfcSidecarIdentity(next.task.rfc_sidecar, next.task.design_context, next.task.work_units, {
+    previewSourceRoot: next.task.preview_source_root,
+  });
   return { session: next, idempotent: false, entry };
 }
 

@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { validateDesignContext } = require("./dev-work-units.js");
+const { validateValueDecision } = require("./value-decision.js");
 const { createProjectRootAnchor, readProjectInput } = require("./project-file.js");
 const {
   normalizeReviewText,
@@ -273,7 +274,7 @@ function validateProposal(proposal, options = {}) {
   if (
     closed(
       proposal.decision_brief,
-      ["problem", "recommendation", "why_now"],
+      ["problem", "recommendation", "why_now", "value_decision"],
       `${at}.decision_brief`,
       issues
     )
@@ -281,6 +282,15 @@ function validateProposal(proposal, options = {}) {
     for (const field of ["problem", "recommendation", "why_now"])
       requiredString(proposal.decision_brief[field], `${at}.decision_brief.${field}`, issues);
   }
+  const valueDecision = validateValueDecision(proposal.decision_brief?.value_decision, {
+    path: `${at}.decision_brief.value_decision`,
+    evidenceIds: Array.isArray(proposal.evidence) ? proposal.evidence.map((row) => row?.id) : [],
+    assumptionIds: Array.isArray(proposal.assumptions)
+      ? proposal.assumptions.map((row) => row?.id)
+      : [],
+    required: options.requireValueDecision === true,
+  });
+  issues.push(...valueDecision.issues);
 
   const audienceIds = rows(
     proposal.audience,
@@ -434,6 +444,8 @@ function validateProposal(proposal, options = {}) {
         repoRoot: options.projectRoot,
         requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
         requireExperienceClassification: options.requireExperienceClassification,
+        previewSourceRoot: options.previewSourceRoot,
+        previewSourceRoots: options.previewSourceRoots,
       });
       const requirements = Array.isArray(proposal.design_requirements)
         ? proposal.design_requirements.map((entry) => entry?.requirement)
@@ -1926,6 +1938,9 @@ function executionContract(proposal) {
       lifecycle: proposal.lifecycle,
       title: proposal.title,
       outcome: proposal.outcome,
+      ...(proposal.decision_brief.value_decision
+        ? { value_decision: structuredClone(proposal.decision_brief.value_decision) }
+        : {}),
       size: proposal.size,
       scope: proposal.scope,
       requirements: proposal.requirements,
@@ -1952,6 +1967,9 @@ function readApprovedProposal(filePath, options = {}) {
     allowedHistoricalLineage: options.allowedHistoricalLineage,
     requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
     requireExperienceClassification: options.requireExperienceClassification,
+    requireValueDecision: options.requireValueDecision,
+    previewSourceRoot: options.previewSourceRoot,
+    previewSourceRoots: options.previewSourceRoots,
   });
   if (!source.reviewContractBound) {
     throw new Error(
@@ -2203,6 +2221,9 @@ function readProposal(filePath, options = {}) {
       allowedHistoricalLineage: options.allowedHistoricalLineage,
       requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
       requireExperienceClassification: options.requireExperienceClassification,
+      requireValueDecision: options.requireValueDecision,
+      previewSourceRoot: options.previewSourceRoot,
+      previewSourceRoots: options.previewSourceRoots,
     });
     if (!result.ok)
       throw new Error(

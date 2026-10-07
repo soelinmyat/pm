@@ -10,6 +10,7 @@ const { markdownTableValue } = require("./session-scan.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { validateDesignContext } = require("./dev-work-units.js");
+const { validateValueDecision } = require("./value-decision.js");
 const { PROFILES: GROOM_MODEL_PROFILES } = require("./groom-runtime-profile.js");
 const {
   REVIEW_QUESTIONS,
@@ -82,6 +83,8 @@ const AUTHORITY_ACTIONS = ["tracker_create", "open_browser", "start_rfc", "exter
 function createSession(options) {
   if (!options?.slug || !options?.sourceDir)
     throw new Error("createSession requires slug and sourceDir");
+  if (options.productContractVersion !== undefined && options.productContractVersion !== 1)
+    throw new Error("productContractVersion must be 1 when supplied");
   const tier = options.tier || "standard";
   if (!ROUTES[tier]) throw new Error(`unknown Groom tier: ${tier}`);
   const sourceDir = path.resolve(options.sourceDir);
@@ -109,6 +112,7 @@ function createSession(options) {
     },
     context: {
       configured: false,
+      ...(options.productContractVersion === 1 ? { product_contract_version: 1 } : {}),
       tier,
       title: null,
       outcome: null,
@@ -210,6 +214,9 @@ function applyContext(session, facts, options = {}) {
   const next = structuredClone(session);
   next.context = {
     configured: true,
+    ...(Object.hasOwn(session.context, "product_contract_version")
+      ? { product_contract_version: session.context.product_contract_version }
+      : {}),
     tier,
     title: facts.title.trim(),
     outcome: facts.outcome.trim(),
@@ -822,6 +829,7 @@ function verifyProposal(proposal, repoRoot, options = {}) {
     throw new Error("proposal path escapes the project repository");
   const bytes = fs.readFileSync(proposal.json_path);
   const parsed = JSON.parse(bytes);
+  verifyValueDecision(parsed, false);
   if (parsed.design_context !== undefined) {
     try {
       validateDesignContext(parsed.design_context, "proposal design_context", {
@@ -845,10 +853,25 @@ function verifyProposal(proposal, repoRoot, options = {}) {
   return parsed;
 }
 
+function verifyValueDecision(parsed, required) {
+  const value = validateValueDecision(parsed.decision_brief?.value_decision, {
+    evidenceIds: Array.isArray(parsed.evidence) ? parsed.evidence.map((row) => row?.id) : [],
+    assumptionIds: Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.map((row) => row?.id)
+      : [],
+    required,
+  });
+  if (!value.ok)
+    throw new Error(
+      `proposal value decision is invalid: ${value.issues.map((row) => `${row.path} ${row.message}`).join("; ")}`
+    );
+}
+
 function verifySessionProposal(session, proposal, options = {}) {
   const repoRoot = proposalRepoRoot(session);
   const previewSourceRoot = canonicalPreviewRoot(session.context.preview_source_root);
   const parsed = verifyProposal(proposal, repoRoot, { previewSourceRoot });
+  verifyValueDecision(parsed, session.context.product_contract_version === 1);
   if (session.schema_version < GROOM_SCHEMA_VERSION) return parsed;
   if (!isObject(parsed.design_context)) {
     throw new Error("current Groom proposals require a durable design_context");
@@ -1103,6 +1126,9 @@ function validateSession(session) {
         "source_path",
         "evidence_refs",
         "artifact_repo_root",
+        ...(Object.hasOwn(session.context || {}, "product_contract_version")
+          ? ["product_contract_version"]
+          : []),
         ...(Object.hasOwn(session.context || {}, "preview_source_root")
           ? ["preview_source_root"]
           : []),
@@ -1110,6 +1136,11 @@ function validateSession(session) {
       "$.context",
       errors
     );
+    if (
+      Object.hasOwn(session.context, "product_contract_version") &&
+      session.context.product_contract_version !== 1
+    )
+      errors.push(issue("$.context.product_contract_version", "must be numeric 1 when present"));
     if (
       session.context.preview_source_root !== undefined &&
       session.context.preview_source_root !== null &&

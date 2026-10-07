@@ -1,0 +1,134 @@
+{
+  "simulated": true,
+  "jobs": [
+    {
+      "id": "101",
+      "title": "Weekly window and floor care",
+      "site": "North House \u00b7 Level 2",
+      "assignee": "Maya Chen",
+      "description": "Clean the inside windows and shared floor areas. Check each zone before leaving and add evidence for completed work.",
+      "checkpoints": ["Window frames and sills are clean", "Shared floor is dry and clear"],
+      "photos": [
+        {
+          "id": 0,
+          "author": "Maya Chen"
+        },
+        {
+          "id": 1,
+          "author": "Maya Chen"
+        }
+      ]
+    },
+    {
+      "id": "102",
+      "title": "Monthly care \u2014 west wing and reception areas",
+      "site": "Harbor Center \u00b7 West Wing",
+      "assignee": "Alexandra Mart\u00ednez and the evening operations team",
+      "description": "Complete the monthly deep clean across reception, hallways and the west wing. Keep entrances clear and retain useful notes for the next shift.",
+      "checkpoints": [
+        "Zone 1: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 2: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 3: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 4: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 5: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 6: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 7: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 8: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 9: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 10: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 11: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 12: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 13: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 14: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 15: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 16: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 17: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 18: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 19: inspect surfaces, remove marks and leave the route clear for visitors",
+        "Zone 20: inspect surfaces, remove marks and leave the route clear for visitors"
+      ],
+      "photos": [
+        {
+          "id": 0,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 1,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 2,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 3,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 4,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 5,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 6,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 7,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 8,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 9,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 10,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 11,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 12,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 13,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 14,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 15,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 16,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 17,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 18,
+          "author": "Alexandra Mart\u00ednez"
+        },
+        {
+          "id": 19,
+          "author": "Alexandra Mart\u00ednez"
+        }
+      ]
+    }
+  ]
+}
