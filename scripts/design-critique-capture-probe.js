@@ -2809,15 +2809,16 @@ async function observeTransientTabFocus(
         `function (name, backendNodeId) {
           const normalized = value => String(value || "").replace(/\\s+/g, " ").trim();
           if (this.getAttribute("role") !== "tab" || this.hasAttribute("aria-labelledby") ||
+              this.querySelector("[aria-labelledby], input, select, textarea, [contenteditable]") ||
               normalized(this.getAttribute("aria-label") || this.textContent) !== name ||
               !this.isConnected || this.disabled || this.getAttribute("aria-disabled") === "true") return false;
           const signature = () => JSON.stringify([this.getAttribute("role"), this.getAttribute("aria-label"),
-            this.getAttribute("aria-labelledby"), this.textContent, this.disabled, this.getAttribute("aria-disabled")]);
+            this.getAttribute("aria-labelledby"), this.textContent, this.innerHTML, this.disabled, this.getAttribute("aria-disabled")]);
           const initial = signature();
           const record = {seen: false, active: false, initial, signature, backendNodeId};
           record.listener = event => {
             if (record.active && event.isTrusted && event.target === this && document.activeElement === this &&
-                this.isConnected && signature() === initial) record.seen = true;
+                this.isConnected && !this.closest('[aria-hidden="true"], [inert], [hidden]') && signature() === initial) record.seen = true;
           };
           globalThis.__pmTransientTabFocus ??= new Map();
           if (globalThis.__pmTransientTabFocus.has(this)) return false;
@@ -2859,7 +2860,17 @@ async function observeTransientTabFocus(
         }
         return reached;
       })()`);
-      return Array.isArray(ids) ? ids.filter((id) => armed.includes(id)) : [];
+      const reached = [];
+      for (const id of Array.isArray(ids) ? ids : []) {
+        if (!armed.includes(id)) continue;
+        const frozen = frozenNode(candidate.frozen_by_live?.get(id) ?? id);
+        const live = await liveAxNode(client, id);
+        // Activation can hide an unchanged tab behind a new modal. Only the
+        // event-time complete DOM signature can retain that ignored AX node.
+        if (live?.ignored === true || (frozen?.identity && axIdentity(live) === frozen.identity))
+          reached.push(id);
+      }
+      return reached;
     },
     async close() {
       await evaluate(`(() => {

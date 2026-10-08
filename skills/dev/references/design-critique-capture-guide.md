@@ -927,3 +927,5 @@ capture. Use a genuine delayed test endpoint; do not replace the response or
 manufacture loading markup to satisfy the gate.
 
 For simple named tabs, the collector also retains a trusted focus event caused by native arrow navigation when activation immediately moves focus onward. It observes events in an isolated world after proving native document entry, requires the DOM name to match the native AX identity, and rejects disconnected, renamed, role-changed, disabled, or synthetic-event targets. A widget-scoped observer resets and reads its evidence for each native key, batches those reads in the isolated world, and removes its listeners after the bounded widget traversal.
+
+Transient tab evidence rechecks live AX identity for exposed nodes and retains an ignored node only through its unchanged event-time DOM subtree snapshot after modal activation. Descendant external name references and editable controls cannot receive this transient certification.
