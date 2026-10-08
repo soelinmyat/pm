@@ -2782,6 +2782,81 @@ async function candidateDetached(client, executionContextId, candidate) {
   return connected.includes(false);
 }
 
+// Capture a tab reached during a native arrow even when its activation moves
+// focus onward before a protocol poll. This isolated-world listener only reads
+// focus events; it never changes the page or grants evidence to DOM.focus.
+// Restrict transient identity to simple named tabs whose DOM name agrees with AX.
+async function observeTransientTabFocus(
+  client,
+  executionContextId,
+  candidate,
+  members,
+  frozenNode
+) {
+  const armed = [];
+  if (candidate.owner_role !== "tablist") return async () => [];
+  try {
+    for (const member of members) {
+      const frozen = frozenNode(candidate.frozen_by_live?.get(member) ?? member);
+      const live = await liveAxNode(client, member);
+      if (!frozen?.identity || axIdentity(live) !== frozen.identity) continue;
+      const name = String(valueOf(live?.name) || "");
+      const installed = await callOnNode(
+        client,
+        executionContextId,
+        member,
+        `function (name) {
+          const normalized = value => String(value || "").replace(/\\s+/g, " ").trim();
+          if (this.getAttribute("role") !== "tab" || this.hasAttribute("aria-labelledby") ||
+              normalized(this.getAttribute("aria-label") || this.textContent) !== name ||
+              !this.isConnected || this.disabled || this.getAttribute("aria-disabled") === "true") return false;
+          const signature = () => JSON.stringify([this.getAttribute("role"), this.getAttribute("aria-label"),
+            this.getAttribute("aria-labelledby"), this.textContent, this.disabled, this.getAttribute("aria-disabled")]);
+          const initial = signature();
+          const record = {seen: false, initial, signature};
+          record.listener = event => {
+            if (event.isTrusted && event.target === this && document.activeElement === this &&
+                this.isConnected && signature() === initial) record.seen = true;
+          };
+          globalThis.__pmTransientTabFocus ??= new Map();
+          if (globalThis.__pmTransientTabFocus.has(this)) return false;
+          globalThis.__pmTransientTabFocus.set(this, record);
+          this.addEventListener("focus", record.listener, true);
+          return true;
+        }`,
+        [{ value: name }]
+      );
+      if (installed === true) armed.push(member);
+    }
+  } catch {
+    // Any partial setup still returns a cleanup function; absence fails closed.
+  }
+  return async () => {
+    const reached = [];
+    for (const member of armed) {
+      try {
+        const seen = await callOnNode(
+          client,
+          executionContextId,
+          member,
+          `function () {
+            const records = globalThis.__pmTransientTabFocus;
+            const record = records?.get(this);
+            if (!record) return false;
+            this.removeEventListener("focus", record.listener, true);
+            records.delete(this);
+            return record.seen && this.isConnected && record.signature() === record.initial;
+          }`
+        );
+        if (seen === true) reached.push(member);
+      } catch {
+        // Detached/replaced nodes cannot certify a frozen row.
+      }
+    }
+    return reached;
+  };
+}
+
 async function probeCompositeCandidate(
   client,
   executionContextId,
@@ -2837,19 +2912,32 @@ async function probeCompositeCandidate(
         let state = await compositeFocusState(client, executionContextId, liveCandidate);
         let previous = focusedCompositeMember(state, liveCandidate, members);
         for (let step = 0; step < members.size; step += 1) {
-          if (!(await dispatchKeyboardKey(client, key, budget))) return false;
-          // Roving focus libraries commonly defer arrow focus to a timer.
-          // Observe actual focus for a bounded window rather than treating
-          // the first protocol response as the completed interaction.
-          const deadline = Date.now() + 250;
+          const finishFocusObservation = await observeTransientTabFocus(
+            client,
+            executionContextId,
+            liveCandidate,
+            members,
+            frozenNode
+          );
           let current;
-          do {
-            state = await compositeFocusState(client, executionContextId, liveCandidate);
-            current = focusedCompositeMember(state, liveCandidate, members);
-            if (current !== null && current !== previous) break;
-            if (Date.now() >= deadline) break;
-            await sleep(10);
-          } while (true);
+          try {
+            if (!(await dispatchKeyboardKey(client, key, budget))) return false;
+            // Roving focus libraries commonly defer arrow focus to a timer.
+            // Observe actual focus for a bounded window rather than treating
+            // the first protocol response as the completed interaction.
+            const deadline = Date.now() + 250;
+            do {
+              state = await compositeFocusState(client, executionContextId, liveCandidate);
+              current = focusedCompositeMember(state, liveCandidate, members);
+              if (current !== null && current !== previous) break;
+              if (Date.now() >= deadline) break;
+              await sleep(10);
+            } while (true);
+          } finally {
+            for (const member of await finishFocusObservation()) {
+              observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
+            }
+          }
           if (current === null) break;
           if (current === previous) {
             // Native Tab entry already exposes an active sole member. At the

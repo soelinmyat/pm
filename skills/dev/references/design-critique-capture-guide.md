@@ -925,3 +925,5 @@ DOM/accessibility samples, identical screenshots, and protocol barriers remain
 mandatory. Requests completing or starting during atomic capture invalidate the
 capture. Use a genuine delayed test endpoint; do not replace the response or
 manufacture loading markup to satisfy the gate.
+
+For simple named tabs, the collector also retains a trusted focus event caused by native arrow navigation when activation immediately moves focus onward. It observes events in an isolated world after proving native document entry, requires the DOM name to match the native AX identity, and rejects disconnected, renamed, role-changed, disabled, or synthetic-event targets. Listeners are removed after each bounded key probe.
