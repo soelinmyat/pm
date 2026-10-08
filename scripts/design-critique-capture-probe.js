@@ -2904,7 +2904,11 @@ async function probeCompositeCandidate(
     // Preserve that observed member even when arrows cannot move farther in
     // one direction. Programmatic focus alone never populates this set.
     for (const member of observedEntryMembers) {
-      if (members.has(member)) observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
+      if (!members.has(member)) continue;
+      const original = liveCandidate.frozen_by_live?.get(member) ?? member;
+      const frozen = frozenNode(original);
+      if (!frozen?.identity || !(await nodeConnected(client, executionContextId, member))) continue;
+      if (axIdentity(await liveAxNode(client, member)) === frozen.identity) observed.add(original);
     }
     for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
       try {

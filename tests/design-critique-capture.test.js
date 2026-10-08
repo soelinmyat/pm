@@ -2032,11 +2032,13 @@ function ownerEntryTabsControls(variant = "working") {
     variant === "disabled"
       ? '<button id="owner-tab-disabled" type="button" role="tab" aria-selected="false" tabindex="-1" disabled>Unavailable</button>'
       : "";
-  return `<section aria-label="Owner tab entry"><button id="owner-before" type="button">Before tabs</button><div id="owner-tabs" role="tablist" aria-label="Views" tabindex="0"><button id="owner-tab-a" type="button" role="tab" aria-selected="true" tabindex="-1">Details</button>${middle}<button id="owner-tab-b" type="button" role="tab" aria-selected="false" tabindex="-1">Locations</button></div><button id="owner-after" type="button">After tabs</button></section><script>{const variant=${JSON.stringify(variant)};const owner=document.querySelector("#owner-tabs");const tabs=[...owner.querySelectorAll("[role=tab]")];const focus=tab=>{tabs.forEach(n=>n.tabIndex=n===tab?0:-1);tab.focus()};owner.addEventListener("focus",event=>{if(event.target===owner)focus(tabs.find(n=>n.getAttribute("aria-selected")==="true"))});owner.addEventListener("keydown",event=>{if(event.key==="Tab"&&["trap","redirected"].includes(variant)){event.preventDefault();return}const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();if(variant==="broken")return;const enabled=tabs.filter(n=>!n.disabled);const next=enabled[enabled.indexOf(document.activeElement)+direction];if(next){if(variant==="transient-synthetic")next.dispatchEvent(new FocusEvent("focus"));else focus(next);if(variant.startsWith("transient")){if(variant==="transient-removed")next.remove();if(variant==="transient-renamed")next.textContent="Changed destination";if(variant==="transient-role")next.setAttribute("role","button");document.querySelector("#owner-after").focus()}}});if(variant==="trap")document.addEventListener("keydown",event=>{if(event.key!=="Tab"||!["owner-before","owner-after"].includes(event.target.id))return;event.preventDefault();document.getElementById(event.target.id==="owner-before"?"owner-after":"owner-before").focus()});if(variant==="redirected")document.querySelector("#owner-before").addEventListener("focus",()=>document.querySelector("#owner-after").focus())}</script>`;
+  return `<section aria-label="Owner tab entry"><button id="owner-before" type="button">Before tabs</button><div id="owner-tabs" role="tablist" aria-label="Views" tabindex="0"><button id="owner-tab-a" type="button" role="tab" aria-selected="true" tabindex="-1">Details</button>${middle}<button id="owner-tab-b" type="button" role="tab" aria-selected="false" tabindex="-1">Locations</button></div><button id="owner-after" type="button">After tabs</button></section><script>{const variant=${JSON.stringify(variant)};let nativeTabAttempt=false;document.addEventListener("keydown",event=>{if(event.key==="Tab")nativeTabAttempt=true},true);const owner=document.querySelector("#owner-tabs");const tabs=[...owner.querySelectorAll("[role=tab]")];const focus=tab=>{tabs.forEach(n=>n.tabIndex=n===tab?0:-1);tab.focus()};owner.addEventListener("focus",event=>{if(event.target===owner){const selected=tabs.find(n=>n.getAttribute("aria-selected")==="true");focus(selected)}});tabs[0].addEventListener("focus",()=>{if(nativeTabAttempt&&variant==="entry-renamed")tabs[0].textContent="Changed entry";if(nativeTabAttempt&&variant==="entry-role")tabs[0].setAttribute("role","button")});owner.addEventListener("keydown",event=>{if(event.key==="Tab"&&["trap","redirected"].includes(variant)){event.preventDefault();return}const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();if(variant==="broken"||variant.startsWith("entry-"))return;const enabled=tabs.filter(n=>!n.disabled);const next=enabled[enabled.indexOf(document.activeElement)+direction];if(next){if(variant==="transient-synthetic")next.dispatchEvent(new FocusEvent("focus"));else focus(next);if(variant.startsWith("transient")){if(variant==="transient-removed")next.remove();if(variant==="transient-renamed")next.textContent="Changed destination";if(variant==="transient-role")next.setAttribute("role","button");document.querySelector("#owner-after").focus()}}});if(variant==="trap")document.addEventListener("keydown",event=>{if(event.key!=="Tab"||!["owner-before","owner-after"].includes(event.target.id))return;event.preventDefault();document.getElementById(event.target.id==="owner-before"?"owner-after":"owner-before").focus()});if(variant==="redirected")document.querySelector("#owner-before").addEventListener("focus",()=>document.querySelector("#owner-after").focus())}</script>`;
 }
 
 const FOCUSABILITY_VARIANTS = {
   "owner-entry-tabs": ownerEntryTabsControls,
+  "owner-entry-renamed": () => ownerEntryTabsControls("entry-renamed"),
+  "owner-entry-role": () => ownerEntryTabsControls("entry-role"),
   "owner-entry-transient-synthetic": () => ownerEntryTabsControls("transient-synthetic"),
   "owner-entry-transient": () => ownerEntryTabsControls("transient"),
   "owner-entry-transient-removed": () => ownerEntryTabsControls("transient-removed"),
@@ -2595,6 +2597,25 @@ for (const variant of [
         );
         assert.equal(member.tab_index, -1);
         assert.equal(member.focus_context === "composite", variant === "transient");
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const variant of ["renamed", "role"]) {
+  test(
+    `browser native entry rejects in-place ${variant} identity changes`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls: `owner-entry-${variant}` });
+      try {
+        const result = runBrowserCapture(fixture);
+        const entry = result.accessibility_observations.controls.find(
+          (item) => item.locator === "button#owner-tab-a"
+        );
+        assert.notEqual(entry.focus_context, "composite");
       } finally {
         fs.rmSync(fixture.root, { recursive: true, force: true });
       }
