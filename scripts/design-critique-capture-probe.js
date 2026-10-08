@@ -700,13 +700,32 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       group.entry_backend_node_ids.push(node.backendNodeId);
   }
+  const popupAncestor = (node) => {
+    while (node) {
+      if (
+        node.nodeName === "dialog" ||
+        ["dialog", "alertdialog", "menu"].includes(node.attributes.role)
+      )
+        return node.index;
+      node = model[node.parentIndex];
+    }
+    return null;
+  };
   const candidates = [];
   for (const group of groups.values()) {
     group.member_backend_node_ids = [...new Set(group.member_backend_node_ids)];
     group.entry_backend_node_ids = [...new Set(group.entry_backend_node_ids)];
     for (const backendNodeId of group.entry_backend_node_ids) {
       const probe = entryProbes.get(backendNodeId);
-      if (probe) group.entry_probes[backendNodeId] = probe;
+      if (probe) {
+        const popup = popupAncestor(byBackendId.get(backendNodeId));
+        const samePopup =
+          popup !== null && popup === popupAncestor(byBackendId.get(probe.from_backend_node_id));
+        group.entry_probes[backendNodeId] = {
+          ...probe,
+          preferred_exit_modifiers: samePopup ? (probe.modifiers === 8 ? 0 : 8) : 0,
+        };
+      }
     }
     if (
       group.member_backend_node_ids.length > 0 &&
@@ -2588,6 +2607,23 @@ async function entryHasDocumentKeyboardReach(
   ownerBackendNodeId = entryBackendNodeId
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
+  // Keep a conditional popup alive while proving its native exit/return.
+  // An outside predecessor can dismiss it before its entry node is tested.
+  const firstLeave = entryProbe?.preferred_exit_modifiers === 8 ? 8 : 0;
+  for (const [leaveModifiers, returnModifiers] of [
+    [firstLeave, firstLeave === 8 ? 0 : 8],
+    [firstLeave === 8 ? 0 : 8, firstLeave],
+  ]) {
+    await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+    const initialFocus = await focusedBackendNodeId(client, executionContextId);
+    if (initialFocus !== entryBackendNodeId && !groupBackendNodeIds.has(initialFocus)) continue;
+    if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
+    const departed = await focusedBackendNodeId(client, executionContextId);
+    if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
+    if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
+    const returnedFocus = await focusedBackendNodeId(client, executionContextId);
+    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
+  }
   if (
     entryProbe &&
     entryProbe.from_backend_node_id !== entryBackendNodeId &&
@@ -2601,23 +2637,8 @@ async function entryHasDocumentKeyboardReach(
       if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
         return true;
     }
-    // Native controls can consume a Tab in their internal focus surface.
-    // A dialog may also redirect attempted predecessor focus. In either case,
-    // prove an actual exit from and return to the whole group below.
-  }
-  for (const [leaveModifiers, returnModifiers] of [
-    [0, 8],
-    [8, 0],
-  ]) {
-    await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-    const initialFocus = await focusedBackendNodeId(client, executionContextId);
-    if (initialFocus !== entryBackendNodeId && !groupBackendNodeIds.has(initialFocus)) continue;
-    if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
-    const departed = await focusedBackendNodeId(client, executionContextId);
-    if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
-    if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
-    const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
+    // A redirected predecessor cannot establish document keyboard entry.
+    // The live widget's exit/return paths above remain independently required.
   }
   return false;
 }
@@ -2815,7 +2836,14 @@ async function probeCompositeCandidate(
             if (Date.now() >= deadline) break;
             await sleep(10);
           } while (true);
-          if (current === null || current === previous) break;
+          if (current === null) break;
+          if (current === previous) {
+            // Native Tab entry already exposes an active sole member. At the
+            // end of a one-item list, an arrow may correctly leave it in place.
+            if (members.size === 1)
+              observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
+            break;
+          }
           observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
           previous = current;
         }
