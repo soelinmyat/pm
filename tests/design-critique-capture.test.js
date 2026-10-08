@@ -1991,11 +1991,13 @@ function controlledComboboxControls(variant) {
 function transientPopupKeyboardControls(variant) {
   const single = variant === "single" || variant === "unlinked";
   const count = single ? 1 : 3;
+  const before = variant === "predecessor";
+  const footer = '<button id="popup-footer">Create supplier</button>';
   const options = Array.from(
     { length: count },
     (_, i) => `<div role="option" id="popup-option-${i}" tabindex="-1">Supplier ${i}</div>`
   ).join("");
-  return `<button id="popup-opener" aria-haspopup="dialog" aria-controls="picker" aria-expanded="true">Supplier picker</button><div id="picker" role="dialog" aria-label="Supplier choices"><label for="popup-query">Search suppliers</label><input id="popup-query" role="combobox" aria-controls="popup-options" aria-expanded="true"${variant === "unlinked" ? "" : ' aria-activedescendant="popup-option-0"'}><div id="popup-options" role="listbox" aria-label="Suppliers">${options}</div><button id="popup-footer">Create supplier</button></div><script>{const popup=document.getElementById('picker'),input=document.getElementById('popup-query'),opener=document.getElementById('popup-opener');document.addEventListener('focusin',event=>{if(popup.isConnected&&!popup.contains(event.target)){popup.remove();opener.setAttribute('aria-expanded','false')}});input.addEventListener('keydown',event=>{${variant === "unreachable" ? "if(event.key==='Tab'){event.preventDefault();return;}" : ""}${["broken", "unlinked"].includes(variant) ? "" : "const direction=event.key==='ArrowDown'?1:event.key==='ArrowUp'?-1:0;if(!direction)return;event.preventDefault();const options=[...popup.querySelectorAll('[role=option]')];const current=options.findIndex(option=>option.id===input.getAttribute('aria-activedescendant'));input.setAttribute('aria-activedescendant',options[(current+direction+options.length)%options.length].id);"}});input.focus();}</script>`;
+  return `<button id="popup-opener" aria-haspopup="dialog" aria-controls="picker" aria-expanded="true">Supplier picker</button><div id="picker" role="dialog" aria-label="Supplier choices">${before ? footer : ""}<label for="popup-query">Search suppliers</label><input id="popup-query" role="combobox" aria-controls="popup-options" aria-expanded="true"${variant === "unlinked" ? "" : ' aria-activedescendant="popup-option-0"'}><div id="popup-options" role="listbox" aria-label="Suppliers">${options}</div>${before ? "" : footer}</div><button id="after-popup">Continue</button><script>{const popup=document.getElementById('picker'),input=document.getElementById('popup-query'),opener=document.getElementById('popup-opener');document.addEventListener('focusin',event=>{if(popup.isConnected&&!popup.contains(event.target)){popup.remove();opener.setAttribute('aria-expanded','false')}});input.addEventListener('keydown',event=>{${variant === "unreachable" ? "if(event.key==='Tab'){event.preventDefault();return;}" : ""}${["broken", "unlinked"].includes(variant) ? "" : "const direction=event.key==='ArrowDown'?1:event.key==='ArrowUp'?-1:0;if(!direction)return;event.preventDefault();const options=[...popup.querySelectorAll('[role=option]')];const current=options.findIndex(option=>option.id===input.getAttribute('aria-activedescendant'));input.setAttribute('aria-activedescendant',options[(current+direction+options.length)%options.length].id);"}});input.focus();}</script>`;
 }
 
 function nativeInputControls(occluded) {
@@ -3808,7 +3810,7 @@ for (const variant of [
   });
 }
 
-for (const variant of ["single", "multiple", "broken", "unlinked", "unreachable"]) {
+for (const variant of ["single", "multiple", "predecessor", "broken", "unlinked", "unreachable"]) {
   test(`browser transient popup keyboard evidence: ${variant}`, { skip: browserSkip }, () => {
     const fixture = createBrowserFixture({ focusabilityControls: `transient-popup-${variant}` });
     try {
@@ -3817,7 +3819,7 @@ for (const variant of ["single", "multiple", "broken", "unlinked", "unreachable"
         (item) => item.role === "option"
       );
       assert.equal(options.length, ["single", "unlinked"].includes(variant) ? 1 : 3);
-      const working = ["single", "multiple"].includes(variant);
+      const working = ["single", "multiple", "predecessor"].includes(variant);
       for (const option of options)
         assert.equal(option.focus_context, working ? "composite" : "document");
     } finally {

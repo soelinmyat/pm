@@ -700,13 +700,32 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       group.entry_backend_node_ids.push(node.backendNodeId);
   }
+  const popupAncestor = (node) => {
+    while (node) {
+      if (
+        node.nodeName === "dialog" ||
+        ["dialog", "alertdialog", "menu"].includes(node.attributes.role)
+      )
+        return node.index;
+      node = model[node.parentIndex];
+    }
+    return null;
+  };
   const candidates = [];
   for (const group of groups.values()) {
     group.member_backend_node_ids = [...new Set(group.member_backend_node_ids)];
     group.entry_backend_node_ids = [...new Set(group.entry_backend_node_ids)];
     for (const backendNodeId of group.entry_backend_node_ids) {
       const probe = entryProbes.get(backendNodeId);
-      if (probe) group.entry_probes[backendNodeId] = probe;
+      if (probe) {
+        const popup = popupAncestor(byBackendId.get(backendNodeId));
+        const samePopup =
+          popup !== null && popup === popupAncestor(byBackendId.get(probe.from_backend_node_id));
+        group.entry_probes[backendNodeId] = {
+          ...probe,
+          preferred_exit_modifiers: samePopup ? (probe.modifiers === 8 ? 0 : 8) : 0,
+        };
+      }
     }
     if (
       group.member_backend_node_ids.length > 0 &&
@@ -2590,9 +2609,10 @@ async function entryHasDocumentKeyboardReach(
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
   // Keep a conditional popup alive while proving its native exit/return.
   // An outside predecessor can dismiss it before its entry node is tested.
+  const firstLeave = entryProbe?.preferred_exit_modifiers === 8 ? 8 : 0;
   for (const [leaveModifiers, returnModifiers] of [
-    [0, 8],
-    [8, 0],
+    [firstLeave, firstLeave === 8 ? 0 : 8],
+    [firstLeave === 8 ? 0 : 8, firstLeave],
   ]) {
     await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
     const initialFocus = await focusedBackendNodeId(client, executionContextId);
