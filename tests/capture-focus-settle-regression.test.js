@@ -6,9 +6,11 @@ const file = require("node:path").resolve(__dirname, "../scripts/design-critique
 const m = new Module(file, module);
 m.filename = file;
 m.paths = Module._nodeModulePaths(require("node:path").dirname(file));
+// These protocol models omit AX/DOM identity and exercise arrow settling or
+// nested restoration. Native identity evidence is covered by capture browser tests.
 m._compile(
   fs.readFileSync(process.env.PM_TEST_PROBE || file, "utf8") +
-    "\nmodule.exports.probe=probeCompositeKeyboardAccess;",
+    "\nmodule.exports.probe=(client,candidates)=>probeCompositeKeyboardAccess(client,candidates,()=>null);",
   file
 );
 function client(asynchronous = true, works = true) {
