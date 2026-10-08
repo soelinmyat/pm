@@ -106,6 +106,8 @@ Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-na
 
 For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. Ordinary nested content remains valid. A sibling overlay fails, and one positioned descendant branch covering at least 90% of the marker and winning every sampled point also fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
+Native composite keyboard checks retain the member actually reached by document Tab entry, including when a focusable owner delegates entry to a member with `tabindex="-1"`. Arrow probes still have to reach the other members. Programmatic focus alone, an unreachable predecessor, or a keyboard trap does not establish entry.
+
 ### Native preparation for below-fold and keyboard states
 
 An assertion may include an optional `before_capture` array. It is hash-bound with
@@ -923,3 +925,7 @@ DOM/accessibility samples, identical screenshots, and protocol barriers remain
 mandatory. Requests completing or starting during atomic capture invalidate the
 capture. Use a genuine delayed test endpoint; do not replace the response or
 manufacture loading markup to satisfy the gate.
+
+For simple named tabs, the collector also retains a trusted focus event caused by native arrow navigation when activation immediately moves focus onward. It observes events in an isolated world after proving native document entry, requires the DOM name to match the native AX identity, and rejects disconnected, renamed, role-changed, disabled, or synthetic-event targets. A widget-scoped observer resets and reads its evidence for each native key, batches those reads in the isolated world, and removes its listeners after the bounded widget traversal.
+
+Transient tab evidence rechecks live AX identity for exposed nodes and retains an ignored node only through its unchanged event-time DOM subtree snapshot after modal activation. Descendant external name references and editable controls cannot receive this transient certification.

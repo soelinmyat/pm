@@ -8,9 +8,11 @@ const file = path.resolve(__dirname, "../scripts/design-critique-capture-probe.j
 const m = new Module(file, module);
 m.filename = file;
 m.paths = Module._nodeModulePaths(path.dirname(file));
+// These protocol models omit AX/DOM identity and exercise arrow settling or
+// nested restoration. Native identity evidence is covered by capture browser tests.
 m._compile(
   fs.readFileSync(process.env.PM_TEST_PROBE || file, "utf8") +
-    "\nmodule.exports.candidates=compositeKeyboardCandidates;module.exports.probe=probeCompositeKeyboardAccess;",
+    "\nmodule.exports.candidates=compositeKeyboardCandidates;module.exports.probe=(client,candidates)=>probeCompositeKeyboardAccess(client,candidates,()=>null);",
   file
 );
 function candidates() {

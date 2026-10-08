@@ -2024,8 +2024,155 @@ function replacedRemountingComboboxControls(variant) {
   return `<section aria-label="Replacement example"><div id="unit-panel">${markup}</div><div><div><div><div id="replacement-tabs" role="tablist" aria-label="Views"><button id="replace-a" type="button" role="tab" aria-selected="true" tabindex="0">View A</button><button id="replace-b" type="button" role="tab" aria-selected="false" tabindex="-1">View B</button></div></div></div></div></section><script>{const panel=document.querySelector("#unit-panel");const mount=()=>{panel.innerHTML=${JSON.stringify(markup)};{${handlers}}};const tabs=[...document.querySelectorAll("#replacement-tabs>[role=tab]")];const select=tab=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute("aria-selected",String(item===tab))});tab.focus();mount()};mount();document.querySelector("#unit-input").focus();tabs.forEach(tab=>tab.addEventListener("click",()=>select(tab)));document.querySelector("#replacement-tabs").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=tabs[tabs.indexOf(document.activeElement)+direction];if(next)select(next)})}</script>`;
 }
 
+// Protocol-cost regression only. Native browser fixtures above/below certify reachability.
+// Execute the actual traversal and node-call code in isolated VM worlds with a
+// deterministic protocol transport so larger widgets have a measurable cost bound.
+test("transient tab observation has linear protocol work across a traversal", async () => {
+  const vm = require("node:vm");
+  const { createRequire } = require("node:module");
+  const script = require.resolve("../scripts/design-critique-capture-probe");
+  const mod = { exports: {} };
+  vm.runInNewContext(
+    fs.readFileSync(script, "utf8") + "\nmodule.exports.probeCandidate = probeCompositeCandidate;",
+    {
+      require: createRequire(script),
+      module: mod,
+      process,
+      Buffer,
+      URL,
+      setTimeout,
+      clearTimeout,
+    }
+  );
+  for (const count of [4, 12]) {
+    const nodes = new Map();
+    const document = { activeElement: null };
+    const world = vm.createContext({ document });
+    const owner = count + 1,
+      after = count + 2,
+      before = count + 3;
+    let calls = 0;
+    for (let id = 1; id <= before; id += 1) {
+      const listeners = new Set();
+      nodes.set(id, {
+        id,
+        isConnected: true,
+        disabled: false,
+        textContent: `Tab ${id}`,
+        getAttribute(name) {
+          return name === "role" ? (id <= count ? "tab" : "tablist") : null;
+        },
+        hasAttribute() {
+          return false;
+        },
+        querySelector() {
+          return null;
+        },
+        closest() {
+          return null;
+        },
+        addEventListener(type, fn) {
+          if (type === "focus") listeners.add(fn);
+        },
+        removeEventListener(type, fn) {
+          if (type === "focus") listeners.delete(fn);
+        },
+        focus() {
+          document.activeElement = this;
+          for (const fn of listeners) fn({ isTrusted: true, target: this });
+        },
+      });
+    }
+    const ax = (id) => ({
+      backendDOMNodeId: id,
+      role: { value: id <= count ? "tab" : "tablist" },
+      name: { value: `Tab ${id}` },
+      properties: [],
+    });
+    const client = {
+      async send(method, params = {}) {
+        if (method === "DOM.focus") {
+          nodes.get(params.backendNodeId === owner ? 1 : params.backendNodeId).focus();
+          return {};
+        }
+        if (method === "Input.dispatchKeyEvent") {
+          if (params.type === "keyUp") return {};
+          const id = document.activeElement.id;
+          if (params.key === "Tab") nodes.get(params.modifiers === 8 ? 1 : after).focus();
+          else if (params.key === "ArrowRight" && id < count) nodes.get(id + 1).focus();
+          else if (params.key === "ArrowLeft" && id > 1 && id <= count) nodes.get(id - 1).focus();
+          return {};
+        }
+        if (method === "Accessibility.getPartialAXTree")
+          return { nodes: [ax(params.backendNodeId)] };
+        if (method === "Runtime.evaluate") {
+          const value = vm.runInContext(params.expression, world);
+          return { result: params.returnByValue ? { value } : { objectId: `node:${value.id}` } };
+        }
+        if (method === "DOM.describeNode")
+          return { node: { backendNodeId: Number(params.objectId.split(":")[1]) } };
+        if (method === "DOM.resolveNode")
+          return { object: { objectId: `node:${params.backendNodeId}` } };
+        if (method === "Runtime.callFunctionOn") {
+          calls += 1;
+          const fn = vm.runInContext(`(${params.functionDeclaration})`, world);
+          return {
+            result: {
+              value: fn.apply(
+                nodes.get(Number(params.objectId.split(":")[1])),
+                (params.arguments ?? []).map((arg) => arg.value)
+              ),
+            },
+          };
+        }
+        if (method === "Runtime.releaseObject") return {};
+        throw Error(`Unexpected protocol method ${method}`);
+      },
+    };
+    const observed = new Set();
+    const candidate = {
+      owner_role: "tablist",
+      owner_backend_node_id: owner,
+      member_backend_node_ids: [...Array(count)].map((_, i) => i + 1),
+      entry_backend_node_ids: [owner],
+      entry_probes: { [owner]: { from_backend_node_id: before, modifiers: 0 } },
+    };
+    await mod.exports.probeCandidate(client, 1, candidate, { remaining: 1000 }, observed, (id) => ({
+      identity: JSON.stringify([id <= count ? "tab" : "tablist", `Tab ${id}`]),
+    }));
+    assert.equal(observed.size, count);
+    assert.ok(
+      calls <= 8 * count + 20,
+      `N=${count}: ${calls} node-call round trips exceed the linear budget`
+    );
+  }
+});
+
 // Named focusability fixtures other than the disclosure variants.
+// A tablist can own the document tab stop and delegate native entry to its
+// selected tab. Manual activation keeps that selection while arrows move focus.
+function ownerEntryTabsControls(variant = "working") {
+  const middle =
+    variant === "disabled"
+      ? '<button id="owner-tab-disabled" type="button" role="tab" aria-selected="false" tabindex="-1" disabled>Unavailable</button>'
+      : "";
+  return `<section aria-label="Owner tab entry"><button id="owner-before" type="button">Before tabs</button><div id="owner-tabs" role="tablist" aria-label="Views" tabindex="0"><button id="owner-tab-a" type="button" role="tab" aria-selected="true" tabindex="-1">Details</button>${middle}<button id="owner-tab-b" type="button" role="tab" aria-selected="false" tabindex="-1">${variant === "transient-descendant" ? "<span>Locations</span>" : "Locations"}</button></div><button id="owner-after" type="button">After tabs</button></section><script>{const variant=${JSON.stringify(variant)};let nativeTabAttempt=false;document.addEventListener("keydown",event=>{if(event.key==="Tab")nativeTabAttempt=true},true);const owner=document.querySelector("#owner-tabs");const tabs=[...owner.querySelectorAll("[role=tab]")];const focus=tab=>{tabs.forEach(n=>n.tabIndex=n===tab?0:-1);tab.focus()};owner.addEventListener("focus",event=>{if(event.target===owner){const selected=tabs.find(n=>n.getAttribute("aria-selected")==="true");focus(selected)}});tabs[0].addEventListener("focus",()=>{if(nativeTabAttempt&&variant==="entry-renamed")tabs[0].textContent="Changed entry";if(nativeTabAttempt&&variant==="entry-role")tabs[0].setAttribute("role","button")});owner.addEventListener("keydown",event=>{if(event.key==="Tab"&&["trap","redirected"].includes(variant)){event.preventDefault();return}const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();if(variant==="broken"||variant.startsWith("entry-"))return;const enabled=tabs.filter(n=>!n.disabled);const next=enabled[enabled.indexOf(document.activeElement)+direction];if(next){if(variant==="transient-descendant")next.querySelector("span").setAttribute("aria-label","Changed destination");if(variant==="transient-synthetic")next.dispatchEvent(new FocusEvent("focus"));else focus(next);if(variant.startsWith("transient")){if(variant==="transient-removed")next.remove();if(variant==="transient-renamed")next.textContent="Changed destination";if(variant==="transient-role")next.setAttribute("role","button");document.querySelector("#owner-after").focus()}}});if(variant==="trap")document.addEventListener("keydown",event=>{if(event.key!=="Tab"||!["owner-before","owner-after"].includes(event.target.id))return;event.preventDefault();document.getElementById(event.target.id==="owner-before"?"owner-after":"owner-before").focus()});if(variant==="redirected")document.querySelector("#owner-before").addEventListener("focus",()=>document.querySelector("#owner-after").focus())}</script>`;
+}
+
 const FOCUSABILITY_VARIANTS = {
+  "owner-entry-tabs": ownerEntryTabsControls,
+  "owner-entry-renamed": () => ownerEntryTabsControls("entry-renamed"),
+  "owner-entry-role": () => ownerEntryTabsControls("entry-role"),
+  "owner-entry-transient-synthetic": () => ownerEntryTabsControls("transient-synthetic"),
+  "owner-entry-transient-descendant": () => ownerEntryTabsControls("transient-descendant"),
+  "owner-entry-transient": () => ownerEntryTabsControls("transient"),
+  "owner-entry-transient-removed": () => ownerEntryTabsControls("transient-removed"),
+  "owner-entry-transient-renamed": () => ownerEntryTabsControls("transient-renamed"),
+  "owner-entry-transient-role": () => ownerEntryTabsControls("transient-role"),
+  "owner-entry-broken": () => ownerEntryTabsControls("broken"),
+  "owner-entry-trap": () => ownerEntryTabsControls("trap"),
+  "owner-entry-redirected": () => ownerEntryTabsControls("redirected"),
+  "owner-entry-disabled": () => ownerEntryTabsControls("disabled"),
   "remounted-tab-stop": remountedTabStopControls,
   "rerendered-groups": rerenderedGroupsControls,
   "click-activated-tabs": () => clickActivatedTabsControls(),
@@ -2535,6 +2682,105 @@ test(
     }
   }
 );
+
+test(
+  "browser keyboard evidence keeps the native entry tab for an owner-mediated tablist",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "owner-entry-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      for (const id of ["owner-tab-a", "owner-tab-b"]) {
+        assert.equal(byLocator.get(`button#${id}`).tab_index, -1);
+        assert.equal(byLocator.get(`button#${id}`).focus_context, "composite");
+      }
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+for (const variant of [
+  "transient",
+  "transient-removed",
+  "transient-renamed",
+  "transient-role",
+  "transient-synthetic",
+  "transient-descendant",
+]) {
+  test(
+    `browser arrow focus evidence retains only unchanged connected ${variant} tabs`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls: `owner-entry-${variant}` });
+      try {
+        const result = runBrowserCapture(fixture);
+        const member = result.accessibility_observations.controls.find(
+          (item) => item.locator === "button#owner-tab-b"
+        );
+        assert.equal(member.tab_index, -1);
+        assert.equal(member.focus_context === "composite", variant === "transient");
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const variant of ["renamed", "role"]) {
+  test(
+    `browser native entry rejects in-place ${variant} identity changes`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls: `owner-entry-${variant}` });
+      try {
+        const result = runBrowserCapture(fixture);
+        const entry = result.accessibility_observations.controls.find(
+          (item) => item.locator === "button#owner-tab-a"
+        );
+        assert.notEqual(entry.focus_context, "composite");
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const [variant, reachable] of [
+  ["broken", ["owner-tab-a"]],
+  ["trap", []],
+  ["redirected", []],
+  ["disabled", ["owner-tab-a", "owner-tab-b"]],
+]) {
+  test(
+    `browser owner-mediated entry retains native reach limits for ${variant} tabs`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls: `owner-entry-${variant}` });
+      try {
+        const result = runBrowserCapture(fixture);
+        const byLocator = new Map(
+          result.accessibility_observations.controls.map((item) => [item.locator, item])
+        );
+        for (const id of ["owner-tab-a", "owner-tab-b"]) {
+          assert.equal(
+            byLocator.get(`button#${id}`).focus_context === "composite",
+            reachable.includes(id)
+          );
+        }
+        if (variant === "disabled") {
+          assert.equal(byLocator.get("button#owner-tab-disabled").disabled, true);
+          assert.notEqual(byLocator.get("button#owner-tab-disabled").focus_context, "composite");
+        }
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
 
 test(
   "browser focus evidence follows native tab stops and observed roving keyboard ownership",

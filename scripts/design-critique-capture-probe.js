@@ -2604,7 +2604,8 @@ async function entryHasDocumentKeyboardReach(
   entryProbe,
   budget,
   memberBackendNodeIds = new Set(),
-  ownerBackendNodeId = entryBackendNodeId
+  ownerBackendNodeId = entryBackendNodeId,
+  observedEntryMembers = new Set()
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
   // Keep a conditional popup alive while proving its native exit/return.
@@ -2622,7 +2623,10 @@ async function entryHasDocumentKeyboardReach(
     if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
     const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
+    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) {
+      if (memberBackendNodeIds.has(returnedFocus)) observedEntryMembers.add(returnedFocus);
+      return true;
+    }
   }
   if (
     entryProbe &&
@@ -2634,8 +2638,10 @@ async function entryHasDocumentKeyboardReach(
     if (focusedFrom === entryProbe.from_backend_node_id) {
       if (!(await dispatchKeyboardKey(client, "Tab", budget, entryProbe.modifiers))) return false;
       const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-      if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
+      if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab)) {
+        if (memberBackendNodeIds.has(focusedAfterTab)) observedEntryMembers.add(focusedAfterTab);
         return true;
+      }
     }
     // A redirected predecessor cannot establish document keyboard entry.
     // The live widget's exit/return paths above remain independently required.
@@ -2776,6 +2782,105 @@ async function candidateDetached(client, executionContextId, candidate) {
   return connected.includes(false);
 }
 
+// Capture a tab reached during a native arrow even when its activation moves
+// focus onward before a protocol poll. This isolated-world listener only reads
+// focus events; it never changes the page or grants evidence to DOM.focus.
+// Restrict transient identity to simple named tabs whose DOM name agrees with AX.
+async function observeTransientTabFocus(
+  client,
+  executionContextId,
+  candidate,
+  members,
+  frozenNode
+) {
+  const armed = [];
+  if (candidate.owner_role !== "tablist")
+    return { start: async () => {}, read: async () => [], close: async () => {} };
+  try {
+    for (const member of members) {
+      const frozen = frozenNode(candidate.frozen_by_live?.get(member) ?? member);
+      const live = await liveAxNode(client, member);
+      if (!frozen?.identity || axIdentity(live) !== frozen.identity) continue;
+      const name = String(valueOf(live?.name) || "");
+      const installed = await callOnNode(
+        client,
+        executionContextId,
+        member,
+        `function (name, backendNodeId) {
+          const normalized = value => String(value || "").replace(/\\s+/g, " ").trim();
+          if (this.getAttribute("role") !== "tab" || this.hasAttribute("aria-labelledby") ||
+              this.querySelector("[aria-labelledby], input, select, textarea, [contenteditable]") ||
+              normalized(this.getAttribute("aria-label") || this.textContent) !== name ||
+              !this.isConnected || this.disabled || this.getAttribute("aria-disabled") === "true") return false;
+          const signature = () => JSON.stringify([this.getAttribute("role"), this.getAttribute("aria-label"),
+            this.getAttribute("aria-labelledby"), this.textContent, this.innerHTML, this.disabled, this.getAttribute("aria-disabled")]);
+          const initial = signature();
+          const record = {seen: false, active: false, initial, signature, backendNodeId};
+          record.listener = event => {
+            if (record.active && event.isTrusted && event.target === this && document.activeElement === this &&
+                this.isConnected && !this.closest('[aria-hidden="true"], [inert], [hidden]') && signature() === initial) record.seen = true;
+          };
+          globalThis.__pmTransientTabFocus ??= new Map();
+          if (globalThis.__pmTransientTabFocus.has(this)) return false;
+          globalThis.__pmTransientTabFocus.set(this, record);
+          this.addEventListener("focus", record.listener, true);
+          return true;
+        }`,
+        [{ value: name }, { value: member }]
+      );
+      if (installed === true) armed.push(member);
+    }
+  } catch {
+    // Any partial setup still returns a cleanup function; absence fails closed.
+  }
+  const evaluate = async (expression) => {
+    const result = await client.send("Runtime.evaluate", {
+      expression,
+      contextId: executionContextId,
+      returnByValue: true,
+      silent: true,
+    });
+    if (result.exceptionDetails) throw new Error("transient tab observation failed");
+    return result.result?.value;
+  };
+  return {
+    async start() {
+      if (armed.length === 0) return;
+      await evaluate(
+        `(() => { for (const record of globalThis.__pmTransientTabFocus?.values() ?? []) {record.seen = false; record.active = true;} })()`
+      );
+    },
+    async read() {
+      if (armed.length === 0) return [];
+      const ids = await evaluate(`(() => {
+        const reached = [];
+        for (const [node, record] of globalThis.__pmTransientTabFocus ?? []) {
+          record.active = false;
+          if (record.seen && node.isConnected && record.signature() === record.initial) reached.push(record.backendNodeId);
+        }
+        return reached;
+      })()`);
+      const reached = [];
+      for (const id of Array.isArray(ids) ? ids : []) {
+        if (!armed.includes(id)) continue;
+        const frozen = frozenNode(candidate.frozen_by_live?.get(id) ?? id);
+        const live = await liveAxNode(client, id);
+        // Activation can hide an unchanged tab behind a new modal. Only the
+        // event-time complete DOM signature can retain that ignored AX node.
+        if (live?.ignored === true || (frozen?.identity && axIdentity(live) === frozen.identity))
+          reached.push(id);
+      }
+      return reached;
+    },
+    async close() {
+      await evaluate(`(() => {
+        for (const [node, record] of globalThis.__pmTransientTabFocus ?? []) node.removeEventListener("focus", record.listener, true);
+        globalThis.__pmTransientTabFocus?.clear();
+      })()`).catch(() => {});
+    },
+  };
+}
+
 async function probeCompositeCandidate(
   client,
   executionContextId,
@@ -2788,6 +2893,7 @@ async function probeCompositeCandidate(
     let liveCandidate = candidate;
     let members = new Set(candidate.member_backend_node_ids);
     let documentReachable = false;
+    const observedEntryMembers = new Set();
     try {
       documentReachable = await entryHasDocumentKeyboardReach(
         client,
@@ -2796,7 +2902,8 @@ async function probeCompositeCandidate(
         candidate.entry_probes[entryBackendNodeId],
         budget,
         members,
-        candidate.owner_backend_node_id
+        candidate.owner_backend_node_id,
+        observedEntryMembers
       );
     } catch {
       continue;
@@ -2817,45 +2924,73 @@ async function probeCompositeCandidate(
       liveCandidate = replacement;
       members = new Set(replacement.member_backend_node_ids);
     }
-    for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
-      try {
-        await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-        let state = await compositeFocusState(client, executionContextId, liveCandidate);
-        let previous = focusedCompositeMember(state, liveCandidate, members);
-        for (let step = 0; step < members.size; step += 1) {
-          if (!(await dispatchKeyboardKey(client, key, budget))) return false;
-          // Roving focus libraries commonly defer arrow focus to a timer.
-          // Observe actual focus for a bounded window rather than treating
-          // the first protocol response as the completed interaction.
-          const deadline = Date.now() + 250;
-          let current;
-          do {
-            state = await compositeFocusState(client, executionContextId, liveCandidate);
-            current = focusedCompositeMember(state, liveCandidate, members);
-            if (current !== null && current !== previous) break;
-            if (Date.now() >= deadline) break;
-            await sleep(10);
-          } while (true);
-          if (current === null) break;
-          if (current === previous) {
-            // Native Tab entry already exposes an active sole member. At the
-            // end of a one-item list, an arrow may correctly leave it in place.
-            if (members.size === 1)
-              observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
-            break;
+    // An owner can delegate native Tab entry to a tab with tabindex -1.
+    // Preserve that observed member even when arrows cannot move farther in
+    // one direction. Programmatic focus alone never populates this set.
+    for (const member of observedEntryMembers) {
+      if (!members.has(member)) continue;
+      const original = liveCandidate.frozen_by_live?.get(member) ?? member;
+      const frozen = frozenNode(original);
+      if (!frozen?.identity || !(await nodeConnected(client, executionContextId, member))) continue;
+      if (axIdentity(await liveAxNode(client, member)) === frozen.identity) observed.add(original);
+    }
+    const focusObservation = await observeTransientTabFocus(
+      client,
+      executionContextId,
+      liveCandidate,
+      members,
+      frozenNode
+    );
+    try {
+      for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
+        try {
+          await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+          let state = await compositeFocusState(client, executionContextId, liveCandidate);
+          let previous = focusedCompositeMember(state, liveCandidate, members);
+          for (let step = 0; step < members.size; step += 1) {
+            await focusObservation.start();
+            let current;
+            try {
+              if (!(await dispatchKeyboardKey(client, key, budget))) return false;
+              // Roving focus libraries commonly defer arrow focus to a timer.
+              // Observe actual focus for a bounded window rather than treating
+              // the first protocol response as the completed interaction.
+              const deadline = Date.now() + 250;
+              do {
+                state = await compositeFocusState(client, executionContextId, liveCandidate);
+                current = focusedCompositeMember(state, liveCandidate, members);
+                if (current !== null && current !== previous) break;
+                if (Date.now() >= deadline) break;
+                await sleep(10);
+              } while (true);
+            } finally {
+              for (const member of await focusObservation.read()) {
+                observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
+              }
+            }
+            if (current === null) break;
+            if (current === previous) {
+              // Native Tab entry already exposes an active sole member. At the
+              // end of a one-item list, an arrow may correctly leave it in place.
+              if (members.size === 1)
+                observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
+              break;
+            }
+            observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
+            previous = current;
           }
-          observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
-          previous = current;
+        } catch {
+          // A detached or replaced widget cannot certify the frozen control rows.
         }
-      } catch {
-        // A detached or replaced widget cannot certify the frozen control rows.
-      }
-      if (
-        [...members].every((member) =>
-          observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
+        if (
+          [...members].every((member) =>
+            observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
+          )
         )
-      )
-        break;
+          break;
+      }
+    } finally {
+      await focusObservation.close();
     }
   }
   return true;
