@@ -1961,11 +1961,17 @@ function focusExamplesControls(working) {
 
 // A text input owns a separate listbox, as an editable combobox popup does.
 function controlledComboboxControls(variant) {
-  const count = variant === "single" || variant === "static-single" ? 1 : 3;
+  const count = ["single", "static-single", "already-active-single", "inert-single"].includes(
+    variant
+  )
+    ? 1
+    : 3;
   const controls = variant === "missing-controls" ? "" : 'aria-controls="unit-options"';
   const disabled = variant === "disabled" ? "disabled" : "";
   const tabIndex = variant === "untabbable" ? 'tabindex="-1"' : "";
-  const active = variant === "static-single" ? 'aria-activedescendant="unit-0"' : "";
+  const active = ["static-single", "already-active-single", "static-multiple"].includes(variant)
+    ? 'aria-activedescendant="unit-0"'
+    : "";
   const ambiguous =
     variant === "ambiguous-controls"
       ? '<label for="other-unit">Other unit</label><input id="other-unit" role="combobox" aria-expanded="true" aria-controls="unit-options">'
@@ -1975,11 +1981,21 @@ function controlledComboboxControls(variant) {
     (_, index) =>
       `<button id="unit-${index}" type="button" role="option" tabindex="-1">Unit ${index}</button>`
   ).join("");
-  const broken = ["broken", "static-single"].includes(variant);
+  const broken = ["broken", "static-single", "static-multiple", "inert-single"].includes(variant);
   const handler = broken
     ? ""
     : `<script>{const input=document.querySelector("#unit-input");const options=[...document.querySelectorAll("#unit-options>[role=option]")];input.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===input.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;input.setAttribute("aria-activedescendant",options[next].id)})}</script>`;
   return `<section aria-label="Unit selector"><label for="unit-input">Unit</label><input id="unit-input" role="combobox" aria-expanded="true" ${controls} ${disabled} ${tabIndex} ${active}><div id="unit-options" role="listbox" aria-label="Unit">${options}</div>${ambiguous}</section>${handler}`;
+}
+
+function transientPopupKeyboardControls(variant) {
+  const single = variant === "single" || variant === "unlinked";
+  const count = single ? 1 : 3;
+  const options = Array.from(
+    { length: count },
+    (_, i) => `<div role="option" id="popup-option-${i}" tabindex="-1">Supplier ${i}</div>`
+  ).join("");
+  return `<button id="popup-opener" aria-haspopup="dialog" aria-controls="picker" aria-expanded="true">Supplier picker</button><div id="picker" role="dialog" aria-label="Supplier choices"><label for="popup-query">Search suppliers</label><input id="popup-query" role="combobox" aria-controls="popup-options" aria-expanded="true"${variant === "unlinked" ? "" : ' aria-activedescendant="popup-option-0"'}><div id="popup-options" role="listbox" aria-label="Suppliers">${options}</div><button id="popup-footer">Create supplier</button></div><script>{const popup=document.getElementById('picker'),input=document.getElementById('popup-query'),opener=document.getElementById('popup-opener');document.addEventListener('focusin',event=>{if(popup.isConnected&&!popup.contains(event.target)){popup.remove();opener.setAttribute('aria-expanded','false')}});input.addEventListener('keydown',event=>{${variant === "unreachable" ? "if(event.key==='Tab'){event.preventDefault();return;}" : ""}${["broken", "unlinked"].includes(variant) ? "" : "const direction=event.key==='ArrowDown'?1:event.key==='ArrowUp'?-1:0;if(!direction)return;event.preventDefault();const options=[...popup.querySelectorAll('[role=option]')];const current=options.findIndex(option=>option.id===input.getAttribute('aria-activedescendant'));input.setAttribute('aria-activedescendant',options[(current+direction+options.length)%options.length].id);"}});input.focus();}</script>`;
 }
 
 function nativeInputControls(occluded) {
@@ -2028,6 +2044,8 @@ function focusabilityControlsMarkup(name) {
     return replacedRemountingComboboxControls(name.slice("replaced-combobox-".length));
   if (name.startsWith("remounting-combobox-"))
     return remountingComboboxControls(name.slice("remounting-combobox-".length));
+  if (name.startsWith("transient-popup-"))
+    return transientPopupKeyboardControls(name.slice("transient-popup-".length));
   if (name.startsWith("controlled-combobox-"))
     return controlledComboboxControls(name.slice("controlled-combobox-".length));
   if (name === "native-input" || name === "native-input-occluded")
@@ -3742,6 +3760,9 @@ for (const variant of [
   "multiple",
   "broken",
   "static-single",
+  "already-active-single",
+  "inert-single",
+  "static-multiple",
   "missing-controls",
   "ambiguous-controls",
   "disabled",
@@ -3756,8 +3777,15 @@ for (const variant of [
       const options = result.accessibility_observations.controls.filter(
         (item) => item.role === "option"
       );
-      assert.equal(options.length, variant === "single" || variant === "static-single" ? 1 : 3);
-      const working = variant === "single" || variant === "multiple";
+      assert.equal(
+        options.length,
+        ["single", "static-single", "already-active-single", "inert-single"].includes(variant)
+          ? 1
+          : 3
+      );
+      const working = ["single", "multiple", "static-single", "already-active-single"].includes(
+        variant
+      );
       for (const option of options) {
         assert.equal(option.tab_index, -1);
         assert.equal(option.focus_context, working ? "composite" : "document");
@@ -3774,6 +3802,24 @@ for (const variant of [
         { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
       );
       assert.equal(audit.checks.focus_order, working);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["single", "multiple", "broken", "unlinked", "unreachable"]) {
+  test(`browser transient popup keyboard evidence: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture({ focusabilityControls: `transient-popup-${variant}` });
+    try {
+      const result = runBrowserCapture(fixture);
+      const options = result.accessibility_observations.controls.filter(
+        (item) => item.role === "option"
+      );
+      assert.equal(options.length, ["single", "unlinked"].includes(variant) ? 1 : 3);
+      const working = ["single", "multiple"].includes(variant);
+      for (const option of options)
+        assert.equal(option.focus_context, working ? "composite" : "document");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
