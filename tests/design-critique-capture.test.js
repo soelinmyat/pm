@@ -2024,6 +2024,124 @@ function replacedRemountingComboboxControls(variant) {
   return `<section aria-label="Replacement example"><div id="unit-panel">${markup}</div><div><div><div><div id="replacement-tabs" role="tablist" aria-label="Views"><button id="replace-a" type="button" role="tab" aria-selected="true" tabindex="0">View A</button><button id="replace-b" type="button" role="tab" aria-selected="false" tabindex="-1">View B</button></div></div></div></div></section><script>{const panel=document.querySelector("#unit-panel");const mount=()=>{panel.innerHTML=${JSON.stringify(markup)};{${handlers}}};const tabs=[...document.querySelectorAll("#replacement-tabs>[role=tab]")];const select=tab=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute("aria-selected",String(item===tab))});tab.focus();mount()};mount();document.querySelector("#unit-input").focus();tabs.forEach(tab=>tab.addEventListener("click",()=>select(tab)));document.querySelector("#replacement-tabs").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=tabs[tabs.indexOf(document.activeElement)+direction];if(next)select(next)})}</script>`;
 }
 
+// Protocol-cost regression only. Native browser fixtures above/below certify reachability.
+// Execute the actual traversal and node-call code in isolated VM worlds with a
+// deterministic protocol transport so larger widgets have a measurable cost bound.
+test("transient tab observation has linear protocol work across a traversal", async () => {
+  const vm = require("node:vm");
+  const { createRequire } = require("node:module");
+  const script = require.resolve("../scripts/design-critique-capture-probe");
+  const mod = { exports: {} };
+  vm.runInNewContext(
+    fs.readFileSync(script, "utf8") + "\nmodule.exports.probeCandidate = probeCompositeCandidate;",
+    {
+      require: createRequire(script),
+      module: mod,
+      process,
+      Buffer,
+      URL,
+      setTimeout,
+      clearTimeout,
+    }
+  );
+  for (const count of [4, 12]) {
+    const nodes = new Map();
+    const document = { activeElement: null };
+    const world = vm.createContext({ document });
+    const owner = count + 1,
+      after = count + 2,
+      before = count + 3;
+    let calls = 0;
+    for (let id = 1; id <= before; id += 1) {
+      const listeners = new Set();
+      nodes.set(id, {
+        id,
+        isConnected: true,
+        disabled: false,
+        textContent: `Tab ${id}`,
+        getAttribute(name) {
+          return name === "role" ? (id <= count ? "tab" : "tablist") : null;
+        },
+        hasAttribute() {
+          return false;
+        },
+        addEventListener(type, fn) {
+          if (type === "focus") listeners.add(fn);
+        },
+        removeEventListener(type, fn) {
+          if (type === "focus") listeners.delete(fn);
+        },
+        focus() {
+          document.activeElement = this;
+          for (const fn of listeners) fn({ isTrusted: true, target: this });
+        },
+      });
+    }
+    const ax = (id) => ({
+      backendDOMNodeId: id,
+      role: { value: id <= count ? "tab" : "tablist" },
+      name: { value: `Tab ${id}` },
+      properties: [],
+    });
+    const client = {
+      async send(method, params = {}) {
+        if (method === "DOM.focus") {
+          nodes.get(params.backendNodeId === owner ? 1 : params.backendNodeId).focus();
+          return {};
+        }
+        if (method === "Input.dispatchKeyEvent") {
+          if (params.type === "keyUp") return {};
+          const id = document.activeElement.id;
+          if (params.key === "Tab") nodes.get(params.modifiers === 8 ? 1 : after).focus();
+          else if (params.key === "ArrowRight" && id < count) nodes.get(id + 1).focus();
+          else if (params.key === "ArrowLeft" && id > 1 && id <= count) nodes.get(id - 1).focus();
+          return {};
+        }
+        if (method === "Accessibility.getPartialAXTree")
+          return { nodes: [ax(params.backendNodeId)] };
+        if (method === "Runtime.evaluate") {
+          const value = vm.runInContext(params.expression, world);
+          return { result: params.returnByValue ? { value } : { objectId: `node:${value.id}` } };
+        }
+        if (method === "DOM.describeNode")
+          return { node: { backendNodeId: Number(params.objectId.split(":")[1]) } };
+        if (method === "DOM.resolveNode")
+          return { object: { objectId: `node:${params.backendNodeId}` } };
+        if (method === "Runtime.callFunctionOn") {
+          calls += 1;
+          const fn = vm.runInContext(`(${params.functionDeclaration})`, world);
+          return {
+            result: {
+              value: fn.apply(
+                nodes.get(Number(params.objectId.split(":")[1])),
+                (params.arguments ?? []).map((arg) => arg.value)
+              ),
+            },
+          };
+        }
+        if (method === "Runtime.releaseObject") return {};
+        throw Error(`Unexpected protocol method ${method}`);
+      },
+    };
+    const observed = new Set();
+    const candidate = {
+      owner_role: "tablist",
+      owner_backend_node_id: owner,
+      member_backend_node_ids: [...Array(count)].map((_, i) => i + 1),
+      entry_backend_node_ids: [owner],
+      entry_probes: { [owner]: { from_backend_node_id: before, modifiers: 0 } },
+    };
+    await mod.exports.probeCandidate(client, 1, candidate, { remaining: 1000 }, observed, (id) => ({
+      identity: JSON.stringify([id <= count ? "tab" : "tablist", `Tab ${id}`]),
+    }));
+    assert.equal(observed.size, count);
+    assert.ok(
+      calls <= 8 * count + 20,
+      `N=${count}: ${calls} node-call round trips exceed the linear budget`
+    );
+  }
+});
+
 // Named focusability fixtures other than the disclosure variants.
 // A tablist can own the document tab stop and delegate native entry to its
 // selected tab. Manual activation keeps that selection while arrows move focus.

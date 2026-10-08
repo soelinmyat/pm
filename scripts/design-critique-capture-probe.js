@@ -2794,7 +2794,8 @@ async function observeTransientTabFocus(
   frozenNode
 ) {
   const armed = [];
-  if (candidate.owner_role !== "tablist") return async () => [];
+  if (candidate.owner_role !== "tablist")
+    return { start: async () => {}, read: async () => [], close: async () => {} };
   try {
     for (const member of members) {
       const frozen = frozenNode(candidate.frozen_by_live?.get(member) ?? member);
@@ -2805,7 +2806,7 @@ async function observeTransientTabFocus(
         client,
         executionContextId,
         member,
-        `function (name) {
+        `function (name, backendNodeId) {
           const normalized = value => String(value || "").replace(/\\s+/g, " ").trim();
           if (this.getAttribute("role") !== "tab" || this.hasAttribute("aria-labelledby") ||
               normalized(this.getAttribute("aria-label") || this.textContent) !== name ||
@@ -2813,9 +2814,9 @@ async function observeTransientTabFocus(
           const signature = () => JSON.stringify([this.getAttribute("role"), this.getAttribute("aria-label"),
             this.getAttribute("aria-labelledby"), this.textContent, this.disabled, this.getAttribute("aria-disabled")]);
           const initial = signature();
-          const record = {seen: false, initial, signature};
+          const record = {seen: false, active: false, initial, signature, backendNodeId};
           record.listener = event => {
-            if (event.isTrusted && event.target === this && document.activeElement === this &&
+            if (record.active && event.isTrusted && event.target === this && document.activeElement === this &&
                 this.isConnected && signature() === initial) record.seen = true;
           };
           globalThis.__pmTransientTabFocus ??= new Map();
@@ -2824,36 +2825,48 @@ async function observeTransientTabFocus(
           this.addEventListener("focus", record.listener, true);
           return true;
         }`,
-        [{ value: name }]
+        [{ value: name }, { value: member }]
       );
       if (installed === true) armed.push(member);
     }
   } catch {
     // Any partial setup still returns a cleanup function; absence fails closed.
   }
-  return async () => {
-    const reached = [];
-    for (const member of armed) {
-      try {
-        const seen = await callOnNode(
-          client,
-          executionContextId,
-          member,
-          `function () {
-            const records = globalThis.__pmTransientTabFocus;
-            const record = records?.get(this);
-            if (!record) return false;
-            this.removeEventListener("focus", record.listener, true);
-            records.delete(this);
-            return record.seen && this.isConnected && record.signature() === record.initial;
-          }`
-        );
-        if (seen === true) reached.push(member);
-      } catch {
-        // Detached/replaced nodes cannot certify a frozen row.
-      }
-    }
-    return reached;
+  const evaluate = async (expression) => {
+    const result = await client.send("Runtime.evaluate", {
+      expression,
+      contextId: executionContextId,
+      returnByValue: true,
+      silent: true,
+    });
+    if (result.exceptionDetails) throw new Error("transient tab observation failed");
+    return result.result?.value;
+  };
+  return {
+    async start() {
+      if (armed.length === 0) return;
+      await evaluate(
+        `(() => { for (const record of globalThis.__pmTransientTabFocus?.values() ?? []) {record.seen = false; record.active = true;} })()`
+      );
+    },
+    async read() {
+      if (armed.length === 0) return [];
+      const ids = await evaluate(`(() => {
+        const reached = [];
+        for (const [node, record] of globalThis.__pmTransientTabFocus ?? []) {
+          record.active = false;
+          if (record.seen && node.isConnected && record.signature() === record.initial) reached.push(record.backendNodeId);
+        }
+        return reached;
+      })()`);
+      return Array.isArray(ids) ? ids.filter((id) => armed.includes(id)) : [];
+    },
+    async close() {
+      await evaluate(`(() => {
+        for (const [node, record] of globalThis.__pmTransientTabFocus ?? []) node.removeEventListener("focus", record.listener, true);
+        globalThis.__pmTransientTabFocus?.clear();
+      })()`).catch(() => {});
+    },
   };
 }
 
@@ -2910,58 +2923,63 @@ async function probeCompositeCandidate(
       if (!frozen?.identity || !(await nodeConnected(client, executionContextId, member))) continue;
       if (axIdentity(await liveAxNode(client, member)) === frozen.identity) observed.add(original);
     }
-    for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
-      try {
-        await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-        let state = await compositeFocusState(client, executionContextId, liveCandidate);
-        let previous = focusedCompositeMember(state, liveCandidate, members);
-        for (let step = 0; step < members.size; step += 1) {
-          const finishFocusObservation = await observeTransientTabFocus(
-            client,
-            executionContextId,
-            liveCandidate,
-            members,
-            frozenNode
-          );
-          let current;
-          try {
-            if (!(await dispatchKeyboardKey(client, key, budget))) return false;
-            // Roving focus libraries commonly defer arrow focus to a timer.
-            // Observe actual focus for a bounded window rather than treating
-            // the first protocol response as the completed interaction.
-            const deadline = Date.now() + 250;
-            do {
-              state = await compositeFocusState(client, executionContextId, liveCandidate);
-              current = focusedCompositeMember(state, liveCandidate, members);
-              if (current !== null && current !== previous) break;
-              if (Date.now() >= deadline) break;
-              await sleep(10);
-            } while (true);
-          } finally {
-            for (const member of await finishFocusObservation()) {
-              observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
+    const focusObservation = await observeTransientTabFocus(
+      client,
+      executionContextId,
+      liveCandidate,
+      members,
+      frozenNode
+    );
+    try {
+      for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
+        try {
+          await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+          let state = await compositeFocusState(client, executionContextId, liveCandidate);
+          let previous = focusedCompositeMember(state, liveCandidate, members);
+          for (let step = 0; step < members.size; step += 1) {
+            await focusObservation.start();
+            let current;
+            try {
+              if (!(await dispatchKeyboardKey(client, key, budget))) return false;
+              // Roving focus libraries commonly defer arrow focus to a timer.
+              // Observe actual focus for a bounded window rather than treating
+              // the first protocol response as the completed interaction.
+              const deadline = Date.now() + 250;
+              do {
+                state = await compositeFocusState(client, executionContextId, liveCandidate);
+                current = focusedCompositeMember(state, liveCandidate, members);
+                if (current !== null && current !== previous) break;
+                if (Date.now() >= deadline) break;
+                await sleep(10);
+              } while (true);
+            } finally {
+              for (const member of await focusObservation.read()) {
+                observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
+              }
             }
+            if (current === null) break;
+            if (current === previous) {
+              // Native Tab entry already exposes an active sole member. At the
+              // end of a one-item list, an arrow may correctly leave it in place.
+              if (members.size === 1)
+                observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
+              break;
+            }
+            observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
+            previous = current;
           }
-          if (current === null) break;
-          if (current === previous) {
-            // Native Tab entry already exposes an active sole member. At the
-            // end of a one-item list, an arrow may correctly leave it in place.
-            if (members.size === 1)
-              observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
-            break;
-          }
-          observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
-          previous = current;
+        } catch {
+          // A detached or replaced widget cannot certify the frozen control rows.
         }
-      } catch {
-        // A detached or replaced widget cannot certify the frozen control rows.
-      }
-      if (
-        [...members].every((member) =>
-          observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
+        if (
+          [...members].every((member) =>
+            observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
+          )
         )
-      )
-        break;
+          break;
+      }
+    } finally {
+      await focusObservation.close();
     }
   }
   return true;
