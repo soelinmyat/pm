@@ -2025,7 +2025,22 @@ function replacedRemountingComboboxControls(variant) {
 }
 
 // Named focusability fixtures other than the disclosure variants.
+// A tablist can own the document tab stop and delegate native entry to its
+// selected tab. Manual activation keeps that selection while arrows move focus.
+function ownerEntryTabsControls(variant = "working") {
+  const middle =
+    variant === "disabled"
+      ? '<button id="owner-tab-disabled" type="button" role="tab" aria-selected="false" tabindex="-1" disabled>Unavailable</button>'
+      : "";
+  return `<section aria-label="Owner tab entry"><button id="owner-before" type="button">Before tabs</button><div id="owner-tabs" role="tablist" aria-label="Views" tabindex="0"><button id="owner-tab-a" type="button" role="tab" aria-selected="true" tabindex="-1">Details</button>${middle}<button id="owner-tab-b" type="button" role="tab" aria-selected="false" tabindex="-1">Locations</button></div><button id="owner-after" type="button">After tabs</button></section><script>{const variant=${JSON.stringify(variant)};const owner=document.querySelector("#owner-tabs");const tabs=[...owner.querySelectorAll("[role=tab]")];const focus=tab=>{tabs.forEach(n=>n.tabIndex=n===tab?0:-1);tab.focus()};owner.addEventListener("focus",event=>{if(event.target===owner)focus(tabs.find(n=>n.getAttribute("aria-selected")==="true"))});owner.addEventListener("keydown",event=>{if(event.key==="Tab"&&["trap","redirected"].includes(variant)){event.preventDefault();return}const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();if(variant==="broken")return;const enabled=tabs.filter(n=>!n.disabled);const next=enabled[enabled.indexOf(document.activeElement)+direction];if(next)focus(next)});if(variant==="trap")document.addEventListener("keydown",event=>{if(event.key!=="Tab"||!["owner-before","owner-after"].includes(event.target.id))return;event.preventDefault();document.getElementById(event.target.id==="owner-before"?"owner-after":"owner-before").focus()});if(variant==="redirected")document.querySelector("#owner-before").addEventListener("focus",()=>document.querySelector("#owner-after").focus())}</script>`;
+}
+
 const FOCUSABILITY_VARIANTS = {
+  "owner-entry-tabs": ownerEntryTabsControls,
+  "owner-entry-broken": () => ownerEntryTabsControls("broken"),
+  "owner-entry-trap": () => ownerEntryTabsControls("trap"),
+  "owner-entry-redirected": () => ownerEntryTabsControls("redirected"),
+  "owner-entry-disabled": () => ownerEntryTabsControls("disabled"),
   "remounted-tab-stop": remountedTabStopControls,
   "rerendered-groups": rerenderedGroupsControls,
   "click-activated-tabs": () => clickActivatedTabsControls(),
@@ -2535,6 +2550,59 @@ test(
     }
   }
 );
+
+test(
+  "browser keyboard evidence keeps the native entry tab for an owner-mediated tablist",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "owner-entry-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      for (const id of ["owner-tab-a", "owner-tab-b"]) {
+        assert.equal(byLocator.get(`button#${id}`).tab_index, -1);
+        assert.equal(byLocator.get(`button#${id}`).focus_context, "composite");
+      }
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+for (const [variant, reachable] of [
+  ["broken", ["owner-tab-a"]],
+  ["trap", []],
+  ["redirected", []],
+  ["disabled", ["owner-tab-a", "owner-tab-b"]],
+]) {
+  test(
+    `browser owner-mediated entry retains native reach limits for ${variant} tabs`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls: `owner-entry-${variant}` });
+      try {
+        const result = runBrowserCapture(fixture);
+        const byLocator = new Map(
+          result.accessibility_observations.controls.map((item) => [item.locator, item])
+        );
+        for (const id of ["owner-tab-a", "owner-tab-b"]) {
+          assert.equal(
+            byLocator.get(`button#${id}`).focus_context === "composite",
+            reachable.includes(id)
+          );
+        }
+        if (variant === "disabled") {
+          assert.equal(byLocator.get("button#owner-tab-disabled").disabled, true);
+          assert.notEqual(byLocator.get("button#owner-tab-disabled").focus_context, "composite");
+        }
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
 
 test(
   "browser focus evidence follows native tab stops and observed roving keyboard ownership",

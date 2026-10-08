@@ -106,6 +106,8 @@ Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-na
 
 For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. Ordinary nested content remains valid. A sibling overlay fails, and one positioned descendant branch covering at least 90% of the marker and winning every sampled point also fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
+Native composite keyboard checks retain the member actually reached by document Tab entry, including when a focusable owner delegates entry to a member with `tabindex="-1"`. Arrow probes still have to reach the other members. Programmatic focus alone, an unreachable predecessor, or a keyboard trap does not establish entry.
+
 ### Native preparation for below-fold and keyboard states
 
 An assertion may include an optional `before_capture` array. It is hash-bound with

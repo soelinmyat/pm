@@ -2604,7 +2604,8 @@ async function entryHasDocumentKeyboardReach(
   entryProbe,
   budget,
   memberBackendNodeIds = new Set(),
-  ownerBackendNodeId = entryBackendNodeId
+  ownerBackendNodeId = entryBackendNodeId,
+  observedEntryMembers = new Set()
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
   // Keep a conditional popup alive while proving its native exit/return.
@@ -2622,7 +2623,10 @@ async function entryHasDocumentKeyboardReach(
     if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
     const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
+    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) {
+      if (memberBackendNodeIds.has(returnedFocus)) observedEntryMembers.add(returnedFocus);
+      return true;
+    }
   }
   if (
     entryProbe &&
@@ -2634,8 +2638,10 @@ async function entryHasDocumentKeyboardReach(
     if (focusedFrom === entryProbe.from_backend_node_id) {
       if (!(await dispatchKeyboardKey(client, "Tab", budget, entryProbe.modifiers))) return false;
       const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-      if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
+      if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab)) {
+        if (memberBackendNodeIds.has(focusedAfterTab)) observedEntryMembers.add(focusedAfterTab);
         return true;
+      }
     }
     // A redirected predecessor cannot establish document keyboard entry.
     // The live widget's exit/return paths above remain independently required.
@@ -2788,6 +2794,7 @@ async function probeCompositeCandidate(
     let liveCandidate = candidate;
     let members = new Set(candidate.member_backend_node_ids);
     let documentReachable = false;
+    const observedEntryMembers = new Set();
     try {
       documentReachable = await entryHasDocumentKeyboardReach(
         client,
@@ -2796,7 +2803,8 @@ async function probeCompositeCandidate(
         candidate.entry_probes[entryBackendNodeId],
         budget,
         members,
-        candidate.owner_backend_node_id
+        candidate.owner_backend_node_id,
+        observedEntryMembers
       );
     } catch {
       continue;
@@ -2816,6 +2824,12 @@ async function probeCompositeCandidate(
         continue;
       liveCandidate = replacement;
       members = new Set(replacement.member_backend_node_ids);
+    }
+    // An owner can delegate native Tab entry to a tab with tabindex -1.
+    // Preserve that observed member even when arrows cannot move farther in
+    // one direction. Programmatic focus alone never populates this set.
+    for (const member of observedEntryMembers) {
+      if (members.has(member)) observed.add(liveCandidate.frozen_by_live?.get(member) ?? member);
     }
     for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
       try {
