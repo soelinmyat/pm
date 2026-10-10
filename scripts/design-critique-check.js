@@ -62,6 +62,9 @@ const {
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+// These capture-time identities use the supported native observation contract.
+// Only inactive historical rows may retain them after a runtime upgrade.
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -1625,12 +1628,16 @@ function validateTrustedObservationIdentity(
   if (
     observation.assurance_level !== TRUSTED_CAPTURE_ASSURANCE ||
     observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
-    observation.producer.version !== PLUGIN_VERSION
+    (observation.producer.version !== PLUGIN_VERSION &&
+      !(
+        capture.active === false &&
+        HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(observation.producer.version)
+      ))
   )
     add(
       issues,
       label,
-      "must identify the current workflow-attested, non-cryptographic capture producer"
+      "must identify the current or supported historical workflow-attested, non-cryptographic capture producer"
     );
   const browser = observation.browser;
   if (browser.engine !== "chromium" || !isDeepStrictEqual(browser.before, browser.after))
@@ -1712,7 +1719,7 @@ function validateTrustedObservationIdentity(
     // The URL-specific issue is reported by validateTrustedPage.
   }
   const invocation = {
-    producer: { name: TRUSTED_CAPTURE_PRODUCER, version: PLUGIN_VERSION },
+    producer: { name: TRUSTED_CAPTURE_PRODUCER, version: observation.producer.version },
     route_sha256: routeFile.sha256,
     run_id: manifest.run_id,
     commit: manifest.commit,

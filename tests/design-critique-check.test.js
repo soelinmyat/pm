@@ -896,7 +896,8 @@ function refreshTrustedCaptureObservations(fixture) {
       0,
       {},
       fixture.nativeFocusProof ?? true,
-      fixture.nativeStateProof
+      fixture.nativeStateProof,
+      fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION
     );
 }
 
@@ -909,7 +910,8 @@ function attachTrustedCaptureObservation(
   scrollY = 0,
   viewportOverrides = {},
   nativeFocusProof = true,
-  nativeStateProof = null
+  nativeStateProof = null,
+  producerVersion = PLUGIN_VERSION
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -1158,7 +1160,7 @@ function attachTrustedCaptureObservation(
     captured_at: capture.captured_at,
   };
   const invocation = {
-    producer: { name: "pm:design-critique-capture", version: PLUGIN_VERSION },
+    producer: { name: "pm:design-critique-capture", version: producerVersion },
     route_sha256: routeBinding.sha256,
     run_id: route.run_id,
     commit: route.source.commit,
@@ -2703,7 +2705,7 @@ for (const [name, mutate, expected] of [
     (manifest) => {
       manifest.observation.producer.version = "0.0.0";
     },
-    /current workflow-attested.*capture producer/,
+    /current or supported historical workflow-attested.*capture producer/,
   ],
   [
     "unbound metadata",
@@ -4390,6 +4392,58 @@ test("localized resolved P1 proof rejects a failed before normalized audit", () 
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /requires passing landmarks/);
   assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+});
+
+test("localized remediation retains an immutable supported 1.14.6 before producer", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  fixture.producerVersionByCapture = { [before.id]: "1.14.6" };
+  configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  const original = fs.readFileSync(path.join(fixture.root, before.observation.path));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, before.observation.path)), original);
+
+  const manifest = JSON.parse(original);
+  manifest.observation.invocation_configuration_sha256 = "0".repeat(64);
+  before.observation = write(fixture.root, before.observation.path, JSON.stringify(manifest));
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const mismatched = check(fixture);
+  assert.equal(mismatched.ok, false);
+  assert.match(JSON.stringify(mismatched.issues), /does not match the bound invocation/);
+});
+
+for (const version of ["1.14.5", "999.0.0"]) {
+  test(`localized remediation rejects unsupported historical producer ${version}`, () => {
+    const fixture = makeFixture();
+    const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+    fixture.producerVersionByCapture = { [before.id]: version };
+    configureResolvedPrimaryFinding(
+      fixture,
+      validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+    );
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture producer/);
+    assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+  });
+}
+
+test("active captures still require the current capture producer", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  fixture.producerVersionByCapture = { [capture.id]: "1.14.6" };
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /capture producer/);
 });
 
 test("localized resolved P1 proof cannot use a changed viewport geometry", () => {
