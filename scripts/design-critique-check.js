@@ -1989,6 +1989,7 @@ function validateEvidence(
   const ids = new Set();
   const audits = [];
   for (const [index, item] of evidence.entries()) {
+    const initialIssues = issues.length;
     const at = `captures.evidence[${index}]`;
     if (!object(item) || !slug(item.id) || ids.has(item.id))
       add(issues, `${at}.id`, "must be unique kebab-case");
@@ -2014,7 +2015,20 @@ function validateEvidence(
         issues,
         history
       );
-      if (audit) audits.push({ entry: item, audit });
+      if (audit) {
+        audits.push({ entry: item, audit });
+        if (issues.length === initialIssues && audit.schema_version === 2) {
+          for (const captureId of audit.capture_ids) {
+            const observation = observationByCapture.get(captureId);
+            if (!observation) continue;
+            observation.normalizedAuditCounts ||= new Map();
+            observation.normalizedAuditCounts.set(
+              item.kind,
+              (observation.normalizedAuditCounts.get(item.kind) || 0) + 1
+            );
+          }
+        }
+      }
     }
   }
   for (const subject of route.subjects || []) {
@@ -4308,6 +4322,11 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
   return (
     nativeObservations?.get(before.id)?.verified === true &&
     nativeObservations.get(after.id)?.verified === true &&
+    [before, after].every((capture) =>
+      ["accessibility-tree", "dom-audit"].every(
+        (kind) => nativeObservations.get(capture.id).normalizedAuditCounts?.get(kind) === 1
+      )
+    ) &&
     before.width === after.width &&
     before.height === after.height &&
     difference !== null &&

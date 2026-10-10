@@ -4339,6 +4339,59 @@ test("accepts localized resolved P1 pixels only with verified native observation
   assert.match(JSON.stringify(untrusted.issues), /decoded pixels must differ materially/);
 });
 
+for (const missingKinds of [
+  ["accessibility-tree"],
+  ["dom-audit"],
+  ["accessibility-tree", "dom-audit"],
+]) {
+  test(`localized resolved P1 proof requires before normalized audits: ${missingKinds.join(", ")}`, () => {
+    const fixture = makeFixture();
+    const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+    configureResolvedPrimaryFinding(
+      fixture,
+      validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+    );
+    fixture.captures.evidence = fixture.captures.evidence.filter((entry) => {
+      if (!missingKinds.includes(entry.kind)) return true;
+      const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, entry.path), "utf8"));
+      return !audit.capture_ids.includes(before.id);
+    });
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+  });
+}
+
+test("localized resolved P1 proof rejects a failed before normalized audit", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  const evidence = fixture.captures.evidence.find(
+    (entry) =>
+      entry.kind === "accessibility-tree" &&
+      JSON.parse(fs.readFileSync(path.join(fixture.root, entry.path), "utf8")).capture_ids.includes(
+        before.id
+      )
+  );
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /requires passing landmarks/);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+});
+
 test("localized resolved P1 proof cannot use a changed viewport geometry", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
