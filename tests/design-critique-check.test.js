@@ -4315,6 +4315,68 @@ test("rejects resolved P1 evidence whose only visual change is 200 pixels", () =
   assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
 });
 
+test("accepts localized resolved P1 pixels only with verified native observations", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const { after } = configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+
+  // Declaring an image native cannot replace the validated observation bundle.
+  delete after.observation;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const untrusted = check(fixture, COMMIT, {
+    nativeObservations: new Map([
+      [before.id, {}],
+      [after.id, {}],
+    ]),
+  });
+  assert.equal(untrusted.ok, false);
+  assert.match(JSON.stringify(untrusted.issues), /decoded pixels must differ materially/);
+});
+
+test("localized resolved P1 proof cannot use a changed viewport geometry", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const { after } = configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height - 1, 0, 0, 50, before.width * 2)
+  );
+  after.height = before.height - 1;
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+});
+
+test("localized resolved P1 proof requires successfully validated native bindings", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const { after } = configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, after.observation.path), "utf8")
+  );
+  manifest.capture.sha256 = "0".repeat(64);
+  after.observation = write(fixture.root, after.observation.path, JSON.stringify(manifest));
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must exactly bind the capture row/);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+});
+
 test("rejects an active capture older than an inactive later round", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures[0];
