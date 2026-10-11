@@ -62,6 +62,9 @@ const {
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+// These capture-time identities use the supported native observation contract.
+// Only inactive historical rows may retain them after a runtime upgrade.
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -180,7 +183,14 @@ function checkDesignCritiqueUncached(options) {
   validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, gitIdentity.baseCommit, issues);
   if (options.verifyGit !== false)
     validateDiffIdentity(root, route, gitIdentity.baseCommit, issues);
-  validateCaptures(root, captures, route, routeFile, { options, currentSource, history }, issues);
+  const nativeObservations = validateCaptures(
+    root,
+    captures,
+    route,
+    routeFile,
+    { options, currentSource, history },
+    issues
+  );
   validateReport(
     root,
     report,
@@ -190,7 +200,7 @@ function checkDesignCritiqueUncached(options) {
     capturesFile,
     reviewsFile,
     reportFile,
-    { ...options, designHistory: history },
+    { ...options, designHistory: history, nativeObservations },
     issues
   );
   if (shouldVerifyCaptureBrowser(options)) finalizeBrowserIdentities(issues);
@@ -952,6 +962,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     issues,
     runtime.history
   );
+  return observationByCapture;
 }
 
 function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCapture, issues) {
@@ -1029,8 +1040,8 @@ function validateCrossStateVisualDistance(
         );
         // Native state assertions and stable capture receipts provide state proof.
         // Localized focus/content changes need meaningful changed tiles, not a
-        // minimum average over the whole viewport. Legacy/untrusted captures and
-        // before/after remediation retain the stricter global-distance rule.
+        // minimum average over the whole viewport. Legacy/untrusted captures
+        // retain the stricter global-distance rule.
         const localizedNativeChange =
           observationByCapture.has(left.capture.id) &&
           observationByCapture.has(right.capture.id) &&
@@ -1371,6 +1382,7 @@ function validateTrustedCaptureObservation(
     manifest,
     manifestFile: file,
     assertion: focusAssertion,
+    verified: issues.length === initialIssues,
     loadingContentVerified: hasLoadingContent && issues.length === initialIssues,
   };
 }
@@ -1616,12 +1628,16 @@ function validateTrustedObservationIdentity(
   if (
     observation.assurance_level !== TRUSTED_CAPTURE_ASSURANCE ||
     observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
-    observation.producer.version !== PLUGIN_VERSION
+    (observation.producer.version !== PLUGIN_VERSION &&
+      !(
+        capture.active === false &&
+        HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(observation.producer.version)
+      ))
   )
     add(
       issues,
       label,
-      "must identify the current workflow-attested, non-cryptographic capture producer"
+      "must identify the current or supported historical workflow-attested, non-cryptographic capture producer"
     );
   const browser = observation.browser;
   if (browser.engine !== "chromium" || !isDeepStrictEqual(browser.before, browser.after))
@@ -1703,7 +1719,7 @@ function validateTrustedObservationIdentity(
     // The URL-specific issue is reported by validateTrustedPage.
   }
   const invocation = {
-    producer: { name: TRUSTED_CAPTURE_PRODUCER, version: PLUGIN_VERSION },
+    producer: { name: TRUSTED_CAPTURE_PRODUCER, version: observation.producer.version },
     route_sha256: routeFile.sha256,
     run_id: manifest.run_id,
     commit: manifest.commit,
@@ -1980,6 +1996,7 @@ function validateEvidence(
   const ids = new Set();
   const audits = [];
   for (const [index, item] of evidence.entries()) {
+    const initialIssues = issues.length;
     const at = `captures.evidence[${index}]`;
     if (!object(item) || !slug(item.id) || ids.has(item.id))
       add(issues, `${at}.id`, "must be unique kebab-case");
@@ -2005,7 +2022,20 @@ function validateEvidence(
         issues,
         history
       );
-      if (audit) audits.push({ entry: item, audit });
+      if (audit) {
+        audits.push({ entry: item, audit });
+        if (issues.length === initialIssues && audit.schema_version === 2) {
+          for (const captureId of audit.capture_ids) {
+            const observation = observationByCapture.get(captureId);
+            if (!observation) continue;
+            observation.normalizedAuditCounts ||= new Map();
+            observation.normalizedAuditCounts.set(
+              item.kind,
+              (observation.normalizedAuditCounts.get(item.kind) || 0) + 1
+            );
+          }
+        }
+      }
     }
   }
   for (const subject of route.subjects || []) {
@@ -2354,7 +2384,15 @@ function validateReport(
   if ((captures.captures || []).some((item) => item.round > report.rounds))
     add(issues, "report.rounds", "must include every recorded capture round");
   validateScores(root, report.scores, route, captures, issues);
-  validateFindings(root, report.findings, route, captures, report.outcome, issues);
+  validateFindings(
+    root,
+    report.findings,
+    route,
+    captures,
+    report.outcome,
+    issues,
+    options.nativeObservations
+  );
   if (report.schema_version === 2 && reviewState) {
     validateReconciliation(report, route, captures, reviewState, issues);
     validateSourceBlockingOutcome(report, reviewState, issues);
@@ -4119,7 +4157,7 @@ function requiredScoreEvidence(root, key, route, captures) {
   return activeCaptures.map((item) => item.id);
 }
 
-function validateFindings(root, findings, route, captures, outcome, issues) {
+function validateFindings(root, findings, route, captures, outcome, issues, nativeObservations) {
   if (!Array.isArray(findings)) return add(issues, "report.findings", "must be an array");
   const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
   const evidenceById = new Map((captures.evidence || []).map((item) => [item.id, item]));
@@ -4213,7 +4251,13 @@ function validateFindings(root, findings, route, captures, outcome, issues) {
           (!sha256(before.pixel_sha256) ||
             !sha256(after.pixel_sha256) ||
             before.pixel_sha256 === after.pixel_sha256 ||
-            !isMaterialVisualDifference(resolvedVisualDifference))) ||
+            (!isMaterialVisualDifference(resolvedVisualDifference) &&
+              !isLocalizedNativeRemediation(
+                resolvedVisualDifference,
+                before,
+                after,
+                nativeObservations
+              )))) ||
         before.coverage_id !== after.coverage_id ||
         !subjectCoverage.has(before.coverage_id) ||
         before.active !== false ||
@@ -4273,6 +4317,26 @@ function isMaterialVisualDifference(difference) {
   return (
     difference !== null &&
     difference.distance >= MIN_CROSS_STATE_VISUAL_DISTANCE &&
+    difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
+  );
+}
+
+// A localized fix can be meaningful while unchanged page chrome dilutes its
+// whole-viewport average. Only observations verified by validateCaptures qualify;
+// neither a caller flag nor a reported native provenance label grants this path.
+// All other capture, normalized-audit and reviewer failures still reject the gate.
+function isLocalizedNativeRemediation(difference, before, after, nativeObservations) {
+  return (
+    nativeObservations?.get(before.id)?.verified === true &&
+    nativeObservations.get(after.id)?.verified === true &&
+    [before, after].every((capture) =>
+      ["accessibility-tree", "dom-audit"].every(
+        (kind) => nativeObservations.get(capture.id).normalizedAuditCounts?.get(kind) === 1
+      )
+    ) &&
+    before.width === after.width &&
+    before.height === after.height &&
+    difference !== null &&
     difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
   );
 }
