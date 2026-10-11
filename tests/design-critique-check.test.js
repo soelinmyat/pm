@@ -5709,7 +5709,7 @@ test("offline verifier recomputes sparse native loading pixels and rejects chang
   }
 });
 
-function thirdRecoveryDCFixture(t) {
+function thirdRecoveryDCFixture(t, { checkpointVersion = null, expectCurrent = true } = {}) {
   const fixture = makeFixture();
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
   configureResolvedPrimaryFinding(fixture);
@@ -5717,6 +5717,15 @@ function thirdRecoveryDCFixture(t) {
   fixture.report.reason = "The desktop density still fails the accepted readable layout.";
   fixture.report.top_issue = fixture.report.reason;
   const { git, base, oldCommit } = bindRecoveryDCSource(fixture, t);
+  if (checkpointVersion) {
+    fixture.producerVersionByCapture = Object.fromEntries(
+      fixture.captures.captures.map((capture) => [capture.id, checkpointVersion])
+    );
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+  }
   // Freeze every predecessor binding; its result and human artifact remain untouched.
   const priorCaptures = write(
     fixture.root,
@@ -5745,8 +5754,20 @@ function thirdRecoveryDCFixture(t) {
     priorReportValue.human_report.path,
     htmlReport(priorReport, priorCaptures, priorReviews, priorReviewsValue, priorReportValue)
   );
+  if (checkpointVersion) {
+    const htmlPath = path.join(fixture.root, priorReportValue.human_report.path);
+    fs.writeFileSync(
+      htmlPath,
+      fs
+        .readFileSync(htmlPath, "utf8")
+        .replace(`"version":"${PLUGIN_VERSION}"`, `"version":"${checkpointVersion}"`)
+    );
+  }
+  const checkpointChecker = checkpointVersion
+    ? checkerAtCaptureTimeVersion(checkpointVersion)
+    : checkDesignCritique;
   assert.equal(
-    checkDesignCritique({
+    checkpointChecker({
       root: fixture.root,
       routePath: fixture.routePath,
       capturesPath: priorCaptures.path,
@@ -5938,9 +5959,105 @@ function thirdRecoveryDCFixture(t) {
     baseRef: "origin/main",
     baseCommit: base,
   });
-  assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
-  return { fixture, base, newCommit, after, git };
+  if (expectCurrent)
+    assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
+  return { fixture, base, newCommit, after, git, successfulRecovery };
 }
+
+// Run the real checker with only its package-version dependency set to the
+// checkpoint's capture-time release. This proves the synthetic frozen report
+// was valid before the upgrade without mutating the production module or API.
+function checkerAtCaptureTimeVersion(version) {
+  const { createRequire } = require("node:module");
+  const { runInThisContext } = require("node:vm");
+  const filename = require.resolve("../scripts/design-critique-check");
+  const localRequire = createRequire(filename);
+  const requireAtVersion = (id) =>
+    id === "../plugin.config.json" ? { ...localRequire(id), version } : localRequire(id);
+  const isolated = { exports: {} };
+  const execute = runInThisContext(
+    `(function(require,module,exports,__dirname,__filename){${fs.readFileSync(filename, "utf8").replace(/^#![^\n]*\n/, "")}\n})`,
+    { filename }
+  );
+  execute(requireAtVersion, isolated, isolated.exports, path.dirname(filename), filename);
+  return isolated.exports.checkDesignCritique;
+}
+
+for (const checkpointVersion of ["1.14.6", "1.14.7"]) {
+  test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
+    const retained = recoveryDCFiles(fixture.root);
+    const prior = fixture.reviews.rounds[2].previous_report;
+    const priorReport = JSON.parse(fs.readFileSync(path.join(fixture.root, prior.path)));
+    const priorCaptures = JSON.parse(
+      fs.readFileSync(path.join(fixture.root, priorReport.captures.path))
+    );
+    assert(priorCaptures.captures.some((capture) => capture.active === true));
+    assert.equal(priorReport.outcome, "failed");
+    assert.deepEqual(
+      check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+      { ok: true, issues: [] }
+    );
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+    const manifest = priorCaptures.captures.find((capture) => capture.active).observation.path;
+    fs.appendFileSync(path.join(fixture.root, manifest), "\n ");
+    const changed = check(fixture, newCommit);
+    assert.equal(changed.ok, false);
+    assert.match(JSON.stringify(changed.issues), /does not match trusted capture manifest bytes/);
+  });
+}
+
+for (const checkpointVersion of ["1.14.5", "999.0.0"]) {
+  test(`frozen recovery rejects unsupported producer ${checkpointVersion}`, (t) => {
+    const { successfulRecovery } = thirdRecoveryDCFixture(t, {
+      checkpointVersion,
+      expectCurrent: false,
+    });
+    assert.equal(successfulRecovery.ok, false);
+    assert.match(JSON.stringify(successfulRecovery.issues), /capture producer/);
+  });
+}
+
+test("caller history options cannot exempt a current active producer", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  fixture.producerVersionByCapture = { [capture.id]: "1.14.6" };
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture, COMMIT, { frozenPredecessor: true });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /capture producer/);
+});
+
+test("frozen recovery rejects an unsupported report generator independently of capture producer", (t) => {
+  const { fixture, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.6" });
+  const prior = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, fixture.reviews.rounds[2].previous_report.path))
+  );
+  const htmlPath = path.join(fixture.root, prior.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs.readFileSync(htmlPath, "utf8").replace('"version":"1.14.6"', '"version":"999.0.0"')
+  );
+  const result = check(fixture, newCommit);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /metadata generator/);
+});
+
+test("caller history options cannot exempt a current report generator", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs.readFileSync(htmlPath, "utf8").replace(`"version":"${PLUGIN_VERSION}"`, '"version":"1.14.6"')
+  );
+  const result = check(fixture, COMMIT, { frozenPredecessor: true });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /metadata generator/);
+});
 
 test("third Design Critique round requires immutable failure history and grounded scoped recovery", (t) => {
   const { fixture, base, newCommit, after } = thirdRecoveryDCFixture(t);

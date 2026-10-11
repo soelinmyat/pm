@@ -63,8 +63,9 @@ const {
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
-// Only inactive historical rows may retain them after a runtime upgrade.
-const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6"]);
+// Inactive rows and internally revalidated frozen checkpoints retain these
+// capture-time identities. Current active evidence must use this release.
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -156,7 +157,7 @@ function checkDesignCritique(options) {
   }
 }
 
-function checkDesignCritiqueUncached(options) {
+function checkDesignCritiqueUncached(options, frozenPredecessor = false) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
   const issues = [];
   const routeFile = readJsonFile(root, options.routePath, "route", issues);
@@ -188,7 +189,7 @@ function checkDesignCritiqueUncached(options) {
     captures,
     route,
     routeFile,
-    { options, currentSource, history },
+    { options, currentSource, history, frozenPredecessor },
     issues
   );
   validateReport(
@@ -200,7 +201,7 @@ function checkDesignCritiqueUncached(options) {
     capturesFile,
     reviewsFile,
     reportFile,
-    { ...options, designHistory: history, nativeObservations },
+    { ...options, designHistory: history, nativeObservations, frozenPredecessor },
     issues
   );
   if (shouldVerifyCaptureBrowser(options)) finalizeBrowserIdentities(issues);
@@ -1630,7 +1631,7 @@ function validateTrustedObservationIdentity(
     observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
     (observation.producer.version !== PLUGIN_VERSION &&
       !(
-        capture.active === false &&
+        (capture.active === false || runtime.frozenPredecessor === true) &&
         HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(observation.producer.version)
       ))
   )
@@ -2540,17 +2541,20 @@ function validateDesignRecovery(root, row, at, reviews, report, issues) {
     );
     if (!priorRoute) return;
     validateBinding(prior.value.route, priorRoute, `${at}.previous_report.route`, issues);
-    const checked = checkDesignCritiqueUncached({
-      root,
-      routePath: prior.value.route.path,
-      capturesPath: prior.value.captures.path,
-      reportPath: binding.path,
-      verifyGit: false,
-      verifyBrowser: false,
-      commit: prior.value.commit,
-      baseRef: priorRoute.value.source?.base_ref,
-      baseCommit: priorRoute.value.source?.base_commit,
-    });
+    const checked = checkDesignCritiqueUncached(
+      {
+        root,
+        routePath: prior.value.route.path,
+        capturesPath: prior.value.captures.path,
+        reportPath: binding.path,
+        verifyGit: false,
+        verifyBrowser: false,
+        commit: prior.value.commit,
+        baseRef: priorRoute.value.source?.base_ref,
+        baseCommit: priorRoute.value.source?.base_commit,
+      },
+      true
+    );
     if (!checked.ok)
       add(
         issues,
@@ -4509,7 +4513,11 @@ function validateHumanReport(
   if (!metadata) return;
   if (
     metadata.generator?.name !== "pm:design-critique" ||
-    metadata.generator?.version !== PLUGIN_VERSION
+    (metadata.generator?.version !== PLUGIN_VERSION &&
+      !(
+        options.frozenPredecessor === true &&
+        HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(metadata.generator?.version)
+      ))
   )
     add(
       issues,
