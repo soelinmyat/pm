@@ -3539,10 +3539,13 @@ async function main() {
       const completeRequest = (event, sessionId) => {
         noteNetworkActivity();
         pendingRequests.delete(scopedRequestId(connectionScope, sessionId, event.requestId));
+        // An out-of-process iframe navigation can start in the parent session
+        // and finish in the child. Clear that same native ID in both ledgers.
         if (
           connectionScope === "browser" &&
           sessionId &&
-          WORKER_TARGET_TYPES.has(childTargetInfo.get(sessionId)?.type)
+          (WORKER_TARGET_TYPES.has(childTargetInfo.get(sessionId)?.type) ||
+            childTargetInfo.get(sessionId)?.type === "iframe")
         ) {
           pendingRequests.delete(scopedRequestId("page", null, event.requestId));
           const parentSessionId = childParentSession.get(sessionId);
