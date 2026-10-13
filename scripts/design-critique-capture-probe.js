@@ -231,6 +231,10 @@ function requestAllowed(rawUrl, allowedOrigins) {
   return INTERNAL_SCHEMES.has(origin) || allowedOrigins.has(origin);
 }
 
+function requiresNetworkCompletion(rawUrl) {
+  return ALLOWED_NETWORK_PROTOCOLS.has(new URL(rawUrl).protocol);
+}
+
 function browserInternalTarget(rawUrl) {
   try {
     return BROWSER_INTERNAL_TARGET_PROTOCOLS.has(new URL(rawUrl).protocol);
@@ -3534,7 +3538,11 @@ async function main() {
           const parentSessionId = childParentSession.get(sessionId);
           if (parentSessionId)
             pendingRequests.delete(scopedRequestId("browser", parentSessionId, event.requestId));
-        } else pendingRequests.add(scopedRequestId(connectionScope, sessionId, event.requestId));
+        } else if (requiresNetworkCompletion(event.request?.url)) {
+          // Blob/data script observations are local bytes, not live transfers.
+          // Their origin policy is still checked above; child HTTP work is tracked.
+          pendingRequests.add(scopedRequestId(connectionScope, sessionId, event.requestId));
+        }
       });
       const completeRequest = (event, sessionId) => {
         noteNetworkActivity();
@@ -4097,6 +4105,7 @@ module.exports = {
   originForPolicy,
   redactedUrlIdentity,
   requestAllowed,
+  requiresNetworkCompletion,
   sanitizeRequest,
   snapshotNodeModel,
   verifyAssertionHitTargets,

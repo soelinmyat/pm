@@ -33,6 +33,8 @@ async function fixture(t, scenario) {
         ? 'const script=document.createElement("script");script.src=URL.createObjectURL(new Blob(["window.blobLoaded=true"],{type:"text/javascript"}));script.onload=()=>parent.postMessage("ready","*");document.head.append(script);'
         : scenario === 'pending'
           ? 'fetch("/slow");parent.postMessage("ready","*");'
+            : scenario === 'forbidden'
+              ? 'fetch("http://127.0.0.1:1/blocked").catch(()=>{});parent.postMessage("ready","*");'
           : 'parent.postMessage("ready","*");';
       res.setHeader('content-type', 'text/html');
       res.end('<!doctype html><html lang="en"><head><title>Child context</title></head><body><p>Child frame content</p><script>'+work+'</script></body></html>');
@@ -119,4 +121,9 @@ test("settles an in-memory blob script in a cross-origin iframe", { skip }, asyn
 test("keeps a real outstanding iframe fetch blocking primary capture", { skip }, async (t) => {
   const config = await fixture(t, "pending");
   assert.throws(() => runCaptureProbe(config), /network-idle readiness/);
+});
+
+test("rejects an unlisted network origin requested from the iframe", { skip }, async (t) => {
+  const config = await fixture(t, "forbidden");
+  assert.throws(() => runCaptureProbe(config), /network policy violation/);
 });
