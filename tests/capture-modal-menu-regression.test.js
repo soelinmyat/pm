@@ -19,10 +19,12 @@ try {
 }
 const skip = process.env.PM_SKIP_BROWSER_TESTS || (!browser && "Chromium is unavailable");
 
-async function fixture(t, scenario) {
+async function fixture(t, scenario, conditionalControls = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-modal-menu-test-"));
   const script = `
     const scenario=${JSON.stringify(scenario)};
+    const conditionalControls=${JSON.stringify(conditionalControls)};
+    let openCount=0;
     const trigger=document.getElementById('reviewer');
     const content=scenario==='main-self-hidden'?document.querySelector('main'):document.getElementById('application');
     if(scenario==='unowned-traversable')trigger.removeAttribute('aria-controls');
@@ -31,8 +33,9 @@ async function fixture(t, scenario) {
       dialog=document.createElement('div');dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','Navigation');
       for(const id of ['before','reviewer','after'])dialog.append(document.getElementById(id));document.body.append(dialog);content.setAttribute('aria-hidden','true');
     }
-    const close=()=>{const menu=document.getElementById('review-menu');if(scenario==='retained-hidden')menu.hidden=true;else if(scenario!=='still-exposed')menu?.remove();if(dialog)dialog.removeAttribute('aria-hidden');else content.removeAttribute('aria-hidden');trigger.setAttribute('aria-expanded','false');trigger.focus();};
+    const close=()=>{const menu=document.getElementById('review-menu');if(scenario==='retained-hidden')menu.hidden=true;else if(scenario!=='still-exposed')menu?.remove();if(dialog)dialog.removeAttribute('aria-hidden');else content.removeAttribute('aria-hidden');trigger.setAttribute('aria-expanded','false');if(conditionalControls)trigger.removeAttribute('aria-controls');if(scenario==='closed-wrong-controls')trigger.setAttribute('aria-controls','foreign-menu');if(scenario==='closed-foreign-owner')document.getElementById('after').setAttribute('aria-controls','review-menu');trigger.focus();};
     const open=(keyboard=false)=>{
+      openCount++;if(conditionalControls)trigger.setAttribute('aria-controls','review-menu');if(openCount>1&&scenario==='reopened-wrong-controls')trigger.setAttribute('aria-controls','foreign-menu');if(openCount>1&&scenario==='reopened-ambiguous-controls')document.getElementById('after').setAttribute('aria-controls','review-menu');
       const retained=document.getElementById('review-menu');if(retained){if(!retained.hidden)return;retained.remove();}
       if(scenario!=='document-menu')content.setAttribute('aria-hidden','true');trigger.setAttribute('aria-expanded','true');
       if(dialog)dialog.setAttribute('aria-hidden','true');
@@ -174,6 +177,30 @@ for (const scenario of [
 ]) {
   test(`keeps ${scenario} menu scope non-passing`, { skip }, async (t) => {
     const result = runCaptureProbe(await fixture(t, scenario));
+    const normalized = audit(result);
+    assert.equal(normalized.checks.landmarks && normalized.checks.focus_order, false);
+    assert.ok(normalized.findings.length > 0);
+  });
+}
+
+// Real conditional popup owners (including Radix DropdownMenu) expose their
+// controls relation only while open; the native close/reopen handlers own it.
+test("proves native menu traversal when controls is absent while closed", { skip }, async (t) => {
+  const result = runCaptureProbe(await fixture(t, "working", true));
+  assert.deepEqual(audit(result).checks, { landmarks: true, names: true, focus_order: true });
+  assert.deepEqual(audit(result).findings, []);
+});
+
+for (const scenario of [
+  "closed-wrong-controls",
+  "closed-foreign-owner",
+  "reopened-wrong-controls",
+  "reopened-ambiguous-controls",
+  "broken-entry",
+  "broken-arrows",
+]) {
+  test(`keeps conditional controls ${scenario} non-passing`, { skip }, async (t) => {
+    const result = runCaptureProbe(await fixture(t, scenario, true));
     const normalized = audit(result);
     assert.equal(normalized.checks.landmarks && normalized.checks.focus_order, false);
     assert.ok(normalized.findings.length > 0);

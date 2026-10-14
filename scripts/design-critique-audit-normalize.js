@@ -106,7 +106,7 @@ function normalizeAccessibility(observations) {
   boundedArray(popupInput, MAX_LANDMARKS, "raw accessibility popups");
   const popups = popupInput.map((item, index) => {
     const label = `raw accessibility popups[${index}]`;
-    exactObject(
+    exactObjectWithOptional(
       item,
       [
         "role",
@@ -117,9 +117,18 @@ function normalizeAccessibility(observations) {
         "keyboard_navigation_verified",
         "member_locators",
       ],
+      ["owner"],
       label
     );
-    if (item.role !== "menu") throw new Error(`${label}.role must be menu`);
+    if (item.owner !== undefined) {
+      if (item.role !== "listbox") throw new Error(`${label}.owner is supported only for listbox`);
+      exactObject(item.owner, ["role", "name", "locator"], `${label}.owner`);
+      if (item.owner.role !== "combobox") throw new Error(`${label}.owner.role must be combobox`);
+      boundedString(item.owner.name, MAX_DETAIL_CHARS, `${label}.owner.name`, true);
+      boundedString(item.owner.locator, MAX_LOCATOR_CHARS, `${label}.owner.locator`);
+    }
+    if (!["menu", "listbox"].includes(item.role))
+      throw new Error(`${label}.role must be menu or listbox`);
     boundedString(item.name, MAX_DETAIL_CHARS, `${label}.name`, true);
     boundedString(item.locator, MAX_LOCATOR_CHARS, `${label}.locator`);
     for (const field of [
@@ -178,9 +187,9 @@ function normalizeAccessibility(observations) {
   const activeModals = dialogs.filter(
     (item) => item.modal && item.contains_focus && item.name.trim()
   );
-  const activeMenus = popups.filter((item) => {
+  const activePopups = popups.filter((item) => {
     if (
-      !item.name.trim() ||
+      (item.role === "listbox" ? !item.owner?.name.trim() : !item.name.trim()) ||
       !item.contains_focus ||
       !item.background_main_hidden ||
       !item.keyboard_navigation_verified ||
@@ -193,17 +202,20 @@ function normalizeAccessibility(observations) {
         const matches = controls.filter((control) => control.locator === locator);
         return (
           matches.length === 1 &&
-          ["menuitem", "menuitemcheckbox", "menuitemradio"].includes(matches[0].role) &&
+          (item.role === "menu"
+            ? ["menuitem", "menuitemcheckbox", "menuitemradio"]
+            : ["option"]
+          ).includes(matches[0].role) &&
           !matches[0].disabled &&
           (matches[0].tab_index >= 0 || matches[0].focus_context === "composite")
         );
       }) && controls.every((control) => control.disabled || members.has(control.locator))
     );
   });
-  const focusedMenuScope = activeMenus.length === 1 && activeModals.length === 0;
+  const focusedPopupScope = activePopups.length === 1 && activeModals.length === 0;
   if (
     mainLandmarks.length !== 1 &&
-    !(mainLandmarks.length === 0 && (activeModals.length === 1 || focusedMenuScope))
+    !(mainLandmarks.length === 0 && (activeModals.length === 1 || focusedPopupScope))
   )
     findings.push({
       check: "landmarks",
@@ -218,7 +230,11 @@ function normalizeAccessibility(observations) {
       locator: item.locator,
       detail: `${item.role} has no accessible name.`,
     });
-  for (const item of popups.filter((popup) => !popup.name.trim()))
+  for (const item of popups.filter((popup) =>
+    popup.role === "listbox"
+      ? !popup.name.trim() && (!popup.owner?.name.trim() || !popup.keyboard_navigation_verified)
+      : !popup.name.trim()
+  ))
     findings.push({
       check: "names",
       code: "missing-popup-name",
