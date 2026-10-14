@@ -33,6 +33,7 @@ const {
 } = require("../scripts/lib/design-critique-review-result");
 const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { createNativeRegionCache } = require("../scripts/lib/native-region-cache");
 
 const COMMIT = "a".repeat(40);
 const PNG_CACHE = new Map();
@@ -5885,6 +5886,39 @@ test("loading task comparisons are independent of which busy assertion comes fir
   assert.equal(distanceIssues().length, 0);
 });
 
+test("native region cache reuses verified metrics and fails closed at both work limits", (t) => {
+  const bytes = validPng(1440, 1000, 20, 0, null, 1, "pending-idle");
+  const file = { path: "verified.png", sha256: digest(bytes), bytes };
+  const region = { x: 390, y: 324, width: 120, height: 36 };
+  const originalInflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return originalInflate(...args);
+  });
+  const cache = createNativeRegionCache({ maxRegions: 2, maxDecodedPixels: 1440 * 1000 });
+  const first = cache.inspect(file, region);
+  assert.equal(cache.inspect(file, { ...region }), first);
+  assert.equal(decodes, 1);
+  assert.throws(() => cache.inspect({ ...file, path: "second-verified.png" }, region), {
+    code: "PM_NATIVE_REGION_BUDGET",
+  });
+  assert.match(cache.failure, /work budget/);
+  assert.equal(decodes, 1, "overflow must fail before another decode");
+  assert.equal(
+    cache.inspect(file, region),
+    first,
+    "already verified data remains reusable after failure"
+  );
+  const regionLimit = createNativeRegionCache({ maxRegions: 1, maxDecodedPixels: 1440 * 1000 * 3 });
+  regionLimit.inspect(file, region);
+  assert.throws(() => regionLimit.inspect(file, { ...region, x: 389 }), {
+    code: "PM_NATIVE_REGION_BUDGET",
+  });
+  assert.equal(decodes, 2);
+  t.mock.restoreAll();
+});
+
 test("many invalid loading scenarios keep native regional decoding linear", (t) => {
   const fixture = makeFixture();
   fixture.nativeStateProof = "pending-button";
@@ -5904,6 +5938,9 @@ test("many invalid loading scenarios keep native regional decoding linear", (t) 
   const result = check(fixture);
   t.mock.restoreAll();
   assert.equal(result.ok, false, "marker-only scenario differences must remain invalid");
+  t.diagnostic(
+    `Regional work: ${decodes} full PNG decodes for ${fixture.captures.captures.length} captures`
+  );
   assert.ok(
     decodes <= fixture.captures.captures.length * 8,
     `Repeated scenario comparisons decoded full PNGs ${decodes} times for ${fixture.captures.captures.length} captures`

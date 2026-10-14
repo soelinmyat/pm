@@ -20,12 +20,12 @@ const {
   inspectPdfBytes,
   inspectPngHeaderBytes,
   inspectPngVisualBytes,
-  createPngRegionInspector,
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const { validateScenarios, coverageIdentity } = require("./lib/design-critique-scenarios");
+const { createNativeRegionCache } = require("./lib/native-region-cache");
 const {
   REVIEW_ASSURANCE,
   SCORE_KEYS,
@@ -148,6 +148,7 @@ function checkDesignCritique(options) {
     bytes: 0,
     browsers: new Map(),
     media: new Map(),
+    nativeRegions: createNativeRegionCache(),
     rowIndexes: new WeakMap(),
     projectInputVerificationContext: createProjectInputVerificationContext(),
   };
@@ -1105,6 +1106,8 @@ function validateCrossStateVisualDistance(
       "captures.captures",
       `${violationCount - emittedDiagnostics} additional cross-state visual-distance failures omitted after ${emittedDiagnostics} diagnostics`
     );
+  if (activeReadCache.nativeRegions.failure)
+    add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
 // A busy button can be smaller than one viewport tile. Its named native
@@ -1159,8 +1162,8 @@ function hasNativePendingButtonChange(root, left, right, observations) {
         const b = readBoundFile(root, right.capture.path, "pending button comparison", []);
         if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
           continue;
-        const aRegion = createPngRegionInspector(a.bytes)(region);
-        const bRegion = createPngRegionInspector(b.bytes)(region);
+        const aRegion = activeReadCache.nativeRegions.inspect(a, region);
+        const bRegion = activeReadCache.nativeRegions.inspect(b, region);
         // Neither tiny semantic nodes nor blank regions can be magnified into
         // state proof. Apply the existing meaningful-image and distance rules.
         validateMeaningfulVisual(aRegion);
@@ -1253,8 +1256,8 @@ function hasNativeStateContentChange(root, left, right, observations) {
       )
         continue;
       const difference = visualDifference(
-        createPngRegionInspector(before.bytes)(region),
-        createPngRegionInspector(after.bytes)(region)
+        activeReadCache.nativeRegions.inspect(before, region),
+        activeReadCache.nativeRegions.inspect(after, region)
       );
       // Apply the existing native changed-tile rule inside the semantic region.
       // Wide alert containers can still dilute the whole-region average.
@@ -1324,13 +1327,14 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
           after.sha256 !== right.capture.sha256
         )
           continue;
-        const inspectBefore = createPngRegionInspector(before.bytes);
-        const inspectAfter = createPngRegionInspector(after.bytes);
         let qualifying = 0;
         for (const region of regions) {
           if (
             isMaterialVisualDifference(
-              visualDifference(inspectBefore(region), inspectAfter(region))
+              visualDifference(
+                activeReadCache.nativeRegions.inspect(before, region),
+                activeReadCache.nativeRegions.inspect(after, region)
+              )
             )
           )
             qualifying++;
