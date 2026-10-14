@@ -25,17 +25,18 @@ async function fixture(t, scenario) {
     const scenario=${JSON.stringify(scenario)};
     const trigger=document.getElementById('reviewer');
     const content=scenario==='main-self-hidden'?document.querySelector('main'):document.getElementById('application');
+    if(scenario==='unowned-traversable')trigger.removeAttribute('aria-controls');
     let dialog;
     if(scenario==='inside-dialog'){
       dialog=document.createElement('div');dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','Navigation');
       for(const id of ['before','reviewer','after'])dialog.append(document.getElementById(id));document.body.append(dialog);content.setAttribute('aria-hidden','true');
     }
-    const close=()=>{document.getElementById('review-menu')?.remove();if(dialog)dialog.removeAttribute('aria-hidden');else content.removeAttribute('aria-hidden');trigger.setAttribute('aria-expanded','false');trigger.focus();};
+    const close=()=>{const menu=document.getElementById('review-menu');if(scenario==='retained-hidden')menu.hidden=true;else if(scenario!=='still-exposed')menu?.remove();if(dialog)dialog.removeAttribute('aria-hidden');else content.removeAttribute('aria-hidden');trigger.setAttribute('aria-expanded','false');trigger.focus();};
     const open=(keyboard=false)=>{
-      if(document.getElementById('review-menu'))return;
+      const retained=document.getElementById('review-menu');if(retained){if(!retained.hidden)return;retained.remove();}
       content.setAttribute('aria-hidden','true');trigger.setAttribute('aria-expanded','true');
       if(dialog)dialog.setAttribute('aria-hidden','true');
-      const menu=document.createElement('div');menu.id='review-menu';menu.setAttribute('role','menu');menu.tabIndex=-1;
+      const menu=document.createElement('div');menu.id='review-menu';menu.setAttribute('role','menu');menu.tabIndex=scenario==='unowned-traversable'?0:-1;
       if(scenario!=='unnamed')menu.setAttribute('aria-labelledby','reviewer');
       menu.innerHTML='<div role="menuitem" tabindex="-1">Profile</div><div role="menuitem" tabindex="-1">Account settings</div><div role="menuitem" tabindex="-1" id="signout" data-pm-state="primary">Sign out</div>';
       if(scenario==='checked-items'){
@@ -44,7 +45,7 @@ async function fixture(t, scenario) {
       }
       if(scenario==='disabled-item')menu.children[1].setAttribute('aria-disabled','true');
       menu.addEventListener('keydown',event=>{
-        if(event.key==='Tab'){event.preventDefault();return;}
+        if(event.key==='Tab'){if(scenario!=='unowned-traversable')event.preventDefault();return;}
         if(event.key==='Escape'){event.preventDefault();close();return;}
         if(scenario==='broken-arrows')return;
         if(!['ArrowDown','ArrowUp'].includes(event.key))return;
@@ -136,7 +137,13 @@ test(
   }
 );
 
-for (const scenario of ["checked-items", "disabled-item", "inside-dialog", "main-self-hidden"]) {
+for (const scenario of [
+  "checked-items",
+  "disabled-item",
+  "inside-dialog",
+  "main-self-hidden",
+  "retained-hidden",
+]) {
   test(
     `proves native traversal of ${scenario} without activating menu actions`,
     { skip },
@@ -148,7 +155,14 @@ for (const scenario of ["checked-items", "disabled-item", "inside-dialog", "main
   );
 }
 
-for (const scenario of ["broken-entry", "broken-arrows", "unnamed", "ambiguous-trigger"]) {
+for (const scenario of [
+  "broken-entry",
+  "broken-arrows",
+  "unnamed",
+  "ambiguous-trigger",
+  "unowned-traversable",
+  "still-exposed",
+]) {
   test(`keeps ${scenario} menu scope non-passing`, { skip }, async (t) => {
     const result = runCaptureProbe(await fixture(t, scenario));
     const normalized = audit(result);

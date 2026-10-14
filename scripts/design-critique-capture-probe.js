@@ -973,6 +973,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   const dialogs = [];
   const popups = [];
   const popupMemberBackendNodeIds = [];
+  const popupOwnerBackendNodeIds = [];
   const activeModalBackendIds = [];
   const axById = new Map((axTree.nodes || []).map((node) => [node.nodeId, node]));
   const focusedAncestors = new Set();
@@ -1086,6 +1087,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
         "accessibility popups"
       );
       popupMemberBackendNodeIds.push(members.map((item) => item.backendNodeId));
+      popupOwnerBackendNodeIds.push(axNode.backendDOMNodeId);
     }
     if (["dialog", "alertdialog"].includes(role)) {
       if (name && axProperties(axNode).get("modal") === true && focusedAncestors.has(axNode.nodeId))
@@ -1142,6 +1144,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   return {
     observations: { landmarks, controls, dialogs, ...(popups.length ? { popups } : {}) },
     popupMemberBackendNodeIds,
+    popupOwnerBackendNodeIds,
     controlBackendNodeIds,
     focusedBackendNodeIds,
     activeModalBackendNodeId: activeModalBackendIds.length === 1 ? activeModalBackendIds[0] : null,
@@ -2984,7 +2987,8 @@ async function probeCompositeCandidate(
   candidate,
   budget,
   observed,
-  frozenNode
+  frozenNode,
+  ownedMenus
 ) {
   for (const originalEntryBackendNodeId of candidate.entry_backend_node_ids) {
     let entryBackendNodeId = originalEntryBackendNodeId;
@@ -3109,6 +3113,18 @@ async function probeCompositeCandidate(
     } finally {
       await focusObservation.close();
     }
+    if (
+      candidate.menu_trigger_backend_node_id &&
+      candidate.member_backend_node_ids.length > 0 &&
+      candidate.member_backend_node_ids.every((id) =>
+        observed.has(candidate.frozen_by_live?.get(id) ?? id)
+      )
+    ) {
+      ownedMenus.add(
+        candidate.frozen_by_live?.get(candidate.owner_backend_node_id) ??
+          candidate.owner_backend_node_id
+      );
+    }
   }
   return true;
 }
@@ -3120,11 +3136,16 @@ async function reopenMenuThroughKeyboard(client, contextId, candidate, budget, f
   if (focus !== owner && !candidate.member_backend_node_ids.includes(focus)) return null;
   if (!(await dispatchKeyboardKey(client, "Escape", budget))) return null;
   const closedDeadline = Date.now() + 1000;
-  while (await nodeConnected(client, contextId, owner)) {
+  let closedAx;
+  do {
+    closedAx = await client.send("Accessibility.getFullAXTree");
+    const exposed = closedAx.nodes.some(
+      (node) => node.backendDOMNodeId === owner && node.ignored !== true
+    );
+    if (!exposed) break;
     if (Date.now() >= closedDeadline) return null;
     await sleep(10);
-  }
-  const closedAx = await client.send("Accessibility.getFullAXTree");
+  } while (true);
   const mainCount = closedAx.nodes.filter(
     (node) => node.ignored !== true && valueOf(node.role) === "main"
   ).length;
@@ -3262,7 +3283,12 @@ async function waitForDomQuiet(client, executionContextId) {
     .catch(() => {});
 }
 
-async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
+async function probeCompositeKeyboardAccess(
+  client,
+  candidates,
+  frozenNode,
+  ownedMenus = new Set()
+) {
   if (candidates.length === 0) return new Set();
   const frameTree = await client.send("Page.getFrameTree");
   const frameId = frameTree.frameTree?.frame?.id;
@@ -3306,7 +3332,8 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
           candidate,
           budget,
           observed,
-          frozenNode
+          frozenNode,
+          ownedMenus
         );
         for (const member of observed)
           observedMembers.add(candidate.frozen_by_live?.get(member) ?? member);
@@ -3431,6 +3458,7 @@ async function nativeSample(
     accessibility: accessibility.observations,
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     accessibilityPopupMemberBackendNodeIds: accessibility.popupMemberBackendNodeIds,
+    accessibilityPopupOwnerBackendNodeIds: accessibility.popupOwnerBackendNodeIds,
     compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
     compositeFrozenNode: frozenCompositeNodes(axTree, model),
     dom: domObservations(
@@ -4197,10 +4225,12 @@ async function main() {
     criticalWindow = false;
 
     // Exercise widget handlers only after the retained screenshot and DOM/AX samples are frozen.
+    const ownedMenus = new Set();
     const compositeBackendNodeIds = await probeCompositeKeyboardAccess(
       client,
       middle.compositeKeyboardCandidates,
-      middle.compositeFrozenNode
+      middle.compositeFrozenNode,
+      ownedMenus
     );
     for (const [index, backendNodeId] of middle.accessibilityControlBackendNodeIds.entries()) {
       const control = middle.accessibility.controls[index];
@@ -4210,7 +4240,9 @@ async function main() {
     }
     for (const [index, members] of middle.accessibilityPopupMemberBackendNodeIds.entries()) {
       middle.accessibility.popups[index].keyboard_navigation_verified =
-        members.length > 0 && members.every((id) => compositeBackendNodeIds.has(id));
+        ownedMenus.has(middle.accessibilityPopupOwnerBackendNodeIds[index]) &&
+        members.length > 0 &&
+        members.every((id) => compositeBackendNodeIds.has(id));
     }
     const probeSettleStartedAt = Date.now();
     const probeSettleDeadline = probeSettleStartedAt + Math.max(1_000, settleMs * 4);
