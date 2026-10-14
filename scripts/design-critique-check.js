@@ -1212,6 +1212,7 @@ function nativeNamedTextGuards(observation) {
   const existing = activeReadCache.namedTextGuards.get(observation);
   if (existing) return existing;
   const rows = new Map();
+  if (!observation.assertion) return rows;
   for (const [index, guard] of observation.assertion.all.entries()) {
     if (guard.expect.kind !== "visible" || guard.locator.by !== "role-name") continue;
     const colon = guard.locator.value.indexOf(":");

@@ -2609,6 +2609,27 @@ test("named success variants cannot borrow a primary heading proof", () => {
   assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
 });
 
+for (const [state, role] of [
+  ["primary", "heading"],
+  ["success", "statictext"],
+]) {
+  for (const damage of ["missing", "invalid"]) {
+    test("named " + state + " variants report " + damage + " assertions without throwing", () => {
+      const fixture = namedTextVariantFixture({ state, role });
+      const capture = fixture.captures.captures.find((c) => c.coverage_id.endsWith("-alternate"));
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+      );
+      const assertionPath = path.join(fixture.root, manifest.page.state_assertion.path);
+      if (damage === "missing") fs.unlinkSync(assertionPath);
+      else fs.writeFileSync(assertionPath, "{invalid JSON");
+      const result = check(fixture);
+      assert.equal(result.ok, false);
+      assert.ok(result.issues.some((issue) => issue.path.includes("state_assertion")));
+    });
+  }
+}
+
 test("requires a trusted same-session observation for schema-v2 web captures", () => {
   const fixture = makeFixture();
   delete fixture.captures.captures[0].observation;
