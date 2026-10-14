@@ -66,7 +66,13 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
 // capture-time identities. Current active evidence must use this release.
-const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7", "1.14.11", "1.14.12"]);
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
+  "1.14.6",
+  "1.14.7",
+  "1.14.11",
+  "1.14.12",
+  "1.14.13",
+]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -1112,10 +1118,10 @@ function validateCrossStateVisualDistance(
     add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
-// Named native content may alter intrinsic width by at most one line-height.
-// Its native origin and height must remain identical; caller crops cannot
-// supply geometry or move the comparison to unrelated page content.
-function anchoredNativeRegion(left, right) {
+// Native origin and height remain fixed. Controls constrain width growth;
+// text uses its measured union and the unchanged absolute pixel-support floor.
+// Caller crops cannot supply geometry or move the comparison elsewhere.
+function anchoredNativeRegion(left, right, kind = "control") {
   if (
     !left ||
     !right ||
@@ -1123,8 +1129,8 @@ function anchoredNativeRegion(left, right) {
     left.y !== right.y ||
     left.height !== right.height ||
     Math.min(left.width, right.width) < 32 ||
-    left.height < 20 ||
-    Math.abs(left.width - right.width) > left.height
+    left.height < (kind === "text" ? 8 : 20) ||
+    (kind !== "text" && Math.abs(left.width - right.width) > left.height)
   )
     return null;
   return { ...left, width: Math.max(left.width, right.width) };
@@ -1270,7 +1276,7 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       if (a.role !== role) continue;
       for (const b of afterGuards.get(key) || []) {
         if (a.name === b.name) continue;
-        const region = anchoredNativeRegion(a.region, b.region);
+        const region = anchoredNativeRegion(a.region, b.region, "text");
         if (region && hasMaterialNativeRegionChange(root, left, right, region)) return true;
       }
     }

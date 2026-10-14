@@ -1157,6 +1157,16 @@ function attachTrustedCaptureObservation(
       native_name_present: true,
       native_name_sha256: digest(Buffer.from(name)),
     });
+    if (nativeStateProof.includes("thin-wide-text")) {
+      check.visual_bounds = {
+        x: 390,
+        y: 324,
+        width: coverage.id.endsWith("alternate") ? 151 : 80,
+        height: 16,
+      };
+      check.x = check.visual_bounds.x + Math.floor(check.visual_bounds.width / 2);
+      check.y = check.visual_bounds.y + 8;
+    }
     delete check.focus_indicator_regions;
     if (nativeStateProof.includes("missing-hash")) delete check.native_name_sha256;
     if (nativeStateProof.includes("bad-hash")) check.native_name_sha256 = "a".repeat(64);
@@ -1168,6 +1178,8 @@ function attachTrustedCaptureObservation(
       check.visual_bounds.x++;
     if (nativeStateProof.includes("wide-growth") && coverage.id.endsWith("alternate"))
       check.visual_bounds.width += 37;
+    if (nativeStateProof.includes("height-drift") && coverage.id.endsWith("alternate"))
+      check.visual_bounds.height++;
     if (nativeStateProof.includes("unnamed")) {
       check.native_name_present = false;
       delete check.native_name_sha256;
@@ -2590,7 +2602,6 @@ for (const [proof, pixels] of [
   ["-wrong-role", "state-content"],
   ["-unnamed", "state-content"],
   ["-moved", "state-content"],
-  ["-wide-growth", "state-content"],
   ["", "pending-idle"],
   ["", "pending-beacon"],
   ["", "pending-four-pixel"],
@@ -2608,6 +2619,56 @@ test("named success variants cannot borrow a primary heading proof", () => {
   const fixture = namedTextVariantFixture({ state: "success", role: "heading" });
   assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
 });
+
+test("named text variants accept genuine intrinsic width growth", () => {
+  const fixture = namedTextVariantFixture({ proof: "-wide-growth" });
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+test("named success variants accept measured 16px text with different intrinsic widths", () => {
+  const fixture = namedTextVariantFixture({
+    state: "success",
+    role: "statictext",
+    proof: "-thin-wide-text",
+  });
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+for (const pixels of ["pending-idle", "pending-beacon", "pending-four-pixel", "nearby-noise"]) {
+  test("thin named success text still rejects " + pixels, () => {
+    const fixture = namedTextVariantFixture({
+      state: "success",
+      role: "statictext",
+      proof: "-thin-wide-text",
+      pixels,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
+
+for (const proof of [
+  "-moved",
+  "-height-drift",
+  "-missing-hash",
+  "-bad-hash",
+  "-wrong-role",
+  "-unnamed",
+]) {
+  test("thin named success text rejects " + proof, () => {
+    const fixture = namedTextVariantFixture({
+      state: "success",
+      role: "statictext",
+      proof: "-thin-wide-text" + proof,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
 
 for (const [state, role] of [
   ["primary", "heading"],
@@ -6603,7 +6664,7 @@ function checkerAtCaptureTimeVersion(version) {
   return isolated.exports.checkDesignCritique;
 }
 
-for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11", "1.14.12"]) {
+for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11", "1.14.12", "1.14.13"]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
     const retained = recoveryDCFiles(fixture.root);
