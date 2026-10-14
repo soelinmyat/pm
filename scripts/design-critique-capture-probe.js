@@ -3312,11 +3312,14 @@ async function popupTriggerOwnershipIntact(client, contextId, candidate, expande
       contextId,
       candidate.popup_trigger_backend_node_id,
       `function (id, role, expanded) {
-      return this.tagName === "BUTTON" && this.getAttribute("aria-controls") === id &&
+      const controls = this.getAttribute("aria-controls");
+      const controllers = [...document.querySelectorAll("[aria-controls]")].filter(node => node.getAttribute("aria-controls") === id);
+      const absentClosedMenuLink = role === "menu" && !expanded && controls === null;
+      return this.tagName === "BUTTON" && (controls === id || absentClosedMenuLink) &&
         (role === "listbox" ? [null,"listbox"].includes(this.getAttribute("aria-haspopup")) : this.getAttribute("aria-haspopup") === role) &&
         this.getAttribute("aria-expanded") === String(expanded) &&
         (role !== "listbox" || this.getAttribute("role") === "combobox") &&
-        [...document.querySelectorAll("[aria-controls]")].filter(node => node.getAttribute("aria-controls") === id).length === 1 &&
+        controllers.length === (absentClosedMenuLink ? 0 : 1) &&
         (expanded ? [...document.querySelectorAll("[id]")].filter(node => node.id === id).length === 1 : true);
     }`,
       [{ value: candidate.popup_id }, { value: candidate.owner_role }, { value: expanded }]
