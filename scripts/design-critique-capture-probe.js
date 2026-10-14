@@ -2285,8 +2285,9 @@ function domObservations(
     if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
     byParent.get(node.parentIndex).push(node);
   }
-  const checkboxGlyphGeometry = (node) => {
-    if (node.nodeName !== "button" || node.attributes.role !== "checkbox") return null;
+  const fixedControlGlyphGeometry = (node) => {
+    if (node.nodeName !== "button" || !["checkbox", "switch"].includes(node.attributes.role))
+      return null;
     const bounds = node.layout?.bounds;
     if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(Number.isFinite))
       return null;
@@ -2407,7 +2408,7 @@ function domObservations(
     }
     for (const nodes of byIdentity.values()) {
       if (nodes.length < 2) continue;
-      const glyphGeometry = new Map(nodes.map((node) => [node, checkboxGlyphGeometry(node)]));
+      const glyphGeometry = new Map(nodes.map((node) => [node, fixedControlGlyphGeometry(node)]));
       const glyphOnly =
         group.name === "button" && [...glyphGeometry.values()].every((value) => value !== null);
       const properties = glyphOnly
@@ -2442,7 +2443,7 @@ function domObservations(
               "visual-variance",
               node,
               property === "glyph-geometry"
-                ? "Checkbox glyph geometry differs from the repeated component baseline."
+                ? "Control glyph geometry differs from the repeated component baseline."
                 : `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${signatureValue(
                     node,
                     property

@@ -161,6 +161,8 @@ The helper first writes, syncs, and verifies the complete immutable bundle under
 
 A focused named modal menu or explicitly owned listbox can explain an intentionally hidden background main only after native Escape, document Tab reach of its uniquely linked accessible trigger, keyboard reopening, and arrow traversal to every enabled frozen member. A listbox trigger must be a named native combobox button with exact `aria-controls` and explicit or implicit listbox popup semantics. The helper records actual popup role/name plus the native closed owner observation, retaining an empty popup name when present. It verifies accessible identities and ownership after reopening and re-exposes the native owner after traversal to check its name again. Broken entry/arrows, static negative-tabindex options, ambiguous links, foreign focus, unsupported owners, and identity drift retain failures. This proof classifies focus exposure; functional selection remains QA-owned. Historical raw audits must be recaptured, never rewritten.
 
+Textless checkbox and switch button groups omit unused inherited font-size/weight only when every visible descendant is graphical; they still compare measured glyph/root geometry and visual properties. Visible direct, nested, SVG, or generated text keeps typography checks, and font-driven glyph dimensions still fail consistency.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`
