@@ -22,6 +22,78 @@ try {
   /* Explicit environment skip. */
 }
 const skip = process.env.PM_SKIP_BROWSER_TESTS || (!browser && "Chromium is unavailable");
+test(
+  "non-loading native capture retains named heading, text and counterpart button evidence",
+  { skip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-named-state-"));
+    const html =
+      '<!doctype html><html><head><title>Profile</title><link rel="icon" href="data:,"><style>body{margin:24px;font-family:Arial}button{padding:8px 16px}</style></head><body><main><h1 id="heading" data-pm-state="boundary">Profile</h1><p id="saved">Password updated</p><button id="save">Send code</button></main></body></html>';
+    const server = spawn(
+      process.execPath,
+      [
+        "-e",
+        "const http=require('node:http');const s=http.createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(" +
+          JSON.stringify(html) +
+          ");});s.listen(0,'127.0.0.1',()=>console.log(s.address().port));",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
+    t.after(() => {
+      server.kill();
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const [data] = await once(server.stdout, "data");
+    const url = "http://127.0.0.1:" + Number(String(data).trim()) + "/";
+    const probe = runCaptureProbe({
+      browserPath: browser,
+      url,
+      expectedUrl: url,
+      allowedOrigins: [new URL(url).origin],
+      viewport: { width: 1024, height: 768 },
+      readinessTimeoutMs: 5000,
+      settleMs: 200,
+      outputPath: path.join(root, "capture.png"),
+      verificationPath: path.join(root, "verification.png"),
+      stateAssertion: {
+        schema_version: 2,
+        subject_id: "profile",
+        coverage_id: "profile-boundary",
+        state: "boundary",
+        state_marker: {
+          locator: { by: "id", value: "heading" },
+          attribute: "data-pm-state",
+          value: "boundary",
+        },
+        all: [
+          { locator: { by: "id", value: "save" }, expect: { kind: "visible" } },
+          {
+            locator: { by: "role-name", value: "statictext:Password updated" },
+            expect: { kind: "visible" },
+          },
+        ],
+      },
+    });
+    const [heading, button, text] = probe.assertion_visibility.checks;
+    assert.equal(heading.native_role, "heading");
+    assert.equal(
+      heading.native_name_sha256,
+      crypto.createHash("sha256").update("Profile").digest("hex")
+    );
+    assert.equal(button.native_role, "button");
+    assert.equal(button.native_name_present, true);
+    assert.equal(text.native_role.toLowerCase(), "statictext");
+    assert.equal(
+      text.native_name_sha256,
+      crypto.createHash("sha256").update("Password updated").digest("hex")
+    );
+    assert.equal(
+      JSON.stringify(probe.assertion_visibility).includes("Password updated"),
+      false,
+      "names stay hashed in regional geometry evidence"
+    );
+  }
+);
 
 async function sparseLoading(t, { blankIndicator = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-sparse-loading-"));
@@ -152,7 +224,10 @@ test(
     ]) {
       const changed = { ...valid, visibility: structuredClone(valid.visibility) };
       mutate(changed);
-      assert.throws(() => validateMeaningfulVisual(decoded, changed), /meaningful|visual_bounds/);
+      assert.throws(
+        () => validateMeaningfulVisual(decoded, changed),
+        /meaningful|visual_bounds|native name identity/
+      );
     }
     assert.throws(
       () => validateMeaningfulVisual({ ...decoded, pixelSha256: "a".repeat(64) }, valid),

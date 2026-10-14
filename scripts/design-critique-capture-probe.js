@@ -3677,7 +3677,7 @@ async function nativeSample(
           return popup.contains_focus && popup.background_main_hidden;
         })
   );
-  if (stateAssertion.state === "loading") {
+  {
     // Preserve native semantics for the already visible, hit-tested nodes. The
     // producer derives these from AX, never from caller-supplied image regions.
     const axByBackend = new Map(
@@ -3687,6 +3687,11 @@ async function nativeSample(
       const native = axByBackend.get(check.asserted_backend_node_id);
       check.native_role = String(native?.role?.value || "");
       check.native_name_present = Boolean(String(native?.name?.value || "").trim());
+      if (
+        check.native_name_present &&
+        ["heading", "statictext"].includes(check.native_role.toLowerCase())
+      )
+        check.native_name_sha256 = digest(Buffer.from(String(native.name.value).trim()));
     }
   }
   return {
