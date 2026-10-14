@@ -20,11 +20,12 @@ const {
   inspectPdfBytes,
   inspectPngHeaderBytes,
   inspectPngVisualBytes,
-  createPngRegionInspector,
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
+const { validateScenarios, coverageIdentity } = require("./lib/design-critique-scenarios");
+const { createNativeRegionCache } = require("./lib/native-region-cache");
 const {
   REVIEW_ASSURANCE,
   SCORE_KEYS,
@@ -65,7 +66,7 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
 // capture-time identities. Current active evidence must use this release.
-const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7"]);
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7", "1.14.11"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -147,6 +148,7 @@ function checkDesignCritique(options) {
     bytes: 0,
     browsers: new Map(),
     media: new Map(),
+    nativeRegions: createNativeRegionCache(),
     rowIndexes: new WeakMap(),
     projectInputVerificationContext: createProjectInputVerificationContext(),
   };
@@ -423,7 +425,16 @@ function collectionRowIndex(row, fallback) {
 function validateRoute(route, commit, baseRef, baseCommit, issues) {
   closed(
     route,
-    ["schema_version", "run_id", "created_at", "mode", "source", "subjects", "coverage"],
+    [
+      "schema_version",
+      "run_id",
+      "created_at",
+      "mode",
+      "source",
+      "subjects",
+      "coverage",
+      "scenarios",
+    ],
     "route",
     issues
   );
@@ -646,6 +657,11 @@ function validateDiffIdentity(root, route, baseCommit, issues) {
 }
 
 function validateCoverage(route, subjects, subjectIds, issues) {
+  try {
+    validateScenarios(route);
+  } catch (error) {
+    add(issues, "route.scenarios", error.message);
+  }
   const coverageRows = route.coverage;
   const subjectsById = new Map(subjects.filter(object).map((subject) => [subject.id, subject]));
   const ids = new Set();
@@ -670,6 +686,7 @@ function validateCoverage(route, subjects, subjectIds, issues) {
         "reason",
         "native_controls",
         "native_scope",
+        "scenario_id",
       ],
       at,
       issues
@@ -685,7 +702,12 @@ function validateCoverage(route, subjects, subjectIds, issues) {
     }
     if (!slug(item.id) || ids.has(item.id)) add(issues, `${at}.id`, "must be unique kebab-case");
     ids.add(item.id);
-    const decisionKey = JSON.stringify([item.subject_id, item.state, item.viewport]);
+    const decisionKey = JSON.stringify([
+      item.subject_id,
+      item.state,
+      item.viewport,
+      item.scenario_id ?? null,
+    ]);
     const priorDecision = decisions.get(decisionKey);
     if (priorDecision !== undefined) {
       duplicateDecisionCount += 1;
@@ -1021,20 +1043,26 @@ function validateCrossStateVisualDistance(
     )
       continue;
     const groupKey = JSON.stringify([routeCoverage.subject_id, routeCoverage.viewport]);
-    const states = groups.get(groupKey) || new Map();
-    if (!states.has(routeCoverage.state))
-      states.set(routeCoverage.state, { capture, coverage: routeCoverage });
+    const states = groups.get(groupKey) || [];
+    states.push({ capture, coverage: routeCoverage });
     groups.set(groupKey, states);
   }
 
   let violationCount = 0;
   let emittedDiagnostics = 0;
   for (const states of groups.values()) {
-    const active = [...states.values()];
+    const active = states;
     for (let leftIndex = 0; leftIndex < active.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < active.length; rightIndex += 1) {
         const left = active[leftIndex];
         const right = active[rightIndex];
+        // Named scenarios never remove cross-state comparisons. Every capture
+        // participates, including multiple variants of the same state.
+        if (
+          left.coverage.state === right.coverage.state &&
+          (left.coverage.scenario_id ?? null) === (right.coverage.scenario_id ?? null)
+        )
+          continue;
         const difference = visualDifference(
           decodedByCapture.get(left.capture.id),
           decodedByCapture.get(right.capture.id)
@@ -1056,6 +1084,7 @@ function validateCrossStateVisualDistance(
           !isMaterialVisualDifference(difference) &&
           !localizedNativeChange &&
           !nativeFocusChange &&
+          !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
           !hasNativeStateContentChange(root, left, right, observationByCapture)
         ) {
           violationCount += 1;
@@ -1077,6 +1106,84 @@ function validateCrossStateVisualDistance(
       "captures.captures",
       `${violationCount - emittedDiagnostics} additional cross-state visual-distance failures omitted after ${emittedDiagnostics} diagnostics`
     );
+  if (activeReadCache.nativeRegions.failure)
+    add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
+}
+
+// A busy button can be smaller than one viewport tile. Its named native
+// identity and equal measured bounds on both captures constrain this fallback.
+function hasNativePendingButtonChange(root, left, right, observations) {
+  const before = observations.get(left.capture.id);
+  const after = observations.get(right.capture.id);
+  if (
+    !before ||
+    !after ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height ||
+    !isDeepStrictEqual(before.manifest.page.css_viewport, after.manifest.page.css_viewport)
+  )
+    return false;
+  const visibleButton = (observation, locator) => {
+    const index = observation.assertion?.all.findIndex(
+      (clause) => clause.expect.kind === "visible" && isDeepStrictEqual(clause.locator, locator)
+    );
+    if (index === undefined || index < 0) return null;
+    const check = observation.manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === `state assertion clause ${index + 1}`
+    );
+    return check?.native_role === "button" && check.native_name_present === true
+      ? check.visual_bounds
+      : null;
+  };
+  for (const [side, loading, other] of [
+    [left, before, after],
+    [right, after, before],
+  ]) {
+    if (side.coverage.state !== "loading" || loading.assertion?.state !== "loading") continue;
+    for (const guard of loading.assertion.all) {
+      if (
+        guard.expect.kind !== "attribute-equals" ||
+        guard.expect.name !== "aria-busy" ||
+        guard.expect.value !== "true"
+      )
+        continue;
+      const region = visibleButton(loading, guard.locator);
+      if (
+        !region ||
+        region.width < 32 ||
+        region.height < 20 ||
+        !isDeepStrictEqual(region, visibleButton(other, guard.locator))
+      )
+        continue;
+      try {
+        const a = readBoundFile(root, left.capture.path, "pending button comparison", []);
+        const b = readBoundFile(root, right.capture.path, "pending button comparison", []);
+        if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+          continue;
+        const aRegion = activeReadCache.nativeRegions.inspect(a, region);
+        const bRegion = activeReadCache.nativeRegions.inspect(b, region);
+        // Neither tiny semantic nodes nor blank regions can be magnified into
+        // state proof. Apply the existing meaningful-image and distance rules.
+        validateMeaningfulVisual(aRegion);
+        validateMeaningfulVisual(bRegion);
+        const difference = visualDifference(aRegion, bRegion);
+        const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
+        const gridSize = Math.sqrt(gridCells);
+        // Each tile mean can understate its pixels' absolute difference. Weight
+        // all tile differences by the smallest tile area for a conservative
+        // lower bound, never magnifying four pixels into regional state proof.
+        const minimumCellPixels =
+          Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
+        const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
+        if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
+      } catch {
+        // Invalid, absent or unverified geometry grants no localized fallback.
+      }
+    }
+  }
+  return false;
 }
 
 // Error and empty content can occupy less than one coarse viewport tile.
@@ -1149,8 +1256,8 @@ function hasNativeStateContentChange(root, left, right, observations) {
       )
         continue;
       const difference = visualDifference(
-        createPngRegionInspector(before.bytes)(region),
-        createPngRegionInspector(after.bytes)(region)
+        activeReadCache.nativeRegions.inspect(before, region),
+        activeReadCache.nativeRegions.inspect(after, region)
       );
       // Apply the existing native changed-tile rule inside the semantic region.
       // Wide alert containers can still dilute the whole-region average.
@@ -1220,13 +1327,14 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
           after.sha256 !== right.capture.sha256
         )
           continue;
-        const inspectBefore = createPngRegionInspector(before.bytes);
-        const inspectAfter = createPngRegionInspector(after.bytes);
         let qualifying = 0;
         for (const region of regions) {
           if (
             isMaterialVisualDifference(
-              visualDifference(inspectBefore(region), inspectAfter(region))
+              visualDifference(
+                activeReadCache.nativeRegions.inspect(before, region),
+                activeReadCache.nativeRegions.inspect(after, region)
+              )
             )
           )
             qualifying++;
@@ -1288,11 +1396,7 @@ function validateTrustedCaptureObservation(
   if (
     !coverage ||
     manifest.subject_id !== coverage.subject_id ||
-    !isDeepStrictEqual(manifest.coverage, {
-      id: coverage.id,
-      state: coverage.state,
-      viewport: coverage.viewport,
-    })
+    !isDeepStrictEqual(manifest.coverage, coverageIdentity(coverage))
   )
     add(issues, `${at}.coverage`, "must match the routed subject, state, and viewport");
   let expectedVisualMetrics = decoded

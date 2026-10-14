@@ -33,6 +33,7 @@ const {
 } = require("../scripts/lib/design-critique-review-result");
 const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { createNativeRegionCache } = require("../scripts/lib/native-region-cache");
 
 const COMMIT = "a".repeat(40);
 const PNG_CACHE = new Map();
@@ -896,7 +897,7 @@ function refreshTrustedCaptureObservations(fixture) {
       0,
       {},
       fixture.nativeFocusProof ?? true,
-      fixture.nativeStateProof,
+      fixture.nativeStateProofByCapture?.[capture.id] ?? fixture.nativeStateProof,
       fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION
     );
 }
@@ -982,6 +983,22 @@ function attachTrustedCaptureObservation(
   }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading")
     assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
+  const pendingButtonProof =
+    typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
+  if (
+    pendingButtonProof &&
+    coverage.state === "loading" &&
+    !["pending-no-guard", "pending-idle-loader"].includes(nativeStateProof)
+  )
+    assertion.all.push({
+      locator: { ...assertion.all[0].locator },
+      expect: { kind: "attribute-equals", name: "aria-busy", value: "true" },
+    });
+  if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading")
+    assertion.all.push({
+      locator: { by: "role-name", value: "status:Loading records" },
+      expect: { kind: "visible" },
+    });
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -1027,6 +1044,9 @@ function attachTrustedCaptureObservation(
     ...(nativeStateProof === "viewport-mismatch" && coverage.state === "error"
       ? { scroll_y: 1 }
       : {}),
+    ...(nativeStateProof === "pending-viewport-mismatch" && coverage.state === "loading"
+      ? { scroll_y: 1 }
+      : {}),
     ...viewportOverrides,
   };
   const pageIdentity = {
@@ -1068,6 +1088,47 @@ function attachTrustedCaptureObservation(
       },
     ],
   };
+  if (pendingButtonProof && ["boundary", "loading"].includes(coverage.state)) {
+    const check = assertionVisibility.checks[1];
+    Object.assign(check, {
+      x: 450,
+      y: 342,
+      visual_bounds: { x: 390, y: 324, width: 120, height: 36 },
+      native_role: "button",
+      native_name_present: true,
+    });
+    delete check.focus_indicator_regions;
+    if (nativeStateProof === "pending-no-geometry" && coverage.state === "loading")
+      delete check.visual_bounds;
+    if (nativeStateProof === "pending-no-counterpart" && coverage.state === "boundary")
+      check.native_role = "heading";
+    if (nativeStateProof === "pending-bounds-drift" && coverage.state === "loading")
+      check.visual_bounds.x++;
+    if (nativeStateProof === "pending-unnamed") check.native_name_present = false;
+    if (nativeStateProof === "pending-minimum") {
+      check.x = 450;
+      check.y = 340;
+      check.visual_bounds = { x: 434, y: 330, width: 32, height: 20 };
+    }
+    if (nativeStateProof === "pending-tiny") {
+      check.x = 450;
+      check.y = 340;
+      check.visual_bounds = { x: 450, y: 340, width: 2, height: 1 };
+    }
+  }
+  if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading") {
+    assertionVisibility.verified_nodes++;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 900,
+      y: 350,
+      visual_bounds: { x: 880, y: 330, width: 40, height: 40 },
+      native_role: "status",
+      native_name_present: true,
+    });
+  }
   if (
     (nativeStateProof === "empty-alert-text" && coverage.state === "empty") ||
     (nativeStateProof === "error-alert-text" && coverage.state === "error")
@@ -1165,7 +1226,12 @@ function attachTrustedCaptureObservation(
     run_id: route.run_id,
     commit: route.source.commit,
     subject_id: subject.id,
-    coverage: { id: coverage.id, state: coverage.state, viewport: coverage.viewport },
+    coverage: {
+      id: coverage.id,
+      state: coverage.state,
+      viewport: coverage.viewport,
+      ...(coverage.scenario_id === undefined ? {} : { scenario_id: coverage.scenario_id }),
+    },
     capture_id: capture.id,
     route_surface: subject.surface,
     requested_url: requestedUrlIdentity,
@@ -1384,7 +1450,45 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (
+  if (typeof focusRing === "string" && focusRing.startsWith("pending-")) {
+    for (let y = 324; y < 360; y++)
+      for (let x = 390; x < 510; x++) {
+        const busy = focusRing === "pending-busy";
+        const border = x < 392 || x >= 508 || y < 326 || y >= 358;
+        const text = y >= 336 && y < 348 && x >= 406 && x < 490 && (x - 406) % 12 < 5;
+        const spinner =
+          x >= 444 &&
+          x < 460 &&
+          y >= 334 &&
+          y < 350 &&
+          (x < 446 || x >= 458 || y < 336 || y >= 348);
+        const color = busy
+          ? spinner
+            ? [255, 255, 255]
+            : [32, 80, 180]
+          : border
+            ? [32, 80, 180]
+            : text
+              ? [30, 30, 30]
+              : [255, 255, 255];
+        const pixel = y * (width * 4 + 1) + 1 + x * 4;
+        for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = color[channel];
+      }
+    if (focusRing === "pending-four-pixel") {
+      for (let y = 339; y <= 340; y++)
+        for (let x = 449; x <= 450; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 0;
+        }
+    } else if (["pending-beacon", "pending-two-pixel"].includes(focusRing)) {
+      for (let x = 450; x < (focusRing === "pending-beacon" ? 451 : 452); x++) {
+        const pixel = 340 * (width * 4 + 1) + 1 + x * 4;
+        rows[pixel] = 250;
+        rows[pixel + 1] = 0;
+        rows[pixel + 2] = 250;
+      }
+    }
+  } else if (
     focusRing === "state-content" ||
     focusRing === "state-beacon" ||
     focusRing === "two-pixel-beacon"
@@ -2227,6 +2331,148 @@ test("rejects duplicate subject, state, and viewport coverage decisions", () => 
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /duplicates the subject\/state\/viewport decision/);
+});
+
+test("named scenarios admit distinct applicability decisions on one page", () => {
+  const fixture = makeFixture();
+  fixture.route.scenarios = [
+    {
+      id: "spanish",
+      subject_id: "account-detail",
+      description: "Spanish account settings with saved fixture data",
+    },
+  ];
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((row) => row.id === "ui-empty"),
+    id: "ui-empty-spanish",
+    scenario_id: "spanish",
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("named scenarios bind required capture identity and reject manifest drift", () => {
+  const fixture = makeFixture();
+  fixture.route.scenarios = [
+    {
+      id: "spanish",
+      subject_id: "account-detail",
+      description: "Spanish account settings with saved fixture data",
+    },
+  ];
+  fixture.route.coverage[0].scenario_id = "spanish";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, capture.observation.path)));
+  delete manifest.coverage.scenario_id;
+  rewrite(fixture.root, capture.observation.path, manifest);
+  capture.observation = binding(fixture.root, capture.observation.path);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.match(JSON.stringify(check(fixture).issues), /must match the routed subject/);
+});
+
+test("named scenarios cannot hide the second capture of a cross-state pixel comparison", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(fixture, "boundary", validPng(1440, 1000, 20));
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 80));
+  fixture.route.scenarios = [
+    {
+      id: "alternate",
+      subject_id: "account-detail",
+      description: "Alternate keyboard interaction with the same account page",
+    },
+  ];
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((row) => row.id === "ui-keyboard"),
+    id: "ui-keyboard-alternate",
+    scenario_id: "alternate",
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const bytes = validPng(1440, 1000, 20, 0, null, 1, "state-beacon");
+  const capture = {
+    ...fixture.captures.captures.find((row) => row.coverage_id === "ui-keyboard"),
+    id: "capture-ui-keyboard-alternate",
+    coverage_id: "ui-keyboard-alternate",
+    ...write(fixture.root, "evidence/files/keyboard-alternate.png", bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, "alternate-a11y", "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, "alternate-dom", "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.coverage = { required: 5, captured: 5, percent: 100 };
+  rewriteReportAndHtml(fixture);
+  assert.equal(
+    check(fixture).issues.some(
+      (issue) =>
+        /materially different decoded pixels/.test(issue.message) && /alternate/.test(issue.path)
+    ),
+    true
+  );
+});
+
+test("named scenarios reject beacon-only differences between variants of the same state", () => {
+  const fixture = makeFixture();
+  fixture.route.scenarios = [
+    {
+      id: "alternate",
+      subject_id: "account-detail",
+      description: "Alternate primary locale on the same account page",
+    },
+  ];
+  fixture.route.coverage.push({
+    ...fixture.route.coverage[0],
+    id: "ui-primary-alternate",
+    scenario_id: "alternate",
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const bytes = validPng(1440, 1000, 0, 0, null, 1, "state-beacon");
+  const capture = {
+    ...fixture.captures.captures[0],
+    id: "capture-ui-primary-alternate",
+    coverage_id: "ui-primary-alternate",
+    ...write(fixture.root, "evidence/files/primary-alternate.png", bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, "alternate-a11y", "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, "alternate-dom", "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.coverage = { required: 3, captured: 3, percent: 100 };
+  rewriteReportAndHtml(fixture);
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
 });
 
 test("requires a trusted same-session observation for schema-v2 web captures", () => {
@@ -5586,6 +5832,206 @@ test("trusted captures bind pending request evidence and reject it on non-loadin
   assert.match(JSON.stringify(result.issues), /only permitted for loading captures/);
 });
 
+function appendLoadingVariant(fixture, id, bytes, proof = "pending-button") {
+  fixture.route.scenarios ||= [];
+  fixture.route.scenarios.push({
+    id,
+    subject_id: "account-detail",
+    description: `Loading task variant ${id} on the same account page`,
+  });
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((row) => row.id === "ui-loading"),
+    id: `ui-loading-${id}`,
+    scenario_id: id,
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const capture = {
+    ...fixture.captures.captures.find((row) => row.coverage_id === "ui-loading"),
+    id: `capture-loading-${id}`,
+    coverage_id: `ui-loading-${id}`,
+    ...write(fixture.root, `evidence/files/loading-${id}.png`, bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.nativeStateProofByCapture ||= {};
+  fixture.nativeStateProofByCapture[capture.id] = proof;
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, `${id}-a11y`, "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, `${id}-dom`, "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  const required = fixture.route.coverage.filter((row) => row.required).length;
+  fixture.report.coverage = { required, captured: required, percent: 100 };
+  rewriteReportAndHtml(fixture);
+}
+
+test("loading task comparisons are independent of which busy assertion comes first", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-idle-loader";
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-idle"));
+  appendLoadingVariant(fixture, "busy", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  const distanceIssues = () =>
+    check(fixture).issues.filter((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    );
+  assert.equal(distanceIssues().length, 0);
+  fixture.captures.captures.reverse();
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.equal(distanceIssues().length, 0);
+});
+
+test("native region cache reuses verified metrics and fails closed at both work limits", (t) => {
+  const bytes = validPng(1440, 1000, 20, 0, null, 1, "pending-idle");
+  const file = { path: "verified.png", sha256: digest(bytes), bytes };
+  const region = { x: 390, y: 324, width: 120, height: 36 };
+  const originalInflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return originalInflate(...args);
+  });
+  const cache = createNativeRegionCache({ maxRegions: 2, maxDecodedPixels: 1440 * 1000 });
+  const first = cache.inspect(file, region);
+  assert.equal(cache.inspect(file, { ...region }), first);
+  assert.equal(decodes, 1);
+  assert.throws(() => cache.inspect({ ...file, path: "second-verified.png" }, region), {
+    code: "PM_NATIVE_REGION_BUDGET",
+  });
+  assert.match(cache.failure, /work budget/);
+  assert.equal(decodes, 1, "overflow must fail before another decode");
+  assert.equal(
+    cache.inspect(file, region),
+    first,
+    "already verified data remains reusable after failure"
+  );
+  const regionLimit = createNativeRegionCache({ maxRegions: 1, maxDecodedPixels: 1440 * 1000 * 3 });
+  regionLimit.inspect(file, region);
+  assert.throws(() => regionLimit.inspect(file, { ...region, x: 389 }), {
+    code: "PM_NATIVE_REGION_BUDGET",
+  });
+  assert.equal(decodes, 2);
+  t.mock.restoreAll();
+});
+
+test("many invalid loading scenarios keep native regional decoding linear", (t) => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-button";
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-idle"));
+  for (let index = 0; index < 12; index++)
+    appendLoadingVariant(
+      fixture,
+      `task-${index}`,
+      validPng(1440, 1000, 20, 0, 40 + index, 1, "pending-idle")
+    );
+  const originalInflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return originalInflate(...args);
+  });
+  const result = check(fixture);
+  t.mock.restoreAll();
+  assert.equal(result.ok, false, "marker-only scenario differences must remain invalid");
+  t.diagnostic(
+    `Regional work: ${decodes} full PNG decodes for ${fixture.captures.captures.length} captures`
+  );
+  assert.ok(
+    decodes <= fixture.captures.captures.length * 8,
+    `Repeated scenario comparisons decoded full PNGs ${decodes} times for ${fixture.captures.captures.length} captures`
+  );
+});
+
+test("minimum native pending button rejects a four-pixel beacon crossing grid boundaries", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-minimum";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(
+    fixture,
+    "loading",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-four-pixel")
+  );
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
+test("minimum native pending button accepts a real control change", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-minimum";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
+});
+
+test("native pending button comparison accepts meaningful change inside the measured control", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-button";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
+});
+
+for (const [proof, pixels] of [
+  ["pending-no-guard", "pending-busy"],
+  ["pending-no-geometry", "pending-busy"],
+  ["pending-no-counterpart", "pending-busy"],
+  ["pending-bounds-drift", "pending-busy"],
+  ["pending-unnamed", "pending-busy"],
+  ["pending-tiny", "pending-two-pixel"],
+  ["pending-viewport-mismatch", "pending-busy"],
+  ["pending-button", "pending-beacon"],
+  ["pending-button", "pending-two-pixel"],
+  ["pending-button", "pending-idle"],
+  ["pending-button", "nearby-noise"],
+])
+  test(`native pending button comparison rejects ${proof}/${pixels}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeStateProof = proof;
+    addRequiredStateCapture(
+      fixture,
+      "boundary",
+      validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+    );
+    addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      true
+    );
+  });
+
 test("native error/empty comparison accepts material content inside the measured alert", () => {
   const fixture = makeFixture();
   fixture.nativeStateProof = true;
@@ -5983,7 +6429,7 @@ function checkerAtCaptureTimeVersion(version) {
   return isolated.exports.checkDesignCritique;
 }
 
-for (const checkpointVersion of ["1.14.6", "1.14.7"]) {
+for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11"]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
     const retained = recoveryDCFiles(fixture.root);
