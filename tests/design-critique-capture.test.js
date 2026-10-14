@@ -3808,8 +3808,17 @@ for (const missingLayout of [false, true]) {
   });
 }
 
-test("viewport-clipped switches do not invent glyph variance from offscreen descendants", () => {
-  const styles = ["display", "visibility", "opacity", "font-size", "font-weight", "height"];
+function switchViewportAuditFixture() {
+  const styles = [
+    "display",
+    "visibility",
+    "opacity",
+    "font-size",
+    "font-weight",
+    "height",
+    "clip-path",
+    "overflow",
+  ];
   const model = [
     {
       index: 0,
@@ -3872,6 +3881,11 @@ test("viewport-clipped switches do not invent glyph variance from offscreen desc
     cssContentSize: { width: 375, height: 1100 },
   };
   const inspect = () => domObservations(model, metrics, styles).consistency;
+  return { model, metrics, inspect };
+}
+
+test("viewport-clipped switches do not invent glyph variance from offscreen descendants", () => {
+  const { model, metrics, inspect } = switchViewportAuditFixture();
   assert.deepEqual(
     inspect(),
     [],
@@ -3895,6 +3909,94 @@ test("viewport-clipped switches do not invent glyph variance from offscreen desc
     "visible differing thumb dimensions still fail"
   );
 });
+
+test("visible switch glyphs retain variance checks when only touch padding is clipped", () => {
+  const { model, inspect } = switchViewportAuditFixture();
+  for (const node of model.slice(7, 10)) node.layout.bounds[1] -= 25;
+  model[9].layout.bounds[2] = 18;
+  assert.ok(
+    inspect().some((row) => /glyph geometry/.test(row.detail) && row.locator === "button#switch-2")
+  );
+});
+
+test("clipped switch roots retain measured width comparisons", () => {
+  const { model, inspect } = switchViewportAuditFixture();
+  model[7].layout.bounds[2] = 50;
+  assert.ok(
+    inspect().some((row) => /geometry/.test(row.detail) && row.locator === "button#switch-2")
+  );
+});
+
+for (const clip of ["self", "ancestor"]) {
+  test(`in-viewport ${clip} clipping retains switch glyph differences`, () => {
+    const { model, inspect } = switchViewportAuditFixture();
+    for (const node of model.slice(7, 10)) node.layout.bounds[1] -= 405;
+    if (clip === "self") model[7].layout.styles[6] = "inset(0px 0px 40px 0px)";
+    else {
+      model[7].parentIndex = 10;
+      model.push({
+        index: 10,
+        parentIndex: 0,
+        backendNodeId: 11,
+        nodeName: "div",
+        attributes: {},
+        layout: {
+          bounds: [300, 395, 60, 15],
+          styles: ["block", "visible", "1", "13px", "400", "auto", "none", "hidden"],
+        },
+      });
+    }
+    assert.ok(
+      inspect().some(
+        (row) => /glyph geometry/.test(row.detail) && row.locator === "button#switch-2"
+      )
+    );
+  });
+}
+
+for (const hiding of ["display", "opacity", "ancestor-opacity"]) {
+  test(`hidden offscreen descendants do not exempt visible glyphs: ${hiding}`, () => {
+    const { model, inspect } = switchViewportAuditFixture();
+    model[3].layout.bounds[2] = 18;
+    if (hiding === "ancestor-opacity") model[0].layout.styles[2] = "0.02";
+    model.push(
+      {
+        index: 10,
+        parentIndex: 1,
+        backendNodeId: 11,
+        nodeName: "span",
+        attributes: {},
+        layout: {
+          bounds: [0, 0, 0, 0],
+          styles: [
+            hiding === "display" ? "none" : "contents",
+            "visible",
+            hiding === "ancestor-opacity" ? "0.4" : "0",
+            "13px",
+            "400",
+            "auto",
+          ],
+        },
+      },
+      {
+        index: 11,
+        parentIndex: 10,
+        backendNodeId: 12,
+        nodeName: "span",
+        attributes: {},
+        layout: {
+          bounds: [319, 900, 16, 16],
+          styles: ["block", "visible", "1", "13px", "400", "16px"],
+        },
+      }
+    );
+    assert.ok(
+      inspect().some(
+        (row) => /glyph geometry/.test(row.detail) && row.locator === "button#switch-0"
+      )
+    );
+  });
+}
 
 test("browser identity ignores inode metadata-only changes but not content changes", () => {
   // macOS updates the ctime of a signed app binary on launch; its bytes, mtime and path stay fixed.
