@@ -81,7 +81,7 @@ function normalizeAccessibility(observations) {
   exactObjectWithOptional(
     observations,
     ["landmarks", "controls"],
-    ["dialogs"],
+    ["dialogs", "popups"],
     "raw accessibility observations"
   );
   boundedArray(
@@ -102,6 +102,39 @@ function normalizeAccessibility(observations) {
       return item;
     }
   );
+  const popupInput = observations.popups === undefined ? [] : observations.popups;
+  boundedArray(popupInput, MAX_LANDMARKS, "raw accessibility popups");
+  const popups = popupInput.map((item, index) => {
+    const label = `raw accessibility popups[${index}]`;
+    exactObject(
+      item,
+      [
+        "role",
+        "name",
+        "locator",
+        "contains_focus",
+        "background_main_hidden",
+        "keyboard_navigation_verified",
+        "member_locators",
+      ],
+      label
+    );
+    if (item.role !== "menu") throw new Error(`${label}.role must be menu`);
+    boundedString(item.name, MAX_DETAIL_CHARS, `${label}.name`, true);
+    boundedString(item.locator, MAX_LOCATOR_CHARS, `${label}.locator`);
+    for (const field of [
+      "contains_focus",
+      "background_main_hidden",
+      "keyboard_navigation_verified",
+    ])
+      if (typeof item[field] !== "boolean") throw new Error(`${label}.${field} must be boolean`);
+    boundedArray(item.member_locators, MAX_CONTROLS, `${label}.member_locators`);
+    for (const locator of item.member_locators)
+      boundedString(locator, MAX_LOCATOR_CHARS, `${label}.member_locators`);
+    if (new Set(item.member_locators).size !== item.member_locators.length)
+      throw new Error(`${label}.member_locators must be unique`);
+    return item;
+  });
   boundedArray(observations.landmarks, MAX_LANDMARKS, "raw accessibility landmarks");
   boundedArray(observations.controls, MAX_CONTROLS, "raw accessibility controls");
 
@@ -145,7 +178,33 @@ function normalizeAccessibility(observations) {
   const activeModals = dialogs.filter(
     (item) => item.modal && item.contains_focus && item.name.trim()
   );
-  if (mainLandmarks.length !== 1 && !(mainLandmarks.length === 0 && activeModals.length === 1))
+  const activeMenus = popups.filter((item) => {
+    if (
+      !item.name.trim() ||
+      !item.contains_focus ||
+      !item.background_main_hidden ||
+      !item.keyboard_navigation_verified ||
+      item.member_locators.length === 0
+    )
+      return false;
+    const members = new Set(item.member_locators);
+    return (
+      item.member_locators.every((locator) => {
+        const matches = controls.filter((control) => control.locator === locator);
+        return (
+          matches.length === 1 &&
+          ["menuitem", "menuitemcheckbox", "menuitemradio"].includes(matches[0].role) &&
+          !matches[0].disabled &&
+          (matches[0].tab_index >= 0 || matches[0].focus_context === "composite")
+        );
+      }) && controls.every((control) => control.disabled || members.has(control.locator))
+    );
+  });
+  const focusedMenuScope = activeMenus.length === 1 && activeModals.length === 0;
+  if (
+    mainLandmarks.length !== 1 &&
+    !(mainLandmarks.length === 0 && (activeModals.length === 1 || focusedMenuScope))
+  )
     findings.push({
       check: "landmarks",
       code: mainLandmarks.length === 0 ? "missing-main-landmark" : "multiple-main-landmarks",
@@ -156,6 +215,13 @@ function normalizeAccessibility(observations) {
     findings.push({
       check: "names",
       code: "missing-dialog-name",
+      locator: item.locator,
+      detail: `${item.role} has no accessible name.`,
+    });
+  for (const item of popups.filter((popup) => !popup.name.trim()))
+    findings.push({
+      check: "names",
+      code: "missing-popup-name",
       locator: item.locator,
       detail: `${item.role} has no accessible name.`,
     });
