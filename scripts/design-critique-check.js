@@ -1110,8 +1110,26 @@ function validateCrossStateVisualDistance(
     add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
+// Intrinsic loading content may widen a control by at most one line-height.
+// Its native origin and height must remain identical; caller crops cannot
+// supply geometry or move the comparison to unrelated page content.
+function anchoredNativeRegion(left, right) {
+  if (
+    !left ||
+    !right ||
+    left.x !== right.x ||
+    left.y !== right.y ||
+    left.height !== right.height ||
+    Math.min(left.width, right.width) < 32 ||
+    left.height < 20 ||
+    Math.abs(left.width - right.width) > left.height
+  )
+    return null;
+  return { ...left, width: Math.max(left.width, right.width) };
+}
+
 // A busy button can be smaller than one viewport tile. Its named native
-// identity and equal measured bounds on both captures constrain this fallback.
+// identity and anchored measured bounds constrain this fallback.
 function hasNativePendingButtonChange(root, left, right, observations) {
   const before = observations.get(left.capture.id);
   const after = observations.get(right.capture.id);
@@ -1149,14 +1167,11 @@ function hasNativePendingButtonChange(root, left, right, observations) {
         guard.expect.value !== "true"
       )
         continue;
-      const region = visibleButton(loading, guard.locator);
-      if (
-        !region ||
-        region.width < 32 ||
-        region.height < 20 ||
-        !isDeepStrictEqual(region, visibleButton(other, guard.locator))
-      )
-        continue;
+      const region = anchoredNativeRegion(
+        visibleButton(loading, guard.locator),
+        visibleButton(other, guard.locator)
+      );
+      if (!region) continue;
       try {
         const a = readBoundFile(root, left.capture.path, "pending button comparison", []);
         const b = readBoundFile(root, right.capture.path, "pending button comparison", []);

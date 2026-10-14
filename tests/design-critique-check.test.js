@@ -1104,6 +1104,12 @@ function attachTrustedCaptureObservation(
       check.native_role = "heading";
     if (nativeStateProof === "pending-bounds-drift" && coverage.state === "loading")
       check.visual_bounds.x++;
+    if (nativeStateProof === "pending-width-growth" && coverage.state === "loading")
+      check.visual_bounds.width += 24;
+    if (nativeStateProof === "pending-wide-growth" && coverage.state === "loading")
+      check.visual_bounds.width += 37;
+    if (nativeStateProof === "pending-height-drift" && coverage.state === "loading")
+      check.visual_bounds.height++;
     if (nativeStateProof === "pending-unnamed") check.native_name_present = false;
     if (nativeStateProof === "pending-minimum") {
       check.x = 450;
@@ -6002,11 +6008,30 @@ test("native pending button comparison accepts meaningful change inside the meas
   );
 });
 
+test("native pending button accepts intrinsic spinner width growth at an unchanged anchor", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-width-growth";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
+});
+
 for (const [proof, pixels] of [
   ["pending-no-guard", "pending-busy"],
   ["pending-no-geometry", "pending-busy"],
   ["pending-no-counterpart", "pending-busy"],
   ["pending-bounds-drift", "pending-busy"],
+  ["pending-wide-growth", "pending-busy"],
+  ["pending-height-drift", "pending-busy"],
   ["pending-unnamed", "pending-busy"],
   ["pending-tiny", "pending-two-pixel"],
   ["pending-viewport-mismatch", "pending-busy"],
