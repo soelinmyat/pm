@@ -165,6 +165,8 @@ Textless checkbox and switch button groups omit unused inherited font-size/weigh
 
 For a retained immutable round, place the route at `.pm/dev-sessions/<slug>/design-critique/runs/<run-id>/round-R/route.json`, assertions in its `state-assertions/`, and output in its `round-R/<capture-id>-rR/`. Run ID and both round components must agree within the existing recovery budget. The canonical report selects the exact current route and captures inputs for gate checking. Managed pointers still require verified branded bundles; foreign paths, malformed or mismatched rounds, and inventory/hash drift remain failures.
 
+Intrinsic button height is measured from native Typed OM, including repeated atomic-sample identity. A computed `auto` height permits natural wrapping; fixed/min/max heights and glyph geometry still expose differences. Unsupported measurement retains the existing used-height check, and caller attributes cannot opt a control out.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`

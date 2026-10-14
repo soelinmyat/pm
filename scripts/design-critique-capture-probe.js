@@ -2361,6 +2361,8 @@ function domObservations(
       match: (node) => node.nodeName === "button",
       properties: [
         "height",
+        "min-height",
+        "max-height",
         "padding-top",
         "padding-right",
         "padding-bottom",
@@ -2420,7 +2422,11 @@ function domObservations(
           ]
         : group.properties;
       const signatureValue = (node, property) =>
-        property === "glyph-geometry" ? glyphGeometry.get(node) : style(node, property);
+        property === "glyph-geometry"
+          ? glyphGeometry.get(node)
+          : property === "height" && node.intrinsicHeight === true
+            ? "auto"
+            : style(node, property);
       for (const property of properties) {
         const comparedNodes = typographyProperties.has(property)
           ? nodes.filter(withinTypographyScope)
@@ -3534,6 +3540,50 @@ async function probeCompositeKeyboardAccess(
   }
 }
 
+// CSSOM height exposes the used pixel value, which varies legitimately when
+// content wraps. Typed OM retains the computed `auto` keyword. Observe that
+// value from the browser, never from a caller-controlled component attribute.
+// Unsupported observations conservatively retain the used-height comparison.
+async function observeIntrinsicButtonHeights(client, nodes, frameId) {
+  if (nodes.length === 0) return;
+  if (nodes.length > MAX_CONTROLS)
+    throw new Error("control sizing observations exceed the control budget");
+  if (typeof frameId !== "string" || !frameId)
+    throw new Error("browser omitted the frame for control sizing observations");
+  const isolatedWorld = await client.send("Page.createIsolatedWorld", {
+    frameId,
+    worldName: "pm-control-sizing",
+    grantUniveralAccess: false,
+  });
+  if (!Number.isInteger(isolatedWorld.executionContextId))
+    throw new Error("browser omitted the isolated control sizing context");
+  try {
+    for (const node of nodes) {
+      const resolved = await client.send("DOM.resolveNode", {
+        backendNodeId: node.backendNodeId,
+        executionContextId: isolatedWorld.executionContextId,
+        objectGroup: "pm-control-sizing",
+      });
+      if (!resolved.object?.objectId) throw new Error("control sizing node did not resolve");
+      const response = await client.send("Runtime.callFunctionOn", {
+        objectId: resolved.object.objectId,
+        functionDeclaration: `function () {
+          if (typeof Element.prototype.computedStyleMap !== "function" || typeof CSSKeywordValue !== "function") return false;
+          const height = Element.prototype.computedStyleMap.call(this).get("height");
+          return height instanceof CSSKeywordValue && height.value === "auto";
+        }`,
+        returnByValue: true,
+        silent: true,
+      });
+      if (response.exceptionDetails || typeof response.result?.value !== "boolean")
+        throw new Error("control sizing observation failed");
+      node.intrinsicHeight = response.result.value;
+    }
+  } finally {
+    await client.send("Runtime.releaseObjectGroup", { objectGroup: "pm-control-sizing" });
+  }
+}
+
 async function nativeSample(
   client,
   targetId,
@@ -3560,6 +3610,10 @@ async function nativeSample(
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
   const visibilityEvaluator = createVisibilityEvaluator(model, style, metrics);
+  const sizedButtons = model.filter(
+    (node) => node.nodeName === "button" && visibilityEvaluator(node)
+  );
+  await observeIntrinsicButtonHeights(client, sizedButtons, frameTree.frameTree?.frame?.id);
   const hitRequirements = evaluateStateAssertion(
     stateAssertion,
     model,
@@ -3600,6 +3654,7 @@ async function nativeSample(
   }
   return {
     identity,
+    controlSizing: sizedButtons.map((node) => [node.backendNodeId, node.intrinsicHeight]),
     assertionVisibility,
     accessibility: accessibility.observations,
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
@@ -4190,6 +4245,8 @@ async function main() {
       "text-transform",
       "text-decoration-line",
       "height",
+      "min-height",
+      "max-height",
       "padding-top",
       "padding-right",
       "padding-bottom",
@@ -4470,6 +4527,7 @@ if (require.main === module)
   });
 
 module.exports = {
+  observeIntrinsicButtonHeights,
   focusIndicatorRegions,
   appendBoundedEvidence,
   accessibilityObservations,

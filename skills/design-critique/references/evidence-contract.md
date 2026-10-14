@@ -133,6 +133,8 @@ Repeated native checkbox or switch buttons with entirely graphical descendants c
 
 Current capture planning and managed bundle reads also accept the immutable `.pm/dev-sessions/<slug>/design-critique/runs/<run-id>/round-R/` route directory. Its route run ID, output round, assertion directory and capture `-rR` suffix must agree within the existing scoped recovery round budget; canonical legacy paths retain their limits. Managed member reads still require the branded sibling bundle and complete verified inventory. The canonical gate reads its report's exact route/captures bindings only inside this session's same bounded run/round, then reruns the full checker for schemas, hashes, lineage, native evidence and source identity. A selected path never substitutes for those checks.
 
+For repeated buttons, the collector measures native Typed OM's computed `height: auto` in an isolated world before deriving consistency. This retains legitimate wrapping-driven used-height variation without equating it with fixed-height mismatch. Fixed height, min/max constraints, glyph/root geometry and other visual properties remain checked. Unsupported Typed OM conservatively retains used-height comparison; malformed observations fail. The measured sizing identity participates in every atomic sample, and caller attributes cannot declare intrinsic sizing.
+
 Audit schema v1 without a raw binding is readable only as part of non-authoritative route-v1 inspection. It cannot certify current work. Never author a new schema-v1 audit or downgrade route/audit evidence to bypass normalization.
 
 Optional assertion `before_capture` actions are part of the existing assertion
