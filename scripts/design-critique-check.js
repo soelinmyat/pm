@@ -1122,10 +1122,6 @@ function hasNativePendingButtonChange(root, left, right, observations) {
     !isDeepStrictEqual(before.manifest.page.css_viewport, after.manifest.page.css_viewport)
   )
     return false;
-  const loading =
-    left.coverage.state === "loading" ? before : right.coverage.state === "loading" ? after : null;
-  if (!loading || loading.assertion?.state !== "loading") return false;
-  const other = loading === before ? after : before;
   const visibleButton = (observation, locator) => {
     const index = observation.assertion?.all.findIndex(
       (clause) => clause.expect.kind === "visible" && isDeepStrictEqual(clause.locator, locator)
@@ -1138,44 +1134,50 @@ function hasNativePendingButtonChange(root, left, right, observations) {
       ? check.visual_bounds
       : null;
   };
-  for (const guard of loading.assertion.all) {
-    if (
-      guard.expect.kind !== "attribute-equals" ||
-      guard.expect.name !== "aria-busy" ||
-      guard.expect.value !== "true"
-    )
-      continue;
-    const region = visibleButton(loading, guard.locator);
-    if (
-      !region ||
-      region.width < 32 ||
-      region.height < 20 ||
-      !isDeepStrictEqual(region, visibleButton(other, guard.locator))
-    )
-      continue;
-    try {
-      const a = readBoundFile(root, left.capture.path, "pending button comparison", []);
-      const b = readBoundFile(root, right.capture.path, "pending button comparison", []);
-      if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+  for (const [side, loading, other] of [
+    [left, before, after],
+    [right, after, before],
+  ]) {
+    if (side.coverage.state !== "loading" || loading.assertion?.state !== "loading") continue;
+    for (const guard of loading.assertion.all) {
+      if (
+        guard.expect.kind !== "attribute-equals" ||
+        guard.expect.name !== "aria-busy" ||
+        guard.expect.value !== "true"
+      )
         continue;
-      const aRegion = createPngRegionInspector(a.bytes)(region);
-      const bRegion = createPngRegionInspector(b.bytes)(region);
-      // Neither tiny semantic nodes nor blank regions can be magnified into
-      // state proof. Apply the existing meaningful-image and distance rules.
-      validateMeaningfulVisual(aRegion);
-      validateMeaningfulVisual(bRegion);
-      const difference = visualDifference(aRegion, bRegion);
-      const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
-      const gridSize = Math.sqrt(gridCells);
-      // Each tile mean can understate its pixels' absolute difference. Weight
-      // all tile differences by the smallest tile area for a conservative
-      // lower bound, never magnifying four pixels into regional state proof.
-      const minimumCellPixels =
-        Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
-      const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
-      if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
-    } catch {
-      // Invalid, absent or unverified geometry grants no localized fallback.
+      const region = visibleButton(loading, guard.locator);
+      if (
+        !region ||
+        region.width < 32 ||
+        region.height < 20 ||
+        !isDeepStrictEqual(region, visibleButton(other, guard.locator))
+      )
+        continue;
+      try {
+        const a = readBoundFile(root, left.capture.path, "pending button comparison", []);
+        const b = readBoundFile(root, right.capture.path, "pending button comparison", []);
+        if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+          continue;
+        const aRegion = createPngRegionInspector(a.bytes)(region);
+        const bRegion = createPngRegionInspector(b.bytes)(region);
+        // Neither tiny semantic nodes nor blank regions can be magnified into
+        // state proof. Apply the existing meaningful-image and distance rules.
+        validateMeaningfulVisual(aRegion);
+        validateMeaningfulVisual(bRegion);
+        const difference = visualDifference(aRegion, bRegion);
+        const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
+        const gridSize = Math.sqrt(gridCells);
+        // Each tile mean can understate its pixels' absolute difference. Weight
+        // all tile differences by the smallest tile area for a conservative
+        // lower bound, never magnifying four pixels into regional state proof.
+        const minimumCellPixels =
+          Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
+        const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
+        if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
+      } catch {
+        // Invalid, absent or unverified geometry grants no localized fallback.
+      }
     }
   }
   return false;

@@ -896,7 +896,7 @@ function refreshTrustedCaptureObservations(fixture) {
       0,
       {},
       fixture.nativeFocusProof ?? true,
-      fixture.nativeStateProof,
+      fixture.nativeStateProofByCapture?.[capture.id] ?? fixture.nativeStateProof,
       fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION
     );
 }
@@ -984,10 +984,19 @@ function attachTrustedCaptureObservation(
     assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
   const pendingButtonProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
-  if (pendingButtonProof && coverage.state === "loading" && nativeStateProof !== "pending-no-guard")
+  if (
+    pendingButtonProof &&
+    coverage.state === "loading" &&
+    !["pending-no-guard", "pending-idle-loader"].includes(nativeStateProof)
+  )
     assertion.all.push({
       locator: { ...assertion.all[0].locator },
       expect: { kind: "attribute-equals", name: "aria-busy", value: "true" },
+    });
+  if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading")
+    assertion.all.push({
+      locator: { by: "role-name", value: "status:Loading records" },
+      expect: { kind: "visible" },
     });
   const assertionBinding = write(
     root,
@@ -1105,6 +1114,19 @@ function attachTrustedCaptureObservation(
       check.y = 340;
       check.visual_bounds = { x: 450, y: 340, width: 2, height: 1 };
     }
+  }
+  if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading") {
+    assertionVisibility.verified_nodes++;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 900,
+      y: 350,
+      visual_bounds: { x: 880, y: 330, width: 40, height: 40 },
+      native_role: "status",
+      native_name_present: true,
+    });
   }
   if (
     (nativeStateProof === "empty-alert-text" && coverage.state === "empty") ||
@@ -5807,6 +5829,85 @@ test("trusted captures bind pending request evidence and reject it on non-loadin
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /only permitted for loading captures/);
+});
+
+function appendLoadingVariant(fixture, id, bytes, proof = "pending-button") {
+  fixture.route.scenarios ||= [];
+  fixture.route.scenarios.push({
+    id,
+    subject_id: "account-detail",
+    description: `Loading task variant ${id} on the same account page`,
+  });
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((row) => row.id === "ui-loading"),
+    id: `ui-loading-${id}`,
+    scenario_id: id,
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const capture = {
+    ...fixture.captures.captures.find((row) => row.coverage_id === "ui-loading"),
+    id: `capture-loading-${id}`,
+    coverage_id: `ui-loading-${id}`,
+    ...write(fixture.root, `evidence/files/loading-${id}.png`, bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.nativeStateProofByCapture ||= {};
+  fixture.nativeStateProofByCapture[capture.id] = proof;
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, `${id}-a11y`, "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, `${id}-dom`, "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  const required = fixture.route.coverage.filter((row) => row.required).length;
+  fixture.report.coverage = { required, captured: required, percent: 100 };
+  rewriteReportAndHtml(fixture);
+}
+
+test("loading task comparisons are independent of which busy assertion comes first", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-idle-loader";
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-idle"));
+  appendLoadingVariant(fixture, "busy", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  const distanceIssues = () =>
+    check(fixture).issues.filter((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    );
+  assert.equal(distanceIssues().length, 0);
+  fixture.captures.captures.reverse();
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.equal(distanceIssues().length, 0);
+});
+
+test("many invalid loading scenarios keep native regional decoding linear", (t) => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-button";
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-idle"));
+  for (let index = 0; index < 12; index++)
+    appendLoadingVariant(
+      fixture,
+      `task-${index}`,
+      validPng(1440, 1000, 20, 0, 40 + index, 1, "pending-idle")
+    );
+  const originalInflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return originalInflate(...args);
+  });
+  const result = check(fixture);
+  t.mock.restoreAll();
+  assert.equal(result.ok, false, "marker-only scenario differences must remain invalid");
+  assert.ok(
+    decodes <= fixture.captures.captures.length * 8,
+    `Repeated scenario comparisons decoded full PNGs ${decodes} times for ${fixture.captures.captures.length} captures`
+  );
 });
 
 test("minimum native pending button rejects a four-pixel beacon crossing grid boundaries", () => {
