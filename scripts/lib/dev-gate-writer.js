@@ -10,6 +10,8 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { loadDevSession } = require("./dev-session-location");
+const { readProjectInput } = require("./project-file");
+const { MAX_RECOVERY_ROUNDS } = require("./scoped-recovery");
 
 // Gate names and statuses come from the checker so the writer can never
 // accept a row the checker rejects. Required lazily: the checker is heavy and
@@ -196,6 +198,45 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
+  // The canonical report selects its exact retained round. Restrict selection
+  // to this session, then let the full checker validate every binding/hash,
+  // predecessor, execution receipt and current source identity as before.
+  if (fs.existsSync(path.join(layout.root, paths.reportPath))) {
+    const report = JSON.parse(
+      readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes
+    );
+    const directories = [];
+    for (const [binding, option] of [
+      ["route", "routePath"],
+      ["captures", "capturesPath"],
+    ]) {
+      const file = report?.[binding]?.path;
+      if (typeof file !== "string" || !file.trim())
+        throw gateError(`design-critique report.${binding}.path must name its bound input`);
+      const relative = projectRelative(layout.root, file);
+      const prefix = `${base}/runs/`;
+      if (relative !== `${base}/${binding}.json`) {
+        const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
+        const round = /^round-([1-9][0-9]*)$/.exec(parts[1] || "");
+        if (
+          parts.length !== 3 ||
+          !/^[a-z0-9][a-z0-9._-]*$/.test(parts[0]) ||
+          parts[0] !== report.run_id ||
+          !round ||
+          Number(round[1]) > MAX_RECOVERY_ROUNDS ||
+          Number(round[1]) !== report.rounds ||
+          parts[2] !== `${binding}.json`
+        )
+          throw gateError(
+            `design-critique report.${binding}.path must select this session's exact bounded run/round`
+          );
+      }
+      directories.push(path.posix.dirname(relative));
+      paths[option] = relative;
+    }
+    if (directories[0] !== directories[1])
+      throw gateError("design-critique report inputs must select the same run/round");
+  }
   const sourceCommit = routeSourceCommit(layout.root, paths.routePath);
   const recertifiedOffHead = evidence.recertified && sourceCommit !== head;
   const original = evidence.phaseEvidence.commit;

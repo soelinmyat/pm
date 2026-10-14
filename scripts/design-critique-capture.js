@@ -18,6 +18,7 @@ const {
   createPngRegionInspector,
 } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
+const { MAX_RECOVERY_ROUNDS } = require("./lib/scoped-recovery");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
 const {
   MAX_VIEWPORT_PIXELS,
@@ -624,7 +625,17 @@ function prepareCapturePlan(route, routePath, options) {
   ];
   const uniqueAllowedOrigins = [...new Set(allowedOrigins)].sort();
   const relativeRoute = validateRelative(routePath, "route path");
-  if (!/^\.pm\/dev-sessions\/[^/]+\/design-critique\/route\.json$/.test(relativeRoute))
+  const immutableRoute = relativeRoute.match(
+    /^\.pm\/dev-sessions\/[^/]+\/design-critique\/runs\/([a-z0-9][a-z0-9._-]*)\/round-([1-9][0-9]*)\/route\.json$/
+  );
+  if (immutableRoute && Number(immutableRoute[2]) > MAX_RECOVERY_ROUNDS)
+    throw new Error("immutable route round exceeds the scoped recovery round budget");
+  if (immutableRoute && immutableRoute[1] !== route.run_id)
+    throw new Error("immutable route path must match the routed run ID");
+  if (
+    !immutableRoute &&
+    !/^\.pm\/dev-sessions\/[^/]+\/design-critique\/route\.json$/.test(relativeRoute)
+  )
     throw new Error("route must be the canonical Design Critique route path");
   const outputDir = validateRelative(options.outputDir, "output directory");
   const routeDirectory = path.posix.dirname(relativeRoute);
@@ -632,7 +643,7 @@ function prepareCapturePlan(route, routePath, options) {
   if (assertionPath !== `${routeDirectory}/state-assertions/${coverage.id}.json`)
     throw new Error("state assertion must use the canonical path for its coverage row");
   const outputPattern = new RegExp(
-    `^${routeDirectory.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/round-([12])/${options.captureId}$`
+    `^${routeDirectory.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/round-(${immutableRoute ? "[1-9][0-9]*" : "[12]"})/${options.captureId}$`
   );
   const roundMatch = outputDir.match(outputPattern);
   if (!roundMatch)
@@ -640,6 +651,8 @@ function prepareCapturePlan(route, routePath, options) {
       "output directory must be round-1/<capture-id> or round-2/<capture-id> below the route"
     );
   const round = Number(roundMatch[1]);
+  if (immutableRoute && Number(immutableRoute[2]) !== round)
+    throw new Error("immutable route round must match the output round");
   if (!options.captureId.endsWith(`-r${round}`))
     throw new Error(`capture ID must end in -r${round}`);
   const readinessTimeoutMs = options.readinessTimeoutMs ?? 15_000;

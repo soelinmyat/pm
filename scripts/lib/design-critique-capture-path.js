@@ -1,5 +1,7 @@
 "use strict";
 
+const { MAX_RECOVERY_ROUNDS } = require("./scoped-recovery");
+
 const MANAGED_CAPTURE_MEMBERS = new Set([
   "capture.png",
   "accessibility-tree-raw.json",
@@ -12,6 +14,21 @@ const MANAGED_CAPTURE_ROUNDS = new Set(["round-1", "round-2"]);
 
 function managedCaptureMember(relativePath) {
   const parts = String(relativePath).replaceAll("\\", "/").split("/");
+  const immutableRound = /^round-([1-9][0-9]*)$/.exec(parts[6] || "");
+  let immutable = false;
+  if (
+    parts.length === 10 &&
+    parts[4] === "runs" &&
+    /^[a-z0-9][a-z0-9._-]*$/.test(parts[5]) &&
+    immutableRound &&
+    Number(immutableRound[1]) <= MAX_RECOVERY_ROUNDS &&
+    parts[6] === parts[7]
+  ) {
+    // Atomic bundle reads still validate the managed symlink target. Only the
+    // bounded run/round prefix differs from the original capture layout.
+    parts.splice(4, 3);
+    immutable = true;
+  }
   if (
     parts.length !== 7 ||
     parts[0] !== ".pm" ||
@@ -20,9 +37,10 @@ function managedCaptureMember(relativePath) {
     parts[2] === "." ||
     parts[2] === ".." ||
     parts[3] !== "design-critique" ||
-    !MANAGED_CAPTURE_ROUNDS.has(parts[4]) ||
+    (!immutable && !MANAGED_CAPTURE_ROUNDS.has(parts[4])) ||
     !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[5]) ||
-    !MANAGED_CAPTURE_MEMBERS.has(parts[6])
+    !MANAGED_CAPTURE_MEMBERS.has(parts[6]) ||
+    (immutable && !parts[5].endsWith(`-r${Number(immutableRound[1])}`))
   ) {
     return null;
   }

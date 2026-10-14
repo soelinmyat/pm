@@ -163,6 +163,8 @@ A focused named modal menu or explicitly owned listbox can explain an intentiona
 
 Textless checkbox and switch button groups omit unused inherited font-size/weight only when every visible descendant is graphical; they still compare measured glyph/root geometry and visual properties. Visible direct, nested, SVG, or generated text keeps typography checks, and font-driven glyph dimensions still fail consistency.
 
+For a retained immutable round, place the route at `.pm/dev-sessions/<slug>/design-critique/runs/<run-id>/round-R/route.json`, assertions in its `state-assertions/`, and output in its `round-R/<capture-id>-rR/`. Run ID and both round components must agree within the existing recovery budget. The canonical report selects the exact current route and captures inputs for gate checking. Managed pointers still require verified branded bundles; foreign paths, malformed or mismatched rounds, and inventory/hash drift remain failures.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`

@@ -4407,3 +4407,43 @@ for (const variant of ["valid", "cyclic", "missing", "foreign"]) {
     assert.equal(JSON.stringify(nodes), before);
   });
 }
+
+for (const round of [1, 2, 50]) {
+  test(`immutable route planning binds run and round ${round}`, () => {
+    const base = `.pm/dev-sessions/test/design-critique/runs/dc_test_capture/round-${round}`;
+    const options = planOptions({
+      captureId: `capture-account-primary-desktop-r${round}`,
+      assertionPath: `${base}/state-assertions/account-primary-desktop.json`,
+      outputDir: `${base}/round-${round}/capture-account-primary-desktop-r${round}`,
+    });
+    assert.equal(prepareCapturePlan(route(), `${base}/route.json`, options).round, round);
+  });
+}
+test("immutable route planning rejects run drift, round drift and budget escape", () => {
+  const base = ".pm/dev-sessions/test/design-critique/runs/dc_test_capture/round-1";
+  const options = planOptions({
+    assertionPath: `${base}/state-assertions/account-primary-desktop.json`,
+    outputDir: `${base}/round-1/capture-account-primary-desktop-r1`,
+  });
+  for (const changed of [
+    base.replace("dc_test_capture", "dc_other"),
+    base.replace("round-1", "round-51"),
+    base.replace("round-1", "round-01"),
+    base.replace("/runs/", "/foreign/"),
+  ])
+    assert.throws(() => prepareCapturePlan(route(), `${changed}/route.json`, options));
+  assert.throws(() =>
+    prepareCapturePlan(route(), `${base}/route.json`, {
+      ...options,
+      captureId: "capture-account-primary-desktop-r2",
+      outputDir: `${base}/round-2/capture-account-primary-desktop-r2`,
+    })
+  );
+  assert.throws(() =>
+    prepareCapturePlan(route(), `${base}/route.json`, {
+      ...options,
+      assertionPath:
+        ".pm/dev-sessions/foreign/design-critique/state-assertions/account-primary-desktop.json",
+    })
+  );
+});

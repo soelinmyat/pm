@@ -1003,3 +1003,123 @@ test("gate writer proves a re-captured critique's ancestry with real Git in orde
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+function selectedReportFixture() {
+  const fx = writerFixture("design-critique", "design-critique", [
+    { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+  ]);
+  const dc = path.join(fx.dir, "design-critique");
+  fs.mkdirSync(dc);
+  const selected = ".pm/dev-sessions/unit/design-critique/runs/dc_selected/round-3";
+  fs.mkdirSync(path.join(fx.root, selected), { recursive: true });
+  fs.writeFileSync(
+    path.join(fx.root, selected, "route.json"),
+    JSON.stringify({ source: { commit: "c".repeat(40) } })
+  );
+  const report = {
+    run_id: "dc_selected",
+    rounds: 3,
+    route: { path: `${selected}/route.json`, sha256: "d".repeat(64) },
+    captures: { path: `${selected}/captures.json`, sha256: "e".repeat(64) },
+  };
+  fx.report = report;
+  fx.reportFile = path.join(dc, "report.json");
+  fx.writeReport = () => fs.writeFileSync(fx.reportFile, JSON.stringify(fx.report));
+  fx.writeReport();
+  return fx;
+}
+test("report-selected immutable inputs reach the full gate checker exactly", () => {
+  const fx = selectedReportFixture();
+  try {
+    planGateWrite(
+      { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+      fx.deps
+    );
+    assert.equal(fx.calls.designCritique.routePath, fx.report.route.path);
+    assert.equal(fx.calls.designCritique.capturesPath, fx.report.captures.path);
+    fx.deps.checkDesignCritique = () => ({
+      ok: false,
+      issues: [{ path: "report.route.sha256", message: "hash mismatch" }],
+    });
+    assert.throws(
+      () =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        ),
+      /hash mismatch/
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+for (const variant of [
+  "outside",
+  "foreign-session",
+  "different-round",
+  "different-run",
+  "over-budget",
+  "missing-binding",
+]) {
+  test(`report-selected inputs reject ${variant}`, () => {
+    const fx = selectedReportFixture();
+    try {
+      if (variant === "outside") fx.report.route.path = "../outside/route.json";
+      if (variant === "foreign-session")
+        fx.report.route.path = fx.report.route.path.replace("/unit/", "/other/");
+      if (variant === "different-round")
+        fx.report.captures.path = fx.report.captures.path.replace("round-3", "round-2");
+      if (variant === "different-run") fx.report.run_id = "dc_other";
+      if (variant === "over-budget") {
+        fx.report.rounds = 51;
+        fx.report.route.path = fx.report.route.path.replace("round-3", "round-51");
+        fx.report.captures.path = fx.report.captures.path.replace("round-3", "round-51");
+      }
+      if (variant === "missing-binding") delete fx.report.route.path;
+      fx.writeReport();
+      assert.throws(() =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        )
+      );
+    } finally {
+      fx.cleanup();
+    }
+  });
+}
+
+test("report-selected inputs refuse a symlinked canonical report", () => {
+  const fx = selectedReportFixture();
+  try {
+    const original = path.join(fx.root, "foreign-report.json");
+    fs.renameSync(fx.reportFile, original);
+    fs.symlinkSync(original, fx.reportFile);
+    assert.throws(
+      () =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        ),
+      /symlink/
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+test("report-selected inputs refuse oversized canonical report bytes", () => {
+  const fx = selectedReportFixture();
+  try {
+    fs.writeFileSync(fx.reportFile, " ".repeat(4 * 1024 * 1024 + 1));
+    assert.throws(
+      () =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        ),
+      /budget|maximum|size|large/
+    );
+  } finally {
+    fx.cleanup();
+  }
+});

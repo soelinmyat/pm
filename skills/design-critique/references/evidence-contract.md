@@ -131,6 +131,8 @@ A named focused menu or a focused listbox with a measured named combobox owner m
 
 Repeated native checkbox or switch buttons with entirely graphical descendants compare actual root/descendant geometry and visual properties instead of unused inherited font-size/weight. Visible text, SVG text, generated content, and text beneath nonpainting wrappers retain typography comparison. Glyph size differences, including font-driven dimensions, remain failures; this is no general consistency waiver.
 
+Current capture planning and managed bundle reads also accept the immutable `.pm/dev-sessions/<slug>/design-critique/runs/<run-id>/round-R/` route directory. Its route run ID, output round, assertion directory and capture `-rR` suffix must agree within the existing scoped recovery round budget; canonical legacy paths retain their limits. Managed member reads still require the branded sibling bundle and complete verified inventory. The canonical gate reads its report's exact route/captures bindings only inside this session's same bounded run/round, then reruns the full checker for schemas, hashes, lineage, native evidence and source identity. A selected path never substitutes for those checks.
+
 Audit schema v1 without a raw binding is readable only as part of non-authoritative route-v1 inspection. It cannot certify current work. Never author a new schema-v1 audit or downgrade route/audit evidence to bypass normalization.
 
 Optional assertion `before_capture` actions are part of the existing assertion
