@@ -1095,6 +1095,11 @@ function attachTrustedCaptureObservation(
     if (nativeStateProof === "pending-bounds-drift" && coverage.state === "loading")
       check.visual_bounds.x++;
     if (nativeStateProof === "pending-unnamed") check.native_name_present = false;
+    if (nativeStateProof === "pending-minimum") {
+      check.x = 450;
+      check.y = 340;
+      check.visual_bounds = { x: 434, y: 330, width: 32, height: 20 };
+    }
     if (nativeStateProof === "pending-tiny") {
       check.x = 450;
       check.y = 340;
@@ -1446,7 +1451,13 @@ function validPng(
         const pixel = y * (width * 4 + 1) + 1 + x * 4;
         for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = color[channel];
       }
-    if (["pending-beacon", "pending-two-pixel"].includes(focusRing)) {
+    if (focusRing === "pending-four-pixel") {
+      for (let y = 339; y <= 340; y++)
+        for (let x = 449; x <= 450; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 0;
+        }
+    } else if (["pending-beacon", "pending-two-pixel"].includes(focusRing)) {
       for (let x = 450; x < (focusRing === "pending-beacon" ? 451 : 452); x++) {
         const pixel = 340 * (width * 4 + 1) + 1 + x * 4;
         rows[pixel] = 250;
@@ -5796,6 +5807,44 @@ test("trusted captures bind pending request evidence and reject it on non-loadin
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /only permitted for loading captures/);
+});
+
+test("minimum native pending button rejects a four-pixel beacon crossing grid boundaries", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-minimum";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(
+    fixture,
+    "loading",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-four-pixel")
+  );
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
+test("minimum native pending button accepts a real control change", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-minimum";
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, "pending-busy"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
 });
 
 test("native pending button comparison accepts meaningful change inside the measured control", () => {

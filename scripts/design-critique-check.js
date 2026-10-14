@@ -1164,7 +1164,16 @@ function hasNativePendingButtonChange(root, left, right, observations) {
       // state proof. Apply the existing meaningful-image and distance rules.
       validateMeaningfulVisual(aRegion);
       validateMeaningfulVisual(bRegion);
-      if (isMaterialVisualDifference(visualDifference(aRegion, bRegion))) return true;
+      const difference = visualDifference(aRegion, bRegion);
+      const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
+      const gridSize = Math.sqrt(gridCells);
+      // Each tile mean can understate its pixels' absolute difference. Weight
+      // all tile differences by the smallest tile area for a conservative
+      // lower bound, never magnifying four pixels into regional state proof.
+      const minimumCellPixels =
+        Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
+      const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
+      if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
     } catch {
       // Invalid, absent or unverified geometry grants no localized fallback.
     }
