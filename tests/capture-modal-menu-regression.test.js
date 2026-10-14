@@ -44,12 +44,14 @@ async function fixture(t, scenario) {
         menu.children[1].setAttribute('role','menuitemradio');menu.children[1].setAttribute('aria-checked','true');
       }
       if(scenario==='disabled-item')menu.children[1].setAttribute('aria-disabled','true');
+      if(scenario==='owner-only-arrows')menu.children[1].remove();
       menu.addEventListener('keydown',event=>{
         if(event.key==='Tab'){if(scenario!=='unowned-traversable')event.preventDefault();return;}
         if(event.key==='Escape'){event.preventDefault();close();return;}
-        if(scenario==='broken-arrows')return;
+        if(scenario==='broken-arrows'||(scenario==='owner-only-arrows'&&event.target!==menu))return;
         if(!['ArrowDown','ArrowUp'].includes(event.key))return;
         event.preventDefault();const items=[...menu.querySelectorAll('[role^=menuitem]')].filter(item=>item.getAttribute('aria-disabled')!=='true');let i=items.indexOf(document.activeElement);
+        if(scenario==='owner-only-arrows'&&event.key==='ArrowUp'&&i===-1)i=0;
         i=event.key==='ArrowDown'?(i+1)%items.length:(i-1+items.length)%items.length;
         items.forEach((item,n)=>item.tabIndex=n===i?0:-1);items[i].focus();
       });document.body.append(menu);
@@ -166,6 +168,7 @@ for (const scenario of [
   "unowned-traversable",
   "still-exposed",
   "submit-opener",
+  "owner-only-arrows",
 ]) {
   test(`keeps ${scenario} menu scope non-passing`, { skip }, async (t) => {
     const result = runCaptureProbe(await fixture(t, scenario));

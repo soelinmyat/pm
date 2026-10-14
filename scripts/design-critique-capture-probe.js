@@ -3008,8 +3008,8 @@ async function probeCompositeCandidate(
         if (!reopened) continue;
         liveCandidate = reopened;
         members = new Set(reopened.member_backend_node_ids);
-        entryBackendNodeId = reopened.entry_backend_node_ids[0];
         const focused = await focusedBackendNodeId(client, executionContextId);
+        entryBackendNodeId = focused;
         if (members.has(focused)) observedEntryMembers.add(focused);
         documentReachable = true;
       } else
@@ -3065,7 +3065,10 @@ async function probeCompositeCandidate(
     try {
       for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
         try {
-          await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+          // Owned menus continue from native reopening and preceding arrows.
+          // Resetting to the frozen owner can invent an unreachable entry path.
+          if (!candidate.menu_trigger_backend_node_id)
+            await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
           let state = await compositeFocusState(client, executionContextId, liveCandidate);
           let previous = focusedCompositeMember(state, liveCandidate, members);
           for (let step = 0; step < members.size; step += 1) {
