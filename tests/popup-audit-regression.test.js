@@ -104,3 +104,76 @@ test("legacy document observations retain their existing checks without popup ev
   value.observations.landmarks = [{ role: "main", name: "", locator: "main" }];
   assert.deepEqual(normalize(value).checks, { landmarks: true, names: true, focus_order: true });
 });
+
+function listboxRaw() {
+  const value = raw();
+  value.observations.popups[0].role = "listbox";
+  value.observations.popups[0].owner = { role: "combobox", name: "Language", locator: "#trigger" };
+  value.observations.controls.forEach((control) => {
+    control.role = "option";
+  });
+  return value;
+}
+test("verified isolated listbox options have valid popup landmark scope", () => {
+  assert.deepEqual(normalize(listboxRaw()).checks, {
+    landmarks: true,
+    names: true,
+    focus_order: true,
+  });
+});
+for (const field of ["contains_focus", "background_main_hidden", "keyboard_navigation_verified"]) {
+  test(`listbox scope requires ${field}`, () => {
+    const value = listboxRaw();
+    value.observations.popups[0][field] = false;
+    assert.equal(normalize(value).checks.landmarks, false);
+  });
+}
+test("listbox proof rejects document-only options, foreign members and unsupported popup roles", () => {
+  const value = listboxRaw();
+  value.observations.controls[1].focus_context = "document";
+  assert.equal(normalize(value).checks.landmarks, false);
+  assert.equal(normalize(value).checks.focus_order, false);
+  const foreign = listboxRaw();
+  foreign.observations.controls[1].role = "menuitem";
+  assert.equal(normalize(foreign).checks.landmarks, false);
+  const unsupported = listboxRaw();
+  unsupported.observations.popups[0].role = "tree";
+  delete unsupported.observations.popups[0].owner;
+  assert.throws(() => normalize(unsupported), /role must be menu or listbox/);
+});
+test("listbox proof rejects unknown schema fields and mismatched member locators", () => {
+  const extra = listboxRaw();
+  extra.observations.popups[0].synthetic_label = "Language";
+  assert.throws(() => normalize(extra), /unexpected|unknown|only|unsupported/);
+  const mismatched = listboxRaw();
+  mismatched.observations.popups[0].member_locators[0] = "#foreign";
+  assert.equal(normalize(mismatched).checks.landmarks, false);
+});
+
+test("unnamed native listbox keeps its raw name while measured named combobox proves context", () => {
+  const value = listboxRaw();
+  value.observations.popups[0].name = "";
+  assert.deepEqual(normalize(value).checks, { landmarks: true, names: true, focus_order: true });
+  assert.equal(value.observations.popups[0].name, "");
+  const missing = listboxRaw();
+  delete missing.observations.popups[0].owner;
+  assert.equal(normalize(missing).checks.landmarks, false);
+  missing.observations.popups[0].name = "";
+  assert.equal(normalize(missing).checks.names, false);
+  const unnamed = listboxRaw();
+  unnamed.observations.popups[0].owner.name = "";
+  unnamed.observations.popups[0].name = "";
+  assert.equal(normalize(unnamed).checks.landmarks, false);
+  assert.equal(normalize(unnamed).checks.names, false);
+});
+test("owner observations have a closed combobox-only schema", () => {
+  const extra = listboxRaw();
+  extra.observations.popups[0].owner.synthetic_label = "Language";
+  assert.throws(() => normalize(extra));
+  const wrong = listboxRaw();
+  wrong.observations.popups[0].owner.role = "button";
+  assert.throws(() => normalize(wrong), /role must be combobox/);
+  const menu = raw();
+  menu.observations.popups[0].owner = { role: "combobox", name: "Language", locator: "#trigger" };
+  assert.throws(() => normalize(menu), /supported only for listbox/);
+});

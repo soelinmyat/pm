@@ -159,6 +159,8 @@ Retained URL identities contain only `origin`, `pathname`, booleans indicating w
 
 The helper first writes, syncs, and verifies the complete immutable bundle under a private sibling name. It then publishes the canonical capture directory in one exclusive filesystem operation as a managed relative pointer to that bundle. A crash before publication leaves the canonical path absent; an exact retry succeeds. A pre-existing or racing foreign path is never replaced. On Windows, this publication requires Developer Mode or an account with symlink privilege.
 
+A focused named modal menu or explicitly owned listbox can explain an intentionally hidden background main only after native Escape, document Tab reach of its uniquely linked accessible trigger, keyboard reopening, and arrow traversal to every enabled frozen member. A listbox trigger must be a named native combobox button with exact `aria-controls` and explicit or implicit listbox popup semantics. The helper records actual popup role/name plus the native closed owner observation, retaining an empty popup name when present. It verifies accessible identities and ownership after reopening and re-exposes the native owner after traversal to check its name again. Broken entry/arrows, static negative-tabindex options, ambiguous links, foreign focus, unsupported owners, and identity drift retain failures. This proof classifies focus exposure; functional selection remains QA-owned. Historical raw audits must be recaptured, never rewritten.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`

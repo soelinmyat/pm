@@ -1,5 +1,7 @@
 # PM Plugin: Codex Installation
 
+Web capture supports a focused combobox-owned modal listbox after native Escape, trigger Tab reach, keyboard reopening, and complete option traversal. It retains the actual popup name, including an empty name, and separately measures the named native combobox owner; ambiguous or unverified structures remain non-passing.
+
 Opt-in ProductMemory native Dev uses a currently reviewed structured remote bundle and an already authorized host transport, with private local execution mechanics and unchanged canonical quality gates. It does not auto-configure credentials or enroll existing work. See [the native workflow contract](../references/productmemory-native-workflow.md).
 
 PM now ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.

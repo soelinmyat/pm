@@ -55,6 +55,8 @@ PM is a free, open-source plugin for Claude Code, Codex, and OpenCode V2 (intera
 
 Quality gates focus on consequential task, data, access and evidence failures. QA finding indexes and Design Critique scores remain visible diagnostics; minor concerns use contextual judgment. Source Review publishes canonical JSON without requiring browser-rendered reports. Actual core-journey UX, source identity, required assertions and product/security/privacy authority retain their gates.
 
+Web Design Critique capture recognizes genuinely owned modal listboxes alongside menus after native exit, trigger Tab reach, keyboard reopening, and complete enabled-member arrow traversal. It retains measured popup identities and fails on unsupported or unverified keyboard structures.
+
 ## Why PM?
 
 Product context decays. The research doc goes stale, the strategy deck is six months old, and nobody remembers why you decided against that feature.
