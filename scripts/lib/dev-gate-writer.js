@@ -239,7 +239,7 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     const report = JSON.parse(
       readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes
     );
-    if (phaseHtmlArtifact && report.human_report !== phaseHtmlArtifact)
+    if (phaseHtmlArtifact && report.human_report?.path !== phaseHtmlArtifact)
       throw gateError(
         "legacy design-critique HTML evidence must match the selected report's human artifact"
       );

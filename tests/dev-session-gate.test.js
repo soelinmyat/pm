@@ -1046,7 +1046,7 @@ for (const retained of [false, true]) {
           JSON.stringify({ source: { commit: "c".repeat(40) } })
         );
       }
-      fx.report.human_report = htmlPath;
+      fx.report.human_report = { path: htmlPath };
       fs.writeFileSync(path.join(fx.root, reportPath), JSON.stringify(fx.report));
       fs.writeFileSync(path.join(fx.root, htmlPath), "<html></html>");
       fx.session.evidence["design-critique"].records[0].artifact = path.join(fx.root, htmlPath);
@@ -1063,14 +1063,16 @@ for (const retained of [false, true]) {
   });
 }
 
-for (const variant of ["mismatched-human-report", "symlink-html"]) {
+for (const variant of ["mismatched-human-report", "malformed-human-report", "symlink-html"]) {
   test(`legacy HTML phase mapping rejects ${variant}`, () => {
     const fx = selectedReportFixture();
     try {
       const selected = path.posix.dirname(fx.report.route.path);
       const htmlPath = `${selected}/report.html`;
       fx.report.human_report =
-        variant === "mismatched-human-report" ? `${selected}/other.html` : htmlPath;
+        variant === "malformed-human-report"
+          ? htmlPath
+          : { path: variant === "mismatched-human-report" ? `${selected}/other.html` : htmlPath };
       fs.writeFileSync(path.join(fx.root, selected, "report.json"), JSON.stringify(fx.report));
       if (variant === "symlink-html") fs.symlinkSync(fx.reportFile, path.join(fx.root, htmlPath));
       else fs.writeFileSync(path.join(fx.root, htmlPath), "<html></html>");
