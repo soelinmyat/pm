@@ -518,7 +518,7 @@ function validateCaptureActions(actions) {
       )
         throw new Error("Tab action requires count 1 through 100 and boolean reverse");
       tabs += action.count;
-    } else if (action?.kind === "scroll-into-view") {
+    } else if (["scroll-into-view", "caret-left"].includes(action?.kind)) {
       exactObject(action, ["kind", "locator"], "scroll action");
       exactObject(action.locator, ["by", "value"], "scroll locator");
       if (!["id", "test-id"].includes(action.locator.by))

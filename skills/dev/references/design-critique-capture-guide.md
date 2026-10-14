@@ -167,6 +167,8 @@ For a retained immutable round, place the route at `.pm/dev-sessions/<slug>/desi
 
 Intrinsic button height is measured from native Typed OM, including repeated atomic-sample identity. A computed `auto` height permits natural wrapping; fixed/min/max heights and glyph geometry still expose differences. Unsupported measurement retains the existing used-height check, and caller attributes cannot opt a control out.
 
+For a focused native text/search input, optional `before_capture` preparation may use `{ "kind": "caret-left", "locator": { "by": "id", "value": "field-id" } }` (or `test-id`). It sends one genuine ArrowLeft only after native focus/editability and unique target checks. The original private value and identity stay guarded through settlement and all capture samples; later declared Tab can move focus without waiving value checks. The helper never assigns a value, focus, style or label, and it rejects direct or delayed field mutation.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`

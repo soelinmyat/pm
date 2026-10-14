@@ -3584,12 +3584,45 @@ async function observeIntrinsicButtonHeights(client, nodes, frameId) {
   }
 }
 
+// Reuse each existing AX/DOM sample to reject deferred key-handler mutations.
+// An explicitly declared later Tab may move focus; its earlier field value and
+// native identity still must remain unchanged. No private values leave this check.
+function validateCaretValueProofs(axTree, model, proofs) {
+  if (proofs.length === 0) return;
+  const axByBackend = new Map((axTree.nodes || []).map((node) => [node.backendDOMNodeId, node]));
+  for (const proof of proofs) {
+    const matches = model.filter((node) => node.attributes[proof.attribute] === proof.locator);
+    const node = matches.length === 1 ? matches[0] : null;
+    const native = axByBackend.get(proof.backendNodeId);
+    const properties = axProperties(native || {});
+    if (
+      !node ||
+      node.backendNodeId !== proof.backendNodeId ||
+      node.nodeName !== "input" ||
+      (node.attributes.type || "text") !== proof.inputType ||
+      Object.hasOwn(node.attributes, "disabled") ||
+      Object.hasOwn(node.attributes, "readonly") ||
+      !native ||
+      native.ignored === true ||
+      axIdentity(native) !== proof.identity ||
+      valueOf(native.value) !== proof.value ||
+      properties.get("disabled") === true ||
+      properties.get("readonly") === true ||
+      (proof.retainsFocus && properties.get("focused") !== true)
+    )
+      throw new Error(
+        "caret preparation field value, identity, editability or focus changed during capture settlement"
+      );
+  }
+}
+
 async function nativeSample(
   client,
   targetId,
   computedStyles,
   stateAssertion,
-  baselineStyles = null
+  baselineStyles = null,
+  caretValueProofs = []
 ) {
   const [frameTree, metrics, snapshot, axTree] = await Promise.all([
     client.send("Page.getFrameTree"),
@@ -3604,6 +3637,7 @@ async function nativeSample(
     client.send("Accessibility.getFullAXTree", { depth: -1 }),
   ]);
   const model = snapshotNodeModel(snapshot);
+  validateCaretValueProofs(axTree, model, caretValueProofs);
   const viewport = nativeViewport(model);
   const identity = pageIdentity(frameTree, metrics, viewport);
   identity.target_id = targetId;
@@ -4282,6 +4316,9 @@ async function main() {
       "-webkit-mask-box-image-source",
     ];
     let baselineStyles = null;
+    // Private native field values certify caret preparation through settlement
+    // and frozen samples; they are never emitted in raw evidence or logs.
+    const caretValueProofs = [];
     if (config.stateAssertion.before_capture) {
       const baseline = snapshotNodeModel(
         await client.send("DOMSnapshot.captureSnapshot", {
@@ -4302,9 +4339,78 @@ async function main() {
       for (const action of config.stateAssertion.before_capture || []) {
         assertNetworkHealthy();
         if (action.kind === "tab") {
+          for (const proof of caretValueProofs) proof.retainsFocus = false;
           const budget = { remaining: action.count };
           while (budget.remaining > 0)
             await dispatchKeyboardKey(client, "Tab", budget, action.reverse ? 8 : 0);
+        } else if (action.kind === "caret-left") {
+          const snapshot = await client.send("DOMSnapshot.captureSnapshot", { computedStyles: [] });
+          const attribute = action.locator.by === "id" ? "id" : "data-testid";
+          const matches = snapshotNodeModel(snapshot).filter(
+            (node) => node.attributes[attribute] === action.locator.value
+          );
+          const target = matches.length === 1 ? matches[0] : null;
+          const ax = await client.send("Accessibility.getFullAXTree");
+          const focused = ax.nodes.find(
+            (node) =>
+              node.backendDOMNodeId === target?.backendNodeId &&
+              axProperties(node).get("focused") === true
+          );
+          if (
+            !target ||
+            target.nodeName !== "input" ||
+            !["text", "search"].includes(target.attributes.type || "text") ||
+            Object.hasOwn(target.attributes, "disabled") ||
+            Object.hasOwn(target.attributes, "readonly") ||
+            !focused ||
+            !["textbox", "searchbox"].includes(valueOf(focused.role)) ||
+            axProperties(focused).get("disabled") === true ||
+            axProperties(focused).get("readonly") === true ||
+            typeof valueOf(focused.value) !== "string"
+          )
+            throw new Error("caret preparation requires one focused editable native text input");
+          const valueBefore = valueOf(focused.value);
+          if (!(await dispatchKeyboardKey(client, "ArrowLeft", { remaining: 1 })))
+            throw new Error("caret preparation native key dispatch failed");
+          const after = await client.send("Accessibility.getFullAXTree");
+          const retained = after.nodes.find(
+            (node) => node.backendDOMNodeId === target.backendNodeId
+          );
+          const nextSnapshot = await client.send("DOMSnapshot.captureSnapshot", {
+            computedStyles: [],
+          });
+          const nextMatches = snapshotNodeModel(nextSnapshot).filter(
+            (node) => node.attributes[attribute] === action.locator.value
+          );
+          const next = nextMatches.length === 1 ? nextMatches[0] : null;
+          if (
+            !next ||
+            next.backendNodeId !== target.backendNodeId ||
+            next.nodeName !== "input" ||
+            (next.attributes.type || "text") !== (target.attributes.type || "text") ||
+            Object.hasOwn(next.attributes, "disabled") ||
+            Object.hasOwn(next.attributes, "readonly") ||
+            !retained ||
+            retained.ignored === true ||
+            axIdentity(retained) !== axIdentity(focused) ||
+            axProperties(retained).get("disabled") === true ||
+            axProperties(retained).get("readonly") === true ||
+            axProperties(retained).get("focused") !== true ||
+            valueOf(retained.value) !== valueBefore
+          )
+            throw new Error(
+              "caret preparation requires unchanged field value, identity, editability and focused input"
+            );
+          for (const proof of caretValueProofs) proof.retainsFocus = false;
+          caretValueProofs.push({
+            attribute,
+            locator: action.locator.value,
+            backendNodeId: target.backendNodeId,
+            inputType: target.attributes.type || "text",
+            identity: axIdentity(focused),
+            value: valueBefore,
+            retainsFocus: true,
+          });
         } else {
           const snapshot = await client.send("DOMSnapshot.captureSnapshot", { computedStyles: [] });
           const attribute = action.locator.by === "id" ? "id" : "data-testid";
@@ -4347,7 +4453,8 @@ async function main() {
       target.id,
       computedStyles,
       config.stateAssertion,
-      baselineStyles
+      baselineStyles,
+      caretValueProofs
     );
     const first = await client.send("Page.captureScreenshot", {
       format: "png",
@@ -4362,7 +4469,8 @@ async function main() {
       target.id,
       computedStyles,
       config.stateAssertion,
-      baselineStyles
+      baselineStyles,
+      caretValueProofs
     );
     const second = await client.send("Page.captureScreenshot", {
       format: "png",
@@ -4380,7 +4488,8 @@ async function main() {
       target.id,
       computedStyles,
       config.stateAssertion,
-      baselineStyles
+      baselineStyles,
+      caretValueProofs
     );
     if (
       canonicalSample(before) !== canonicalSample(middle) ||
