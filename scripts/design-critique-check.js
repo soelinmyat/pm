@@ -66,7 +66,7 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
 // capture-time identities. Current active evidence must use this release.
-const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7"]);
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7", "1.14.11"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
