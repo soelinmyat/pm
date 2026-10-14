@@ -13,6 +13,7 @@ const {
   runCaptureProbe,
   validateMeaningfulVisual,
   captureProductUi,
+  validateAssertionVisibility,
 } = require("../scripts/design-critique-capture");
 const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
 let browser;
@@ -92,6 +93,24 @@ test(
       false,
       "names stay hashed in regional geometry evidence"
     );
+    for (const mutate of [
+      (check) => {
+        check.native_name_sha256 = ["a".repeat(64)];
+      },
+      (check) => {
+        check.native_name_sha256 = "not-a-digest";
+      },
+      (check) => {
+        check.native_name_present = false;
+      },
+      (check) => {
+        check.native_role = "button";
+      },
+    ]) {
+      const visibility = structuredClone(probe.assertion_visibility);
+      mutate(visibility.checks[0]);
+      assert.throws(() => validateAssertionVisibility(visibility), /native name identity/);
+    }
   }
 );
 
@@ -106,6 +125,7 @@ async function sparseLoading(t, { blankIndicator = false } = {}) {
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
+
   t.after(() => {
     server.kill();
     fs.rmSync(root, { recursive: true, force: true });

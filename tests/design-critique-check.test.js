@@ -985,6 +985,16 @@ function attachTrustedCaptureObservation(
     assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
   const pendingButtonProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
+  const namedTextProof =
+    typeof nativeStateProof === "string" && nativeStateProof.startsWith("named-");
+  if (namedTextProof) {
+    const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
+    const name =
+      coverage.id.endsWith("alternate") && !nativeStateProof.includes("same-name")
+        ? "Compte"
+        : "Account";
+    assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
+  }
   if (
     pendingButtonProof &&
     coverage.state === "loading" &&
@@ -1134,6 +1144,34 @@ function attachTrustedCaptureObservation(
       native_role: "status",
       native_name_present: true,
     });
+  }
+  if (namedTextProof) {
+    const check = assertionVisibility.checks[1];
+    const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
+    const name = assertion.all[0].locator.value.split(":").slice(1).join(":");
+    Object.assign(check, {
+      x: 450,
+      y: 342,
+      visual_bounds: { x: 390, y: 324, width: 120, height: 36 },
+      native_role: role,
+      native_name_present: true,
+      native_name_sha256: digest(Buffer.from(name)),
+    });
+    delete check.focus_indicator_regions;
+    if (nativeStateProof.includes("missing-hash")) delete check.native_name_sha256;
+    if (nativeStateProof.includes("bad-hash")) check.native_name_sha256 = "a".repeat(64);
+    if (nativeStateProof.includes("wrong-role")) {
+      check.native_role = "button";
+      delete check.native_name_sha256;
+    }
+    if (nativeStateProof.includes("moved") && coverage.id.endsWith("alternate"))
+      check.visual_bounds.x++;
+    if (nativeStateProof.includes("wide-growth") && coverage.id.endsWith("alternate"))
+      check.visual_bounds.width += 37;
+    if (nativeStateProof.includes("unnamed")) {
+      check.native_name_present = false;
+      delete check.native_name_sha256;
+    }
   }
   if (
     (nativeStateProof === "empty-alert-text" && coverage.state === "empty") ||
@@ -2479,6 +2517,96 @@ test("named scenarios reject beacon-only differences between variants of the sam
     ),
     true
   );
+});
+
+function namedTextVariantFixture({
+  state = "primary",
+  role = "heading",
+  proof = "",
+  pixels = "state-content",
+} = {}) {
+  const fixture = makeFixture();
+  const beforeBytes = validPng(1440, 1000, 20, 0, null, 1, "pending-idle");
+  if (state !== "primary") addRequiredStateCapture(fixture, state, beforeBytes);
+  const row = fixture.route.coverage.find((r) => r.id === "ui-" + state);
+  const before = fixture.captures.captures.find((c) => c.coverage_id === row.id);
+  Object.assign(before, write(fixture.root, before.path, beforeBytes), {
+    pixel_sha256: inspectPngVisualBytes(beforeBytes).pixelSha256,
+  });
+  fixture.route.scenarios = [
+    {
+      id: "alternate",
+      subject_id: row.subject_id,
+      description: "Alternate named text on the same rendered account task",
+    },
+  ];
+  fixture.route.coverage.push({ ...row, id: row.id + "-alternate", scenario_id: "alternate" });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const bytes = validPng(1440, 1000, 20, 0, null, 1, pixels);
+  const capture = {
+    ...before,
+    id: before.id + "-alternate",
+    coverage_id: row.id + "-alternate",
+    ...write(fixture.root, "evidence/files/named-alternate.png", bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.nativeStateProofByCapture = {
+    [before.id]: "named-" + role + proof,
+    [capture.id]: "named-" + role + proof,
+  };
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, "named-alternate-a11y", "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, "named-alternate-dom", "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  const required = fixture.route.coverage.filter((r) => r.required).length;
+  fixture.report.coverage = { required, captured: required, percent: 100 };
+  rewriteReportAndHtml(fixture);
+  return fixture;
+}
+for (const [state, role] of [
+  ["primary", "heading"],
+  ["success", "statictext"],
+]) {
+  test("named " + state + " text variants accept meaningful native " + role + " changes", () => {
+    const fixture = namedTextVariantFixture({ state, role });
+    const result = check(fixture);
+    assert.deepEqual(
+      result.issues.filter((issue) => issue.path.startsWith("captures")),
+      []
+    );
+  });
+}
+
+for (const [proof, pixels] of [
+  ["-same-name", "state-content"],
+  ["-missing-hash", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["-wrong-role", "state-content"],
+  ["-unnamed", "state-content"],
+  ["-moved", "state-content"],
+  ["-wide-growth", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+])
+  test("named text variants reject " + (proof || "pixel-proof") + "/" + pixels, () => {
+    const fixture = namedTextVariantFixture({ proof, pixels });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+test("named primary variants cannot borrow a success StaticText proof", () => {
+  const fixture = namedTextVariantFixture({ role: "statictext" });
+  assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+});
+test("named success variants cannot borrow a primary heading proof", () => {
+  const fixture = namedTextVariantFixture({ state: "success", role: "heading" });
+  assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
 });
 
 test("requires a trusted same-session observation for schema-v2 web captures", () => {
@@ -6454,7 +6582,7 @@ function checkerAtCaptureTimeVersion(version) {
   return isolated.exports.checkDesignCritique;
 }
 
-for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11"]) {
+for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11", "1.14.12"]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
     const retained = recoveryDCFiles(fixture.root);

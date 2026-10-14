@@ -66,7 +66,7 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
 // capture-time identities. Current active evidence must use this release.
-const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7", "1.14.11"]);
+const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set(["1.14.6", "1.14.7", "1.14.11", "1.14.12"]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -149,6 +149,7 @@ function checkDesignCritique(options) {
     browsers: new Map(),
     media: new Map(),
     nativeRegions: createNativeRegionCache(),
+    namedTextGuards: new WeakMap(),
     rowIndexes: new WeakMap(),
     projectInputVerificationContext: createProjectInputVerificationContext(),
   };
@@ -1085,6 +1086,7 @@ function validateCrossStateVisualDistance(
           !localizedNativeChange &&
           !nativeFocusChange &&
           !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
+          !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
           !hasNativeStateContentChange(root, left, right, observationByCapture)
         ) {
           violationCount += 1;
@@ -1110,7 +1112,7 @@ function validateCrossStateVisualDistance(
     add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
-// Intrinsic loading content may widen a control by at most one line-height.
+// Named native content may alter intrinsic width by at most one line-height.
 // Its native origin and height must remain identical; caller crops cannot
 // supply geometry or move the comparison to unrelated page content.
 function anchoredNativeRegion(left, right) {
@@ -1172,29 +1174,103 @@ function hasNativePendingButtonChange(root, left, right, observations) {
         visibleButton(other, guard.locator)
       );
       if (!region) continue;
-      try {
-        const a = readBoundFile(root, left.capture.path, "pending button comparison", []);
-        const b = readBoundFile(root, right.capture.path, "pending button comparison", []);
-        if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
-          continue;
-        const aRegion = activeReadCache.nativeRegions.inspect(a, region);
-        const bRegion = activeReadCache.nativeRegions.inspect(b, region);
-        // Neither tiny semantic nodes nor blank regions can be magnified into
-        // state proof. Apply the existing meaningful-image and distance rules.
-        validateMeaningfulVisual(aRegion);
-        validateMeaningfulVisual(bRegion);
-        const difference = visualDifference(aRegion, bRegion);
-        const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
-        const gridSize = Math.sqrt(gridCells);
-        // Each tile mean can understate its pixels' absolute difference. Weight
-        // all tile differences by the smallest tile area for a conservative
-        // lower bound, never magnifying four pixels into regional state proof.
-        const minimumCellPixels =
-          Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
-        const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
-        if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
-      } catch {
-        // Invalid, absent or unverified geometry grants no localized fallback.
+      if (hasMaterialNativeRegionChange(root, left, right, region)) return true;
+    }
+  }
+  return false;
+}
+
+function hasMaterialNativeRegionChange(root, left, right, region) {
+  try {
+    const a = readBoundFile(root, left.capture.path, "native regional comparison", []);
+    const b = readBoundFile(root, right.capture.path, "native regional comparison", []);
+    if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+      return false;
+    const aRegion = activeReadCache.nativeRegions.inspect(a, region);
+    const bRegion = activeReadCache.nativeRegions.inspect(b, region);
+    // Neither tiny semantic nodes nor blank regions can be magnified into
+    // state proof. Apply the existing meaningful-image and distance rules.
+    validateMeaningfulVisual(aRegion);
+    validateMeaningfulVisual(bRegion);
+    const difference = visualDifference(aRegion, bRegion);
+    const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
+    const gridSize = Math.sqrt(gridCells);
+    // Each tile mean can understate its pixels' absolute difference. Weight
+    // all tile differences by the smallest tile area for a conservative
+    // lower bound, never magnifying four pixels into regional state proof.
+    const minimumCellPixels =
+      Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
+    const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
+    if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
+  } catch {
+    // Invalid, absent or unverified geometry grants no localized fallback.
+  }
+  return false;
+}
+
+function nativeNamedTextGuards(observation) {
+  const existing = activeReadCache.namedTextGuards.get(observation);
+  if (existing) return existing;
+  const rows = new Map();
+  for (const [index, guard] of observation.assertion.all.entries()) {
+    if (guard.expect.kind !== "visible" || guard.locator.by !== "role-name") continue;
+    const colon = guard.locator.value.indexOf(":");
+    const role = guard.locator.value.slice(0, colon).trim().toLowerCase();
+    const name = guard.locator.value.slice(colon + 1).trim();
+    if (!["heading", "statictext"].includes(role) || !name) continue;
+    const check = observation.manifest.page.state_assertion.visibility.checks.find(
+      (c) => c.label === "state assertion clause " + (index + 1)
+    );
+    if (
+      !check ||
+      String(check.native_role).toLowerCase() !== role ||
+      check.native_name_present !== true ||
+      check.native_name_sha256 !== crypto.createHash("sha256").update(name).digest("hex") ||
+      !check.visual_bounds
+    )
+      continue;
+    const region = check.visual_bounds;
+    const key = `${role}:${region.x}:${region.y}:${region.height}`;
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push({ role, name: check.native_name_sha256, region });
+  }
+  activeReadCache.namedTextGuards.set(observation, rows);
+  return rows;
+}
+
+function hasNativeNamedTextChange(root, left, right, observations) {
+  const role =
+    left.coverage.state === "primary"
+      ? "heading"
+      : left.coverage.state === "success"
+        ? "statictext"
+        : null;
+  if (
+    !role ||
+    left.coverage.state !== right.coverage.state ||
+    (left.coverage.scenario_id ?? null) === (right.coverage.scenario_id ?? null) ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height
+  )
+    return false;
+  const before = observations.get(left.capture.id),
+    after = observations.get(right.capture.id);
+  if (
+    !before ||
+    !after ||
+    !isDeepStrictEqual(before.manifest.page.css_viewport, after.manifest.page.css_viewport)
+  )
+    return false;
+  const afterGuards = nativeNamedTextGuards(after);
+  for (const [key, entries] of nativeNamedTextGuards(before)) {
+    for (const a of entries) {
+      if (a.role !== role) continue;
+      for (const b of afterGuards.get(key) || []) {
+        if (a.name === b.name) continue;
+        const region = anchoredNativeRegion(a.region, b.region);
+        if (region && hasMaterialNativeRegionChange(root, left, right, region)) return true;
       }
     }
   }

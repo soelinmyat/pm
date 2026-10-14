@@ -989,7 +989,8 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
       throw new Error(`${label}.checks[${index}] has invalid native semantics`);
     if (
       Object.hasOwn(check, "native_name_sha256") &&
-      (!/^[a-f0-9]{64}$/.test(check.native_name_sha256) ||
+      (typeof check.native_name_sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(check.native_name_sha256) ||
         check.native_name_present !== true ||
         !["heading", "statictext"].includes(String(check.native_role).toLowerCase()))
     )
