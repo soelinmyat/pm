@@ -67,7 +67,7 @@ confidence when the trust boundary or deployment configuration is not evidenced.
   "run_id": "<target run>",
   "review_round": 1,
   "target": { "path": ".pm/.../target.json", "sha256": "<64-hex>" },
-  "source": { "commit": "<sha>", "base_ref": "origin/main", "base_commit": "<sha>", "diff_sha256": "<64-hex>" },
+  "source": { "commit": "<sha>", "base_ref": "origin/main", "base_commit": "<sha>", "remote_push_url_sha256": "<64-hex>", "diff_sha256": "<64-hex>" },
   "worker_id": "reviewer-1",
   "profile": "codex-workhorse",
   "runtime": { "provider": "codex", "model": "gpt-5.6-sol", "effort": "high", "external_effects": false },
@@ -98,6 +98,8 @@ confidence when the trust boundary or deployment configuration is not evidenced.
   "checked_at": "<RFC3339>"
 }
 ```
+
+Copy the complete `target.source` object, including `remote_push_url_sha256`; omit no source binding field.
 
 Compute finding IDs with `findingId` from `scripts/lib/review-contract.js`; never guess them.
 
