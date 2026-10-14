@@ -973,6 +973,7 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
         "x",
         "y",
         ...(Object.hasOwn(check, "native_role") ? ["native_role", "native_name_present"] : []),
+        ...(Object.hasOwn(check, "native_name_sha256") ? ["native_name_sha256"] : []),
         ...(Object.hasOwn(check, "visual_bounds") ? ["visual_bounds"] : []),
         ...(Object.hasOwn(check, "focus_indicator_regions") ? ["focus_indicator_regions"] : []),
       ],
@@ -986,6 +987,14 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
         typeof check.native_name_present !== "boolean")
     )
       throw new Error(`${label}.checks[${index}] has invalid native semantics`);
+    if (
+      Object.hasOwn(check, "native_name_sha256") &&
+      (typeof check.native_name_sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(check.native_name_sha256) ||
+        check.native_name_present !== true ||
+        !["heading", "statictext"].includes(String(check.native_role).toLowerCase()))
+    )
+      throw new Error(`${label}.checks[${index}] has invalid native name identity`);
     if (Object.hasOwn(check, "focus_indicator_regions")) {
       if (!Array.isArray(check.focus_indicator_regions) || check.focus_indicator_regions.length > 4)
         throw new Error(`${label}.checks[${index}].focus_indicator_regions is invalid`);

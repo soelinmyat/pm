@@ -16,3 +16,5 @@ judgment.
 Beyond the visual diagnosis threshold, continue scoped recovery with immutable earlier reports/captures and a changed approach. Historical evidence keeps its original source; active captures and final conclusions must be fresh for the current source. A counter alone does not request product reapproval.
 
 Use the closed named-scenario route contract for multiple genuine locale or task variants on one page. It preserves native and pixel checks; follow the evidence contract for frozen scope and busy-button regional proof.
+
+Named primary and success variants can use visibly asserted native heading or StaticText name changes with bounded measured geometry and unchanged material pixel requirements. Native loading controls permit only anchored intrinsic width growth; every state now retains its counterpart native semantics.
