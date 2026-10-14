@@ -55,7 +55,7 @@ PM is a free, open-source plugin for Claude Code, Codex, and OpenCode V2 (intera
 
 Quality gates focus on consequential task, data, access and evidence failures. QA finding indexes and Design Critique scores remain visible diagnostics; minor concerns use contextual judgment. Source Review publishes canonical JSON without requiring browser-rendered reports. Actual core-journey UX, source identity, required assertions and product/security/privacy authority retain their gates.
 
-Web Design Critique capture recognizes genuinely owned modal listboxes alongside menus after native exit, trigger Tab reach, keyboard reopening, and complete enabled-member arrow traversal. It retains measured popup identities and fails on unsupported or unverified keyboard structures. Textless checkbox and switch groups compare measured glyph geometry while rendered text keeps typography checks.
+Web Design Critique capture recognizes genuinely owned modal listboxes alongside menus after native exit, trigger Tab reach, keyboard reopening, and complete enabled-member arrow traversal. It retains measured popup identities and fails on unsupported or unverified keyboard structures. Textless checkbox and switch groups compare measured glyph geometry while rendered text keeps typography checks. Partially clipped touch targets retain layout/style checks without inventing glyph differences from offscreen descendants.
 
 Web Design Critique can name multiple locale or task scenarios on the same page without inventing separate pages. Every scenario remains source-bound and subject to native and cross-state pixel checks. Small busy-button changes can use matching native button bounds with the existing meaningful-image and material-distance thresholds.
 

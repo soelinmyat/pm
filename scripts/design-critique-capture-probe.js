@@ -2428,9 +2428,25 @@ function domObservations(
             ? "auto"
             : style(node, property);
       for (const property of properties) {
-        const comparedNodes = typographyProperties.has(property)
-          ? nodes.filter(withinTypographyScope)
-          : nodes;
+        // A partially clipped hit target can intersect the viewport while its
+        // complete track/thumb lies below it. That incomplete painted subtree
+        // cannot establish glyph variance against fully visible controls.
+        // Keep layout/style comparison for the clipped root itself.
+        const comparedNodes =
+          property === "glyph-geometry"
+            ? nodes.filter((node) => {
+                const intersection = visibleIntersections.get(node);
+                const [x, y, width, height] = node.layout.bounds;
+                return (
+                  intersection.left === x &&
+                  intersection.top === y &&
+                  intersection.right === x + width &&
+                  intersection.bottom === y + height
+                );
+              })
+            : typographyProperties.has(property)
+              ? nodes.filter(withinTypographyScope)
+              : nodes;
         const counts = new Map();
         for (const node of comparedNodes) {
           const value = signatureValue(node, property);

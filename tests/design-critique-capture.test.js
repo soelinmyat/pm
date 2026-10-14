@@ -3808,6 +3808,94 @@ for (const missingLayout of [false, true]) {
   });
 }
 
+test("viewport-clipped switches do not invent glyph variance from offscreen descendants", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight", "height"];
+  const model = [
+    {
+      index: 0,
+      parentIndex: -1,
+      backendNodeId: 1,
+      nodeName: "main",
+      attributes: {},
+      layout: {
+        bounds: [0, 0, 375, 1100],
+        styles: ["block", "visible", "1", "16px", "400", "auto"],
+      },
+    },
+  ];
+  for (const [offset, y] of [224, 753, 805].entries()) {
+    const index = model.length;
+    model.push(
+      {
+        index,
+        parentIndex: 0,
+        backendNodeId: index + 1,
+        nodeName: "button",
+        attributes: {
+          role: "switch",
+          class: "switch",
+          "aria-checked": "true",
+          id: `switch-${offset}`,
+        },
+        layout: {
+          bounds: [315, y, 44, 44],
+          styles: ["block", "visible", "1", "13px", "400", "44px"],
+        },
+      },
+      {
+        index: index + 1,
+        parentIndex: index,
+        backendNodeId: index + 2,
+        nodeName: "span",
+        attributes: {},
+        layout: {
+          bounds: [319, y + 12, 36, 20],
+          styles: ["block", "visible", "1", "13px", "400", "20px"],
+        },
+      },
+      {
+        index: index + 2,
+        parentIndex: index + 1,
+        backendNodeId: index + 3,
+        nodeName: "span",
+        attributes: {},
+        layout: {
+          bounds: [337, y + 14, 16, 16],
+          styles: ["block", "visible", "1", "13px", "400", "16px"],
+        },
+      }
+    );
+  }
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 375, clientHeight: 812 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 375, clientHeight: 812 },
+    cssContentSize: { width: 375, height: 1100 },
+  };
+  const inspect = () => domObservations(model, metrics, styles).consistency;
+  assert.deepEqual(
+    inspect(),
+    [],
+    "the seven visible root pixels do not establish a different glyph"
+  );
+  model[7].layout.styles[5] = "45px";
+  assert.ok(
+    inspect().some((row) => /height: 45px/.test(row.detail)),
+    "clipped controls retain measured style comparison"
+  );
+  model[7].layout.styles[5] = "44px";
+  metrics.cssVisualViewport.pageY = 100;
+  assert.deepEqual(
+    inspect(),
+    [],
+    "the same complete glyph remains consistent when scrolled into view"
+  );
+  model[9].layout.bounds[2] = 18;
+  assert.ok(
+    inspect().some((row) => /glyph geometry/.test(row.detail)),
+    "visible differing thumb dimensions still fail"
+  );
+});
+
 test("browser identity ignores inode metadata-only changes but not content changes", () => {
   // macOS updates the ctime of a signed app binary on launch; its bytes, mtime and path stay fixed.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-identity-"));
