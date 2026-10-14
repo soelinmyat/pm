@@ -1028,6 +1028,96 @@ function selectedReportFixture() {
   fx.writeReport();
   return fx;
 }
+test("phase-bound immutable report selects a later round without overwriting the predecessor", () => {
+  const fx = selectedReportFixture();
+  try {
+    const selected = path.posix.dirname(fx.report.route.path);
+    const reportPath = `${selected}/report.json`;
+    fs.writeFileSync(path.join(fx.root, reportPath), JSON.stringify(fx.report));
+    fx.session.evidence["design-critique"].records[0].artifact = path.join(fx.root, reportPath);
+    const frozen = {
+      run_id: "dc_selected",
+      rounds: 1,
+      route: { path: ".pm/dev-sessions/unit/design-critique/route.json", sha256: "a".repeat(64) },
+      captures: {
+        path: ".pm/dev-sessions/unit/design-critique/captures.json",
+        sha256: "b".repeat(64),
+      },
+    };
+    fs.writeFileSync(fx.reportFile, JSON.stringify(frozen));
+    fs.writeFileSync(
+      path.join(fx.dir, "design-critique/route.json"),
+      JSON.stringify({ source: { commit: "e".repeat(40) } })
+    );
+    const before = fs.readFileSync(fx.reportFile);
+    const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    const plan = planGateWrite(request, fx.deps);
+    assert.equal(fx.calls.designCritique.reportPath, reportPath);
+    assert.equal(fx.calls.designCritique.routePath, fx.report.route.path);
+    assert.equal(fx.calls.designCritique.capturesPath, fx.report.captures.path);
+    assert.equal(fx.calls.designCritique.commit, "c".repeat(40));
+    assert.equal(plan.row.artifact, `${selected}/report.html`);
+    assert.deepEqual(fs.readFileSync(fx.reportFile), before);
+    fx.deps.checkDesignCritique = () => ({
+      ok: false,
+      issues: [{ path: "report.route.sha256", message: "hash mismatch" }],
+    });
+    assert.throws(() => planGateWrite(request, fx.deps), /hash mismatch/);
+    assert.deepEqual(fs.readFileSync(fx.reportFile), before);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+for (const variant of [
+  "outside",
+  "foreign-session",
+  "run-mismatch",
+  "round-mismatch",
+  "over-budget",
+  "filename",
+  "input-mismatch",
+  "symlink",
+]) {
+  test(`phase-bound immutable report rejects ${variant}`, () => {
+    const fx = selectedReportFixture();
+    try {
+      const selected = path.posix.dirname(fx.report.route.path);
+      let artifact = `${selected}/report.json`;
+      if (variant === "outside") artifact = "../outside/report.json";
+      if (variant === "foreign-session")
+        artifact = artifact.replace("dev-sessions/unit/", "dev-sessions/foreign/");
+      if (variant === "over-budget") artifact = artifact.replace("round-3/", "round-51/");
+      if (variant === "filename") artifact = artifact.replace("report.json", "other.json");
+      const target = path.join(fx.root, artifact);
+      if (["run-mismatch", "round-mismatch", "input-mismatch", "symlink"].includes(variant)) {
+        if (variant === "run-mismatch") fx.report.run_id = "dc_other";
+        if (variant === "round-mismatch") fx.report.rounds = 2;
+        if (variant === "input-mismatch") {
+          fx.report.route.path = ".pm/dev-sessions/unit/design-critique/route.json";
+          fx.report.captures.path = ".pm/dev-sessions/unit/design-critique/captures.json";
+        }
+        if (variant === "symlink") fs.symlinkSync(fx.reportFile, target);
+        else fs.writeFileSync(target, JSON.stringify(fx.report));
+      }
+      fx.session.evidence["design-critique"].records[0].artifact = target;
+      assert.throws(() =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        )
+      );
+      assert.equal(
+        fx.calls.designCritique,
+        undefined,
+        "unsafe selection never reaches the checker"
+      );
+    } finally {
+      fx.cleanup();
+    }
+  });
+}
+
 test("report-selected immutable inputs reach the full gate checker exactly", () => {
   const fx = selectedReportFixture();
   try {
