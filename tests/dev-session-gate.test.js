@@ -1028,6 +1028,66 @@ function selectedReportFixture() {
   fx.writeReport();
   return fx;
 }
+for (const retained of [false, true]) {
+  test(`legacy HTML phase evidence selects its checked machine report: ${retained}`, () => {
+    const fx = selectedReportFixture();
+    try {
+      const selected = retained
+        ? path.posix.dirname(fx.report.route.path)
+        : ".pm/dev-sessions/unit/design-critique";
+      const reportPath = `${selected}/report.json`;
+      const htmlPath = `${selected}/report.html`;
+      if (!retained) {
+        fx.report.rounds = 1;
+        fx.report.route.path = `${selected}/route.json`;
+        fx.report.captures.path = `${selected}/captures.json`;
+        fs.writeFileSync(
+          path.join(fx.root, selected, "route.json"),
+          JSON.stringify({ source: { commit: "c".repeat(40) } })
+        );
+      }
+      fx.report.human_report = htmlPath;
+      fs.writeFileSync(path.join(fx.root, reportPath), JSON.stringify(fx.report));
+      fs.writeFileSync(path.join(fx.root, htmlPath), "<html></html>");
+      fx.session.evidence["design-critique"].records[0].artifact = path.join(fx.root, htmlPath);
+      const plan = planGateWrite(
+        { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+        fx.deps
+      );
+      assert.equal(fx.calls.designCritique.reportPath, reportPath);
+      assert.equal(fx.calls.designCritique.routePath, fx.report.route.path);
+      assert.equal(plan.row.artifact, htmlPath);
+    } finally {
+      fx.cleanup();
+    }
+  });
+}
+
+for (const variant of ["mismatched-human-report", "symlink-html"]) {
+  test(`legacy HTML phase mapping rejects ${variant}`, () => {
+    const fx = selectedReportFixture();
+    try {
+      const selected = path.posix.dirname(fx.report.route.path);
+      const htmlPath = `${selected}/report.html`;
+      fx.report.human_report =
+        variant === "mismatched-human-report" ? `${selected}/other.html` : htmlPath;
+      fs.writeFileSync(path.join(fx.root, selected, "report.json"), JSON.stringify(fx.report));
+      if (variant === "symlink-html") fs.symlinkSync(fx.reportFile, path.join(fx.root, htmlPath));
+      else fs.writeFileSync(path.join(fx.root, htmlPath), "<html></html>");
+      fx.session.evidence["design-critique"].records[0].artifact = path.join(fx.root, htmlPath);
+      assert.throws(() =>
+        planGateWrite(
+          { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+          fx.deps
+        )
+      );
+      assert.equal(fx.calls.designCritique, undefined);
+    } finally {
+      fx.cleanup();
+    }
+  });
+}
+
 test("phase-bound immutable report selects a later round without overwriting the predecessor", () => {
   const fx = selectedReportFixture();
   try {

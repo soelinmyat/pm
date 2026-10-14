@@ -202,8 +202,12 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
   // An earlier report may still occupy that original path because its frozen
   // HTML and predecessor lineage authenticate those exact bytes.
   const phaseArtifact = evidence.passing[0]?.artifact;
+  let phaseHtmlArtifact = null;
   if (typeof phaseArtifact === "string" && phaseArtifact.trim()) {
-    const relative = projectRelative(layout.root, phaseArtifact);
+    const artifactPath = projectRelative(layout.root, phaseArtifact);
+    const relative = artifactPath.endsWith("/report.html")
+      ? `${path.posix.dirname(artifactPath)}/report.json`
+      : artifactPath;
     if (relative !== paths.reportPath) {
       const prefix = `${base}/runs/`;
       const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
@@ -222,6 +226,10 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
       if (selected.run_id !== parts[0] || selected.rounds !== Number(round[1]))
         throw gateError("design-critique phase artifact run/round must match its report");
     }
+    if (artifactPath !== relative) {
+      readProjectInput(layout.root, artifactPath, 4 * 1024 * 1024);
+      phaseHtmlArtifact = artifactPath;
+    }
     paths.reportPath = relative;
   }
   // The selected report binds its exact retained inputs. Restrict selection
@@ -231,6 +239,10 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     const report = JSON.parse(
       readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes
     );
+    if (phaseHtmlArtifact && report.human_report !== phaseHtmlArtifact)
+      throw gateError(
+        "legacy design-critique HTML evidence must match the selected report's human artifact"
+      );
     const directories = [];
     for (const [binding, option] of [
       ["route", "routePath"],
