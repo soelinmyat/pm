@@ -55,8 +55,9 @@ async function fixture(t, scenario) {
       });document.body.append(menu);
       if(keyboard){const first=menu.firstElementChild;first.tabIndex=0;first.focus();}else menu.focus();
     };
-    trigger.addEventListener('click',()=>open());
-    trigger.addEventListener('keydown',event=>{if(event.key==='ArrowDown'&&scenario!=='broken-entry'){event.preventDefault();open(true);}});
+    trigger.addEventListener('click',event=>{if(event.isTrusted&&['broken-entry','space-only','submit-opener'].includes(scenario))return;open();});
+    trigger.addEventListener('keydown',event=>{const key=scenario==='enter-only'||scenario==='submit-opener'?'Enter':scenario==='space-only'?' ':'ArrowDown';if(event.key===key&&scenario!=='broken-entry'){event.preventDefault();open(true);}});
+    if(scenario==='submit-opener'){const form=document.createElement('form');trigger.before(form);form.append(trigger);form.addEventListener('submit',event=>event.preventDefault());}
     trigger.click();
   `;
   const html = `<!doctype html><html lang="en"><head><title>Reviewer menu</title><link rel="icon" href="data:,"><style>body{font:16px sans-serif;padding:32px}button,[role=menuitem]{padding:12px}#review-menu{border:1px solid;padding:8px;width:220px}</style></head><body><div id="application"><main><h1>Account profile</h1><p>Review your account details and return to your work.</p><button id="before">Edit account</button><button id="reviewer" aria-haspopup="menu" aria-expanded="false" aria-controls="review-menu">Review owner</button><button id="after">Help</button>${scenario === "ambiguous-trigger" ? '<button id="reviewer" hidden>Other owner</button>' : ""}</main></div><script>${script}</script></body></html>`;
@@ -143,6 +144,8 @@ for (const scenario of [
   "inside-dialog",
   "main-self-hidden",
   "retained-hidden",
+  "enter-only",
+  "space-only",
 ]) {
   test(
     `proves native traversal of ${scenario} without activating menu actions`,
@@ -162,6 +165,7 @@ for (const scenario of [
   "ambiguous-trigger",
   "unowned-traversable",
   "still-exposed",
+  "submit-opener",
 ]) {
   test(`keeps ${scenario} menu scope non-passing`, { skip }, async (t) => {
     const result = runCaptureProbe(await fixture(t, scenario));

@@ -3181,7 +3181,23 @@ async function reopenMenuThroughKeyboard(client, contextId, candidate, budget, f
   if ((await focusedBackendNodeId(client, contextId)) !== trigger) return null;
   if (!(await entryHasDocumentKeyboardReach(client, contextId, trigger, undefined, budget)))
     return null;
-  if (!(await dispatchKeyboardKey(client, "ArrowDown", budget))) return null;
+  for (const key of ["ArrowDown", "Enter", " "]) {
+    if ((await focusedBackendNodeId(client, contextId)) !== trigger) return null;
+    if (key !== "ArrowDown" && (await restoreSubmitsForm(client, contextId, trigger, key)))
+      continue;
+    if (
+      axIdentity(await liveAxNode(client, trigger)) !==
+      JSON.stringify(["button", candidate.menu_name])
+    )
+      return null;
+    if (!(await dispatchKeyboardKey(client, key, budget))) return null;
+    const reopened = await waitForReopenedMenu(client, contextId, candidate, trigger, frozenNode);
+    if (reopened) return reopened;
+  }
+  return null;
+}
+
+async function waitForReopenedMenu(client, contextId, candidate, trigger, frozenNode) {
   const reopenedDeadline = Date.now() + 1000;
   do {
     const replacement = await remapCompositeCandidate(
