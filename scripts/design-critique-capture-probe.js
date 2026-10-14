@@ -648,7 +648,7 @@ function frozenCompositeNodes(axTree, model) {
   };
 }
 
-function compositeKeyboardCandidates(axTree, model) {
+function compositeKeyboardCandidates(axTree, model, ownedMenuScopes = new Set()) {
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -730,10 +730,11 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       continue;
     group.menu_trigger_backend_node_id = trigger.backendNodeId;
+    group.menu_requires_owned_reentry = ownedMenuScopes.has(group.owner_backend_node_id);
     group.menu_popup_id = popupId;
     group.menu_labelledby = labelledBy;
     group.menu_name = name;
-    if (group.entry_backend_node_ids.length === 0)
+    if (group.menu_requires_owned_reentry && group.entry_backend_node_ids.length === 0)
       group.entry_backend_node_ids.push(group.owner_backend_node_id);
   }
   const popupAncestor = (node) => {
@@ -2997,7 +2998,7 @@ async function probeCompositeCandidate(
     let documentReachable = false;
     const observedEntryMembers = new Set();
     try {
-      if (candidate.menu_trigger_backend_node_id) {
+      if (candidate.menu_requires_owned_reentry) {
         const reopened = await reopenMenuThroughKeyboard(
           client,
           executionContextId,
@@ -3031,7 +3032,7 @@ async function probeCompositeCandidate(
     // same options. Keep the proven input/entry node, and rebind only through
     // the existing frozen path plus exact accessible role/name checks.
     if (
-      !candidate.menu_trigger_backend_node_id &&
+      !candidate.menu_requires_owned_reentry &&
       (await candidateDetached(client, executionContextId, candidate))
     ) {
       const resolve = await liveElementResolver(client);
@@ -3067,7 +3068,7 @@ async function probeCompositeCandidate(
         try {
           // Owned menus continue from native reopening and preceding arrows.
           // Resetting to the frozen owner can invent an unreachable entry path.
-          if (!candidate.menu_trigger_backend_node_id)
+          if (!candidate.menu_requires_owned_reentry)
             await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
           let state = await compositeFocusState(client, executionContextId, liveCandidate);
           let previous = focusedCompositeMember(state, liveCandidate, members);
@@ -3117,7 +3118,7 @@ async function probeCompositeCandidate(
       await focusObservation.close();
     }
     if (
-      candidate.menu_trigger_backend_node_id &&
+      candidate.menu_requires_owned_reentry &&
       candidate.member_backend_node_ids.length > 0 &&
       candidate.member_backend_node_ids.every((id) =>
         observed.has(candidate.frozen_by_live?.get(id) ?? id)
@@ -3459,6 +3460,14 @@ async function nativeSample(
     baselineStyles
   );
   const accessibility = accessibilityEvidence(axTree, model);
+  const ownedMenuScopes = new Set(
+    accessibility.observations.landmarks.some((item) => item.role === "main")
+      ? []
+      : accessibility.popupOwnerBackendNodeIds.filter((_, index) => {
+          const popup = accessibility.observations.popups[index];
+          return popup.contains_focus && popup.background_main_hidden;
+        })
+  );
   if (stateAssertion.state === "loading") {
     // Preserve native semantics for the already visible, hit-tested nodes. The
     // producer derives these from AX, never from caller-supplied image regions.
@@ -3478,7 +3487,7 @@ async function nativeSample(
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     accessibilityPopupMemberBackendNodeIds: accessibility.popupMemberBackendNodeIds,
     accessibilityPopupOwnerBackendNodeIds: accessibility.popupOwnerBackendNodeIds,
-    compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
+    compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model, ownedMenuScopes),
     compositeFrozenNode: frozenCompositeNodes(axTree, model),
     dom: domObservations(
       model,

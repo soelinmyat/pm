@@ -34,9 +34,9 @@ async function fixture(t, scenario) {
     const close=()=>{const menu=document.getElementById('review-menu');if(scenario==='retained-hidden')menu.hidden=true;else if(scenario!=='still-exposed')menu?.remove();if(dialog)dialog.removeAttribute('aria-hidden');else content.removeAttribute('aria-hidden');trigger.setAttribute('aria-expanded','false');trigger.focus();};
     const open=(keyboard=false)=>{
       const retained=document.getElementById('review-menu');if(retained){if(!retained.hidden)return;retained.remove();}
-      content.setAttribute('aria-hidden','true');trigger.setAttribute('aria-expanded','true');
+      if(scenario!=='document-menu')content.setAttribute('aria-hidden','true');trigger.setAttribute('aria-expanded','true');
       if(dialog)dialog.setAttribute('aria-hidden','true');
-      const menu=document.createElement('div');menu.id='review-menu';menu.setAttribute('role','menu');menu.tabIndex=scenario==='unowned-traversable'?0:-1;
+      const menu=document.createElement('div');menu.id='review-menu';menu.setAttribute('role','menu');menu.tabIndex=['unowned-traversable','document-menu'].includes(scenario)?0:-1;
       if(scenario!=='unnamed')menu.setAttribute('aria-labelledby','reviewer');
       menu.innerHTML='<div role="menuitem" tabindex="-1">Profile</div><div role="menuitem" tabindex="-1">Account settings</div><div role="menuitem" tabindex="-1" id="signout" data-pm-state="primary">Sign out</div>';
       if(scenario==='checked-items'){
@@ -46,7 +46,7 @@ async function fixture(t, scenario) {
       if(scenario==='disabled-item')menu.children[1].setAttribute('aria-disabled','true');
       if(scenario==='owner-only-arrows')menu.children[1].remove();
       menu.addEventListener('keydown',event=>{
-        if(event.key==='Tab'){if(scenario!=='unowned-traversable')event.preventDefault();return;}
+        if(event.key==='Tab'){if(!['unowned-traversable','document-menu'].includes(scenario))event.preventDefault();return;}
         if(event.key==='Escape'){event.preventDefault();close();return;}
         if(scenario==='broken-arrows'||(scenario==='owner-only-arrows'&&event.target!==menu))return;
         if(!['ArrowDown','ArrowUp'].includes(event.key))return;
@@ -61,6 +61,7 @@ async function fixture(t, scenario) {
     trigger.addEventListener('keydown',event=>{const key=scenario==='enter-only'||scenario==='submit-opener'?'Enter':scenario==='space-only'?' ':'ArrowDown';if(event.key===key&&scenario!=='broken-entry'){event.preventDefault();open(true);}});
     if(scenario==='submit-opener'){const form=document.createElement('form');trigger.before(form);form.append(trigger);form.addEventListener('submit',event=>event.preventDefault());}
     trigger.click();
+    if(scenario==='document-menu')document.getElementById('after').focus();
   `;
   const html = `<!doctype html><html lang="en"><head><title>Reviewer menu</title><link rel="icon" href="data:,"><style>body{font:16px sans-serif;padding:32px}button,[role=menuitem]{padding:12px}#review-menu{border:1px solid;padding:8px;width:220px}</style></head><body><div id="application"><main><h1>Account profile</h1><p>Review your account details and return to your work.</p><button id="before">Edit account</button><button id="reviewer" aria-haspopup="menu" aria-expanded="false" aria-controls="review-menu">Review owner</button><button id="after">Help</button>${scenario === "ambiguous-trigger" ? '<button id="reviewer" hidden>Other owner</button>' : ""}</main></div><script>${script}</script></body></html>`;
   const server = spawn(
@@ -148,6 +149,7 @@ for (const scenario of [
   "retained-hidden",
   "enter-only",
   "space-only",
+  "document-menu",
 ]) {
   test(
     `proves native traversal of ${scenario} without activating menu actions`,
