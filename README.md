@@ -57,6 +57,8 @@ Quality gates focus on consequential task, data, access and evidence failures. Q
 
 Web Design Critique capture recognizes genuinely owned modal listboxes alongside menus after native exit, trigger Tab reach, keyboard reopening, and complete enabled-member arrow traversal. It retains measured popup identities and fails on unsupported or unverified keyboard structures. Textless checkbox and switch groups compare measured glyph geometry while rendered text keeps typography checks.
 
+Web Design Critique can name multiple locale or task scenarios on the same page without inventing separate pages. Every scenario remains source-bound and subject to native and cross-state pixel checks. Small busy-button changes can use matching native button bounds with the existing meaningful-image and material-distance thresholds.
+
 ## Why PM?
 
 Product context decays. The research doc goes stale, the strategy deck is six months old, and nobody remembers why you decided against that feature.

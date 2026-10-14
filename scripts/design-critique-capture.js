@@ -10,6 +10,7 @@ const { validatePendingAtCapture } = require("./lib/capture-loading-readiness");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
+const { validateScenarios, coverageIdentity } = require("./lib/design-critique-scenarios");
 const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const {
@@ -93,9 +94,10 @@ function validateRelative(value, label) {
 }
 
 function validateRoute(route) {
-  exactObject(
+  exactObjectWithOptional(
     route,
     ["schema_version", "run_id", "created_at", "mode", "source", "subjects", "coverage"],
+    ["scenarios"],
     "route"
   );
   if (route.schema_version !== 2)
@@ -139,7 +141,7 @@ function validateRoute(route) {
     exactObjectWithOptional(
       coverage,
       ["id", "subject_id", "state", "viewport", "required", "reason"],
-      ["native_controls", "native_scope"],
+      ["native_controls", "native_scope", "scenario_id"],
       `route.coverage[${index}]`
     );
     slug(coverage.id, `route.coverage[${index}].id`);
@@ -160,6 +162,7 @@ function validateRoute(route) {
       validateNativeControls(coverage.native_controls, coverage.native_scope);
     }
   }
+  validateScenarios(route);
   return route;
 }
 
@@ -1158,11 +1161,7 @@ function invocationDigest(plan, routeSha256) {
         run_id: plan.route.run_id,
         commit: plan.route.source.commit,
         subject_id: plan.subject.id,
-        coverage: {
-          id: plan.coverage.id,
-          state: plan.coverage.state,
-          viewport: plan.coverage.viewport,
-        },
+        coverage: coverageIdentity(plan.coverage),
         capture_id: plan.captureId,
         route_surface: plan.subject.surface,
         requested_url: plan.requestedUrlIdentity,
@@ -1200,7 +1199,14 @@ function manifestShape(manifest) {
     "capture manifest"
   );
   exactObject(manifest.route, ["path", "sha256"], "capture manifest.route");
-  exactObject(manifest.coverage, ["id", "state", "viewport"], "capture manifest.coverage");
+  exactObjectWithOptional(
+    manifest.coverage,
+    ["id", "state", "viewport"],
+    ["scenario_id"],
+    "capture manifest.coverage"
+  );
+  if (manifest.coverage.scenario_id !== undefined)
+    slug(manifest.coverage.scenario_id, "capture manifest.coverage.scenario_id");
   exactObject(
     manifest.capture,
     [
@@ -1545,11 +1551,7 @@ function captureProductUi(options, runtime = {}) {
       commit: route.source.commit,
       route: { path: routeFile.relative, sha256: routeSha256 },
       subject_id: plan.subject.id,
-      coverage: {
-        id: plan.coverage.id,
-        state: plan.coverage.state,
-        viewport: plan.coverage.viewport,
-      },
+      coverage: coverageIdentity(plan.coverage),
       capture: {
         id: plan.captureId,
         path: screenshotRelative,

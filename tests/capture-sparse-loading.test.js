@@ -178,75 +178,89 @@ test(
   }
 );
 
-test(
-  "trusted capture publishes a full sparse loading bundle with native and regional bindings",
-  { skip },
-  async (t) => {
-    const { root, config } = await sparseLoading(t);
-    const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
-    git(["init", "-q"]);
-    git(["config", "user.name", "PM Test"]);
-    git(["config", "user.email", "pm-test@example.invalid"]);
-    fs.writeFileSync(path.join(root, "source.txt"), "Sparse loading source fixture\n");
-    git(["add", "source.txt"]);
-    git(["commit", "-q", "-m", "fixture"]);
-    const commit = git(["rev-parse", "HEAD"]).trim();
-    const base = ".pm/dev-sessions/sparse-loading/design-critique";
-    const routePath = `${base}/route.json`,
-      assertionPath = `${base}/state-assertions/schedule-loading-tablet.json`;
-    fs.mkdirSync(path.join(root, base, "state-assertions"), { recursive: true });
-    fs.writeFileSync(path.join(root, assertionPath), JSON.stringify(config.stateAssertion));
-    fs.writeFileSync(
-      path.join(root, routePath),
-      JSON.stringify({
-        schema_version: 2,
-        run_id: "dc_sparse_loading",
-        created_at: new Date().toISOString(),
-        mode: "product-ui",
-        source: {
-          commit,
-          base_ref: "origin/main",
-          base_commit: commit,
-          diff_sha256: crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex"),
-        },
-        subjects: [{ id: "schedule", title: "Schedule", surface: "/", platform: "web" }],
-        coverage: [
-          {
-            id: "schedule-loading-tablet",
-            subject_id: "schedule",
-            state: "loading",
-            viewport: "tablet",
-            required: true,
-            reason: "Regression for sparse initial loading",
+for (const namedScenario of [false, true])
+  test(
+    `trusted capture publishes a full sparse loading bundle with native and regional bindings${namedScenario ? " and named scenario scope" : ""}`,
+    { skip },
+    async (t) => {
+      const { root, config } = await sparseLoading(t);
+      const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+      git(["init", "-q"]);
+      git(["config", "user.name", "PM Test"]);
+      git(["config", "user.email", "pm-test@example.invalid"]);
+      fs.writeFileSync(path.join(root, "source.txt"), "Sparse loading source fixture\n");
+      git(["add", "source.txt"]);
+      git(["commit", "-q", "-m", "fixture"]);
+      const commit = git(["rev-parse", "HEAD"]).trim();
+      const base = ".pm/dev-sessions/sparse-loading/design-critique";
+      const routePath = `${base}/route.json`,
+        assertionPath = `${base}/state-assertions/schedule-loading-tablet.json`;
+      fs.mkdirSync(path.join(root, base, "state-assertions"), { recursive: true });
+      fs.writeFileSync(path.join(root, assertionPath), JSON.stringify(config.stateAssertion));
+      fs.writeFileSync(
+        path.join(root, routePath),
+        JSON.stringify({
+          schema_version: 2,
+          run_id: "dc_sparse_loading",
+          created_at: new Date().toISOString(),
+          mode: "product-ui",
+          source: {
+            commit,
+            base_ref: "origin/main",
+            base_commit: commit,
+            diff_sha256: crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex"),
           },
-        ],
-      })
-    );
-    const result = captureProductUi({
-      root,
-      routePath,
-      subjectId: "schedule",
-      coverageId: "schedule-loading-tablet",
-      captureId: "capture-schedule-loading-tablet-r1",
-      url: config.url,
-      expectedUrl: config.url,
-      assertionPath,
-      width: 768,
-      height: 1024,
-      outputDir: `${base}/round-1/capture-schedule-loading-tablet-r1`,
-      browserPath: browser,
-      readinessTimeoutMs: 5000,
-      settleMs: 200,
-      allowedOrigins: [],
-    });
-    assert.equal(result.ok, true);
-    const manifest = JSON.parse(fs.readFileSync(path.join(root, result.manifest.path), "utf8"));
-    const retained = fs.readFileSync(path.join(root, manifest.capture.path));
-    assert.equal(inspectPngVisualBytes(retained).pixelSha256, manifest.capture.pixel_sha256);
-    assert.equal(manifest.capture.width, 768);
-    assert.equal(manifest.capture.height, 1024);
-    assert.equal(manifest.capture.visual_metrics.loading_content.nodes.length, 2);
-    assert.equal(manifest.page.state_assertion.visibility.checks[0].native_role, "heading");
-    assert.equal(manifest.page.state_assertion.visibility.checks[1].native_role, "status");
-  }
-);
+          subjects: [{ id: "schedule", title: "Schedule", surface: "/", platform: "web" }],
+          ...(namedScenario
+            ? {
+                scenarios: [
+                  {
+                    id: "initial-load",
+                    subject_id: "schedule",
+                    description: "Initial schedule loading with synthetic account data",
+                  },
+                ],
+              }
+            : {}),
+          coverage: [
+            {
+              id: "schedule-loading-tablet",
+              subject_id: "schedule",
+              ...(namedScenario ? { scenario_id: "initial-load" } : {}),
+              state: "loading",
+              viewport: "tablet",
+              required: true,
+              reason: "Regression for sparse initial loading",
+            },
+          ],
+        })
+      );
+      const result = captureProductUi({
+        root,
+        routePath,
+        subjectId: "schedule",
+        coverageId: "schedule-loading-tablet",
+        captureId: "capture-schedule-loading-tablet-r1",
+        url: config.url,
+        expectedUrl: config.url,
+        assertionPath,
+        width: 768,
+        height: 1024,
+        outputDir: `${base}/round-1/capture-schedule-loading-tablet-r1`,
+        browserPath: browser,
+        readinessTimeoutMs: 5000,
+        settleMs: 200,
+        allowedOrigins: [],
+      });
+      assert.equal(result.ok, true);
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, result.manifest.path), "utf8"));
+      assert.equal(manifest.coverage.scenario_id, namedScenario ? "initial-load" : undefined);
+      const retained = fs.readFileSync(path.join(root, manifest.capture.path));
+      assert.equal(inspectPngVisualBytes(retained).pixelSha256, manifest.capture.pixel_sha256);
+      assert.equal(manifest.capture.width, 768);
+      assert.equal(manifest.capture.height, 1024);
+      assert.equal(manifest.capture.visual_metrics.loading_content.nodes.length, 2);
+      assert.equal(manifest.page.state_assertion.visibility.checks[0].native_role, "heading");
+      assert.equal(manifest.page.state_assertion.visibility.checks[1].native_role, "status");
+    }
+  );

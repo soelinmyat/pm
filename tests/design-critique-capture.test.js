@@ -147,6 +147,45 @@ test("capture assertion accepts bounded native preparation and rejects executabl
   );
 });
 
+test("named scenarios distinguish locale coverage without changing page ownership", () => {
+  const value = route();
+  value.scenarios = [
+    {
+      id: "spanish",
+      subject_id: "account-detail",
+      description: "Spanish account settings with saved fixture data",
+    },
+  ];
+  value.coverage[0].scenario_id = "spanish";
+  assert.doesNotThrow(() => validateRoute(value));
+  const plan = prepareCapturePlan(
+    value,
+    ".pm/dev-sessions/test/design-critique/route.json",
+    planOptions()
+  );
+  assert.equal(plan.coverage.scenario_id, "spanish");
+});
+
+test("named scenario registry rejects dangling, duplicate and foreign scope", () => {
+  for (const variant of ["dangling", "duplicate", "foreign", "unknown", "empty"]) {
+    const value = route();
+    value.scenarios = [
+      {
+        id: "spanish",
+        subject_id: "account-detail",
+        description: "Spanish account settings with saved fixture data",
+      },
+    ];
+    value.coverage[0].scenario_id = "spanish";
+    if (variant === "dangling") value.coverage[0].scenario_id = "missing";
+    if (variant === "duplicate") value.scenarios.push({ ...value.scenarios[0] });
+    if (variant === "foreign") value.scenarios[0].subject_id = "another-page";
+    if (variant === "unknown") value.scenarios[0].skip_pixels = true;
+    if (variant === "empty") value.scenarios = [];
+    assert.throws(() => validateRoute(value), undefined, variant);
+  }
+});
+
 test("capture plan derives state and viewport from the frozen coverage row", () => {
   const plan = prepareCapturePlan(
     route(),
