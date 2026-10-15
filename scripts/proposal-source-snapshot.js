@@ -25,6 +25,8 @@ function retainSource({ projectRoot, input, sha256 }) {
   if (observed !== sha256) throw new Error("source bytes do not match --sha256");
   const target = `.pm/proposal-sources/${sha256.slice(7)}`;
   writeProjectFileAtomic(root, target, source.bytes, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
     maxBytes: MAX_BYTES,
     replace: false,
     acceptIdentical: true,
