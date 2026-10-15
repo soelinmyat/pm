@@ -95,7 +95,7 @@ try {
   /* Explicit capability limitation below. */
 }
 const skip = process.env.PM_SKIP_BROWSER_TESTS || (!browser && "Chromium is unavailable");
-async function fixture(t, scenario) {
+async function fixture(t, scenario, overrideHtml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-switch-glyph-"));
   const text = scenario === "text" ? "ON" : "";
   const glyphSize = scenario === "font-driven" ? "1em" : "16px";
@@ -105,7 +105,7 @@ async function fixture(t, scenario) {
     process.execPath,
     [
       "-e",
-      `const http=require('node:http');const html=${JSON.stringify(html)};const server=http.createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(html)});server.listen(0,'127.0.0.1',()=>console.log('http://127.0.0.1:'+server.address().port+'/'));`,
+      `const http=require('node:http');const html=${JSON.stringify(overrideHtml || html)};const server=http.createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(html)});server.listen(0,'127.0.0.1',()=>console.log('http://127.0.0.1:'+server.address().port+'/'));`,
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
@@ -174,3 +174,20 @@ for (const scenario of ["text", "font-driven", "generated-text"]) {
     );
   });
 }
+
+test(
+  "native snapshot compares identical switches at a nested scrollport edge",
+  { skip },
+  async (t) => {
+    const controls = ["edge", "category", "event"]
+      .map(
+        (id, index) =>
+          `<div class="row" style="top:${669 + index * 200}px"><label for="${id}">${id === "category" ? "Category updates" : id === "event" ? "Event updates" : "Earlier updates"}</label><button id="${id}" class="switch" role="switch" aria-checked="false"><span class="track"><span class="thumb"></span></span></button></div>`
+      )
+      .join("");
+    const html = `<!doctype html><html lang="en"><head><title>Scrollport switches</title><link rel="icon" href="data:,"><style>body{margin:0;font:16px sans-serif}main{position:absolute;top:64px;bottom:0;width:100%;overflow:auto}.content{position:relative;height:1457px}.row{position:absolute;left:32px;display:flex;align-items:center;gap:16px}.switch{position:relative;width:44px;height:44px;padding:0;border:0;background:transparent}.track{position:absolute;left:4px;top:12px;width:36px;height:20px;background:#444;border-radius:10px}.thumb{position:absolute;left:18px;top:2px;width:16px;height:16px;background:white;border-radius:8px}</style></head><body><main id="switches" data-pm-state="primary"><div class="content"><h1>Notification preferences</h1>${controls}</div></main><script>document.querySelector('main').scrollTop=709</script></body></html>`;
+    const result = runCaptureProbe(await fixture(t, "fixed", html));
+    assert.equal(result.assertion_passed, true);
+    assert.deepEqual(result.dom_observations.consistency, []);
+  }
+);
