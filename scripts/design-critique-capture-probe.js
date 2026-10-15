@@ -400,6 +400,8 @@ function snapshotNodeModel(snapshot) {
     const nodeIndex = document.layout.nodeIndex[index];
     layoutByNode.set(nodeIndex, {
       bounds: document.layout.bounds[index],
+      clientRect: document.layout.clientRects?.[index],
+      scrollRect: document.layout.scrollRects?.[index],
       styles: (document.layout.styles[index] || []).map((value) => strings[value] || ""),
     });
   }
@@ -2345,14 +2347,63 @@ function domObservations(
       }
     );
     const viewport = metrics.cssVisualViewport;
+    let observedLeft = viewport.pageX;
+    let observedTop = viewport.pageY;
+    let observedRight = observedLeft + viewport.clientWidth;
+    let observedBottom = observedTop + viewport.clientHeight;
+    const ancestors = new Set([node.index]);
+    let ancestor = byIndex.get(node.parentIndex);
+    while (ancestor && !ancestors.has(ancestor.index)) {
+      ancestors.add(ancestor.index);
+      const box = ancestor.layout?.bounds;
+      const client = ancestor.layout?.clientRect;
+      const scroll = ancestor.layout?.scrollRect;
+      const measured = [box, client, scroll].every(
+        (rect) =>
+          Array.isArray(rect) &&
+          rect.length === 4 &&
+          rect.every(Number.isFinite) &&
+          rect[2] > 0 &&
+          rect[3] > 0
+      );
+      // Native client/scroll rects use local CSS coordinates. Restrict this
+      // exemption to matching borderless boxes; transformed or bordered boxes
+      // need additional coordinate evidence before they can remove comparisons.
+      if (
+        measured &&
+        client[0] === 0 &&
+        client[1] === 0 &&
+        client[2] === box[2] &&
+        client[3] === box[3] &&
+        scroll[0] >= 0 &&
+        scroll[1] >= 0
+      ) {
+        for (const [axis, offset, size] of [
+          ["x", 0, 2],
+          ["y", 1, 3],
+        ]) {
+          const overflow = style(ancestor, `overflow-${axis}`) || style(ancestor, "overflow");
+          if (!["auto", "scroll", "overlay"].includes(overflow) || scroll[size] <= client[size])
+            continue;
+          if (axis === "x") {
+            observedLeft = Math.max(observedLeft, box[offset]);
+            observedRight = Math.min(observedRight, box[offset] + client[size]);
+          } else {
+            observedTop = Math.max(observedTop, box[offset]);
+            observedBottom = Math.min(observedBottom, box[offset] + client[size]);
+          }
+        }
+      }
+      ancestor = byIndex.get(ancestor.parentIndex);
+    }
     const complete = localModel.slice(1).every((child) => {
       const painted = potentialPainting(child);
       return (
         !painted ||
-        (painted.left >= viewport.pageX &&
-          painted.top >= viewport.pageY &&
-          painted.right <= viewport.pageX + viewport.clientWidth &&
-          painted.bottom <= viewport.pageY + viewport.clientHeight)
+        (painted.left >= observedLeft &&
+          painted.top >= observedTop &&
+          painted.right <= observedRight &&
+          painted.bottom <= observedBottom)
       );
     });
     completeGlyphObservations.set(node, complete);

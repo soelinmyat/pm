@@ -3927,6 +3927,71 @@ test("clipped switch roots retain measured width comparisons", () => {
   );
 });
 
+function switchScrollportAuditFixture() {
+  const fixture = switchViewportAuditFixture();
+  fixture.model[0].layout.bounds = [0, 64, 375, 748];
+  fixture.model[0].layout.clientRect = [0, 0, 375, 748];
+  fixture.model[0].layout.scrollRect = [0, 709, 375, 1457];
+  fixture.model[0].layout.styles[7] = "auto";
+  for (const node of fixture.model.slice(7, 10)) node.layout.bounds[1] -= 781;
+  return fixture;
+}
+
+test("measured scrollport cropping does not invent switch glyph variance", () => {
+  const { inspect } = switchScrollportAuditFixture();
+  assert.deepEqual(inspect(), [], "only four padding pixels intersect the scrolled MAIN");
+});
+
+test("measured scrollport retains root dimensions and fully observed glyph differences", () => {
+  const { model, inspect } = switchScrollportAuditFixture();
+  model[7].layout.bounds[2] = 50;
+  assert.ok(inspect().some((row) => /root geometry/.test(row.detail)));
+  model[7].layout.bounds[2] = 44;
+  // Move the glyph below the scrollport top, leaving only touch padding clipped.
+  for (const node of model.slice(7, 10)) node.layout.bounds[1] += 30;
+  model[9].layout.bounds[2] = 18;
+  assert.ok(inspect().some((row) => /glyph geometry/.test(row.detail)));
+});
+
+test("measured horizontal scrollport cropping excludes only incomplete glyphs", () => {
+  const { model, inspect } = switchScrollportAuditFixture();
+  model[0].layout.bounds = [64, 0, 311, 812];
+  model[0].layout.clientRect = [0, 0, 311, 812];
+  model[0].layout.scrollRect = [709, 0, 1457, 812];
+  for (const node of model.slice(7, 10)) {
+    node.layout.bounds[0] -= 291;
+    node.layout.bounds[1] += 376;
+  }
+  assert.deepEqual(inspect(), []);
+});
+
+test("local CSS clipping within a measured scrollport remains a glyph difference", () => {
+  const { model, inspect } = switchScrollportAuditFixture();
+  model[4].layout.styles[6] = "inset(0px 0px 40px 0px)";
+  assert.ok(inspect().some((row) => /glyph geometry/.test(row.detail)));
+});
+
+for (const evidence of [
+  "hidden",
+  "clip",
+  "missing",
+  "non-scrolling",
+  "invalid",
+  "scaled",
+  "bordered",
+]) {
+  test(`scrollport exemption requires native scrolling evidence: ${evidence}`, () => {
+    const { model, inspect } = switchScrollportAuditFixture();
+    if (["hidden", "clip"].includes(evidence)) model[0].layout.styles[7] = evidence;
+    if (evidence === "missing") delete model[0].layout.scrollRect;
+    if (evidence === "non-scrolling") model[0].layout.scrollRect = [0, 0, 375, 748];
+    if (evidence === "invalid") model[0].layout.clientRect = [0, 0, 375, NaN];
+    if (evidence === "scaled") model[0].layout.clientRect = [0, 0, 187.5, 374];
+    if (evidence === "bordered") model[0].layout.clientRect = [1, 1, 373, 746];
+    assert.ok(inspect().some((row) => /glyph geometry/.test(row.detail)));
+  });
+}
+
 for (const clip of ["self", "ancestor"]) {
   test(`in-viewport ${clip} clipping retains switch glyph differences`, () => {
     const { model, inspect } = switchViewportAuditFixture();
