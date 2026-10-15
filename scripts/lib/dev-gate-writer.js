@@ -198,13 +198,51 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
-  // The canonical report selects its exact retained round. Restrict selection
+  // A phase-bound retained report takes precedence over the discovery copy.
+  // An earlier report may still occupy that original path because its frozen
+  // HTML and predecessor lineage authenticate those exact bytes.
+  const phaseArtifact = evidence.passing[0]?.artifact;
+  let phaseHtmlArtifact = null;
+  if (typeof phaseArtifact === "string" && phaseArtifact.trim()) {
+    const artifactPath = projectRelative(layout.root, phaseArtifact);
+    const relative = artifactPath.endsWith("/report.html")
+      ? `${path.posix.dirname(artifactPath)}/report.json`
+      : artifactPath;
+    if (relative !== paths.reportPath) {
+      const prefix = `${base}/runs/`;
+      const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
+      const round = /^round-([1-9][0-9]*)$/.exec(parts[1] || "");
+      if (
+        parts.length !== 3 ||
+        !/^[a-z0-9][a-z0-9._-]*$/.test(parts[0]) ||
+        !round ||
+        Number(round[1]) > MAX_RECOVERY_ROUNDS ||
+        parts[2] !== "report.json"
+      )
+        throw gateError(
+          "design-critique phase artifact must select this session's exact bounded run/round report"
+        );
+      const selected = JSON.parse(readProjectInput(layout.root, relative, 4 * 1024 * 1024).bytes);
+      if (selected.run_id !== parts[0] || selected.rounds !== Number(round[1]))
+        throw gateError("design-critique phase artifact run/round must match its report");
+    }
+    if (artifactPath !== relative) {
+      readProjectInput(layout.root, artifactPath, 4 * 1024 * 1024);
+      phaseHtmlArtifact = artifactPath;
+    }
+    paths.reportPath = relative;
+  }
+  // The selected report binds its exact retained inputs. Restrict selection
   // to this session, then let the full checker validate every binding/hash,
   // predecessor, execution receipt and current source identity as before.
   if (fs.existsSync(path.join(layout.root, paths.reportPath))) {
     const report = JSON.parse(
       readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes
     );
+    if (phaseHtmlArtifact && report.human_report?.path !== phaseHtmlArtifact)
+      throw gateError(
+        "legacy design-critique HTML evidence must match the selected report's human artifact"
+      );
     const directories = [];
     for (const [binding, option] of [
       ["route", "routePath"],
@@ -236,6 +274,11 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     }
     if (directories[0] !== directories[1])
       throw gateError("design-critique report inputs must select the same run/round");
+    if (
+      paths.reportPath !== `${base}/report.json` &&
+      path.posix.dirname(paths.reportPath) !== directories[0]
+    )
+      throw gateError("design-critique phase report and inputs must select the same run/round");
   }
   const sourceCommit = routeSourceCommit(layout.root, paths.routePath);
   const recertifiedOffHead = evidence.recertified && sourceCommit !== head;
@@ -267,7 +310,7 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const result = deps.checkDesignCritique(options);
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
-  return { artifact: `${base}/report.html` };
+  return { artifact: `${path.posix.dirname(paths.reportPath)}/report.html` };
 }
 
 function routeSourceCommit(root, routePath) {

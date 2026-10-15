@@ -28,7 +28,7 @@ Produce current, sanitized visual evidence for the changed UI, resolve blocking 
 3. Follow the declared capture guide and the skill's evidence contract. Produce commit-bound `route.json`, hash-bound `captures.json`, structured `report.json`, and accessible `report.html`; cover the required viewport/state or desktop/tablet/narrow/print matrix without private data.
 4. Fix P0/P1 findings, preserve before captures, recapture affected states, and re-run deterministic plus visual review. Stop after two bounded rounds if blocking findings remain.
 5. Run `scripts/design-critique-check.js` against current HEAD. Failed, blocked, and deferred outcomes stop this phase. Do not run QA, code review, verification, push, or PR work here.
-6. Return a strict phase result with the current commit and passing `review` evidence pointing to `report.html`. Record it through `dev-session.js record`; never write prose fields into `session.json`.
+6. Return a strict phase result with the current commit and passing `review` evidence pointing to the final retained round's absolute `report.json`; the human artifact remains `report.html`. Record it through `dev-session.js record`; never write prose fields into `session.json`.
 7. Only then write the gate: `dev-session.js gate --session <absolute session.json> --name design-critique`. It reads the evidence recorded in step 6, so it refuses to run before it. Only a checked `passed` report may create `design-critique: passed`; never hand-edit the gate manifest `gates.json`.
 
 ## Done-when

@@ -2285,6 +2285,7 @@ function domObservations(
     if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
     byParent.get(node.parentIndex).push(node);
   }
+  const completeGlyphObservations = new Map();
   const fixedControlGlyphGeometry = (node) => {
     if (node.nodeName !== "button" || !["checkbox", "switch"].includes(node.attributes.role))
       return null;
@@ -2293,6 +2294,68 @@ function domObservations(
       return null;
     const [x, y, width, height] = bounds;
     const geometry = [["button", 0, 0, width, height]];
+    const subtree = [node];
+    const pending = [...(glyphChildren.get(node.index) || [])];
+    const collected = new Set([node.index]);
+    while (pending.length) {
+      const child = pending.pop();
+      if (collected.has(child.index)) return null;
+      collected.add(child.index);
+      subtree.push(child);
+      pending.push(...(glyphChildren.get(child.index) || []));
+    }
+    const positions = new Map(subtree.map((child, index) => [child.index, index]));
+    const localModel = subtree.map((child) => ({
+      ...child,
+      parentIndex: child === node ? -1 : positions.get(child.parentIndex),
+    }));
+    const measuredBounds = subtree
+      .map((child) => child.layout?.bounds)
+      .filter(
+        (value) =>
+          Array.isArray(value) &&
+          value.length === 4 &&
+          value.every(Number.isFinite) &&
+          value[2] > 0 &&
+          value[3] > 0
+      );
+    const left = Math.min(...measuredBounds.map((value) => value[0]));
+    const top = Math.min(...measuredBounds.map((value) => value[1]));
+    const right = Math.max(...measuredBounds.map((value) => value[0] + value[2]));
+    const bottom = Math.max(...measuredBounds.map((value) => value[1] + value[3]));
+    // Observe potential glyph painting without the document viewport/ancestor
+    // crop. The same evaluator still applies local CSS clipping and hiding.
+    // Fold measured ancestor opacity into the local root without double filtering.
+    const potentialPainting = createVisibilityEvaluator(
+      localModel,
+      (child, property) =>
+        child === localModel[0] && property === "opacity"
+          ? String(visibleIntersections.get(node).effectiveOpacity)
+          : child === localModel[0] && property === "filter"
+            ? "none"
+            : style(child, property),
+      {
+        ...metrics,
+        cssVisualViewport: {
+          pageX: left,
+          pageY: top,
+          clientWidth: right - left,
+          clientHeight: bottom - top,
+        },
+      }
+    );
+    const viewport = metrics.cssVisualViewport;
+    const complete = localModel.slice(1).every((child) => {
+      const painted = potentialPainting(child);
+      return (
+        !painted ||
+        (painted.left >= viewport.pageX &&
+          painted.top >= viewport.pageY &&
+          painted.right <= viewport.pageX + viewport.clientWidth &&
+          painted.bottom <= viewport.pageY + viewport.clientHeight)
+      );
+    });
+    completeGlyphObservations.set(node, complete);
     const stack = [...(glyphChildren.get(node.index) || [])];
     const seen = new Set([node.index]);
     const graphicNodes = new Set([
@@ -2418,19 +2481,28 @@ function domObservations(
             ...group.properties.filter(
               (property) => !["font-size", "font-weight"].includes(property)
             ),
+            "control-root-geometry",
             "glyph-geometry",
           ]
         : group.properties;
       const signatureValue = (node, property) =>
         property === "glyph-geometry"
           ? glyphGeometry.get(node)
-          : property === "height" && node.intrinsicHeight === true
-            ? "auto"
-            : style(node, property);
+          : property === "control-root-geometry"
+            ? JSON.stringify(node.layout.bounds.slice(2))
+            : property === "height" && node.intrinsicHeight === true
+              ? "auto"
+              : style(node, property);
       for (const property of properties) {
-        const comparedNodes = typographyProperties.has(property)
-          ? nodes.filter(withinTypographyScope)
-          : nodes;
+        // Root geometry remains measurable at viewport edges. Only the
+        // descendant shape needs a complete viewport observation; touch padding
+        // and local CSS clipping cannot exempt fully observed glyphs.
+        const comparedNodes =
+          property === "glyph-geometry"
+            ? nodes.filter((node) => completeGlyphObservations.get(node))
+            : typographyProperties.has(property)
+              ? nodes.filter(withinTypographyScope)
+              : nodes;
         const counts = new Map();
         for (const node of comparedNodes) {
           const value = signatureValue(node, property);
@@ -2450,10 +2522,12 @@ function domObservations(
               node,
               property === "glyph-geometry"
                 ? "Control glyph geometry differs from the repeated component baseline."
-                : `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${signatureValue(
-                    node,
-                    property
-                  )} differs from ${majority}.`
+                : property === "control-root-geometry"
+                  ? "Control root geometry differs from the repeated component baseline."
+                  : `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${signatureValue(
+                      node,
+                      property
+                    )} differs from ${majority}.`
             ),
             "consistency"
           );
