@@ -6664,7 +6664,15 @@ function checkerAtCaptureTimeVersion(version) {
   return isolated.exports.checkDesignCritique;
 }
 
-for (const checkpointVersion of ["1.14.6", "1.14.7", "1.14.11", "1.14.12", "1.14.13", "1.14.14"]) {
+for (const checkpointVersion of [
+  "1.14.6",
+  "1.14.7",
+  "1.14.11",
+  "1.14.12",
+  "1.14.13",
+  "1.14.14",
+  "1.14.15",
+]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
     const retained = recoveryDCFiles(fixture.root);
