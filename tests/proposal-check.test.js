@@ -1512,3 +1512,95 @@ test("byte hash helper is exact and carries the sha256 prefix", () => {
   const expected = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
   assert.equal(proposalBytesHash(bytes), expected);
 });
+
+test("historical approved reads use exact retained sources while current reads reject drift", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    proposal.lifecycle = "approved";
+    materializeProposalSources(project.dir, proposal);
+    proposal.review = {
+      status: "passed",
+      revision: 1,
+      content_sha256: proposalContentHash(proposal),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const paths = resolveProposalPaths(project.dir, proposal.slug);
+    fs.mkdirSync(path.dirname(paths.json), { recursive: true });
+    const bytes = Buffer.from(JSON.stringify(proposal));
+    fs.writeFileSync(paths.json, bytes);
+    const approval = buildCurrentApproval(proposal, bytes, {
+      approvedBy: "user:owner",
+      approvedAt: "2026-07-14T03:00:00.000Z",
+    });
+    fs.writeFileSync(paths.approval, JSON.stringify(approval));
+    const source = proposal.source.lineage[0];
+    const original = fs.readFileSync(path.join(project.dir, source.path));
+    const archive = path.join(project.dir, ".pm", "proposal-sources", source.sha256.slice(7));
+    fs.mkdirSync(path.dirname(archive), { recursive: true });
+    fs.writeFileSync(archive, original);
+    fs.writeFileSync(
+      path.join(project.dir, source.path),
+      "Current strategy has legitimately changed.\n"
+    );
+    assert.throws(
+      () => readApprovedProposal(paths.json, { projectRoot: project.dir }),
+      /retained source bytes/
+    );
+    assert.throws(
+      () => readProposal(paths.json, { projectRoot: project.dir, historicalEvidence: true }),
+      /retained source bytes/
+    );
+    const historical = () =>
+      readApprovedProposal(paths.json, { projectRoot: project.dir, historicalEvidence: true });
+    assert.equal(historical().trustedApproval, true);
+    assert.deepEqual(fs.readFileSync(paths.json), bytes);
+    assert.deepEqual(JSON.parse(fs.readFileSync(paths.approval)), approval);
+    fs.writeFileSync(archive, "tampered");
+    assert.throws(historical, /retained source bytes/);
+    fs.writeFileSync(archive, original);
+    const badApproval = { ...approval, decision_sha256: "sha256:" + "0".repeat(64) };
+    fs.writeFileSync(paths.approval, JSON.stringify(badApproval));
+    assert.throws(historical, /approval/);
+    fs.writeFileSync(paths.approval, JSON.stringify(approval));
+    fs.unlinkSync(archive);
+    assert.throws(historical, /retained source|does not exist/);
+    const outside = path.join(project.dir, "original.txt");
+    fs.writeFileSync(outside, original);
+    fs.symlinkSync(outside, archive);
+    assert.throws(historical, /symlink/);
+    fs.unlinkSync(archive);
+    fs.writeFileSync(archive, Buffer.alloc(8 * 1024 * 1024 + 1));
+    assert.throws(historical, /8 MiB|32 MiB/);
+    fs.writeFileSync(archive, original);
+    const currentSource = path.join(project.dir, source.path);
+    fs.unlinkSync(currentSource);
+    fs.symlinkSync(outside, currentSource);
+    assert.throws(historical, /symlink/);
+    fs.unlinkSync(currentSource);
+    fs.writeFileSync(currentSource, original);
+    for (let index = 0; index < 5; index += 1) {
+      const oldBytes = Buffer.alloc(4 * 1024 * 1024, 65 + index);
+      const sourcePath = `pm/research/old-${index}.txt`;
+      const digest = proposalBytesHash(oldBytes);
+      proposal.source.lineage.push({ id: `source:old-${index}`, path: sourcePath, sha256: digest });
+      fs.writeFileSync(path.join(project.dir, sourcePath), Buffer.alloc(4 * 1024 * 1024, 90));
+      fs.writeFileSync(path.join(project.dir, ".pm/proposal-sources", digest.slice(7)), oldBytes);
+    }
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    const largeProposal = Buffer.from(JSON.stringify(proposal));
+    fs.writeFileSync(paths.json, largeProposal);
+    fs.writeFileSync(
+      paths.approval,
+      JSON.stringify(
+        buildCurrentApproval(proposal, largeProposal, {
+          approvedBy: "user:owner",
+          approvedAt: "2026-07-14T03:00:00.000Z",
+        })
+      )
+    );
+    assert.throws(historical, /aggregate 32 MiB/);
+  } finally {
+    project.cleanup();
+  }
+});

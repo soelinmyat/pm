@@ -185,3 +185,20 @@ Canonical schema-v1 proposals created before `review_contract` also remain inspe
 ## Bounded delivery approval
 
 The proposal remains the product contract; its sibling `.approval.json` may optionally carry the runner-produced `delivery_delegation`. It is recorded only by the explicit product approval command with `--delegate-content-sha256` matching the reviewed canonical content hash. The grant binds the Groom run/source base, proposal ID/revision/content/snapshot, original approver/time, fixed material boundaries and `technical_derivation: true`, `implementation: true`. Its `grant_sha256` participates in the original decision digest. RFC and Dev consume the verified audit and canonical session, never an editable boolean in proposal facts. Absence preserves the ordinary human RFC decision. The grant does not authorize tracker writes, shipping, deployment or platform permission.
+
+## Historical source retention
+
+A promoted decision is a historical approval record. Its bound sources may legitimately evolve. Historical promotion validation accepts an exact local source preimage only when its SHA-256 matches the approved proposal lineage and the original sibling approval and promotion decision still verify. It resolves citations against those original bytes. Ordinary Groom, RFC, Dev and delivery readers continue to require current evidence; a snapshot never approves new work or relaxes prototype freshness.
+
+Recover the original source bytes from trusted history into a project-relative file, then retain them without changing the approved proposal, approval audit or current strategy:
+
+```bash
+node "${PM_PLUGIN_ROOT}/scripts/proposal-source-snapshot.js" \
+  --project-root /absolute/consumer-project \
+  --input .pm/recovered-strategy.md \
+  --sha256 sha256:EXACT_LINEAGE_DIGEST
+```
+
+The command checks the exact digest, reads at most 8 MiB without symlinks or traversal, and atomically creates `.pm/proposal-sources/{digest}` without replacing existing content. Identical retries are safe. Historical reads enforce the same per-file limit and shared 32 MiB budget, counting both current and retained reads. Missing or altered snapshots fail validation when current bytes differ. Snapshot paths are derived from hashes, never from caller-controlled lineage paths.
+
+These snapshots are private local runtime evidence, excluded from KB publication. Preserve them with the owning session when moving or archiving a workspace; another machine must recover the exact bytes before it can validate a drifted historical record. Never substitute a new hash, fabricate source content or restore an obsolete strategy to bypass validation.

@@ -144,6 +144,8 @@ pm/
 
 Think-to-Groom handoff preserves approved proposal identity even when the selected Think direction has a different slug. Promotion still verifies exact approval and source lineage; generated `proposal:<slug>` reader IDs are accepted by KB validation when their filename, kind, and proposal link match.
 
+Historical promoted decisions can validate exact approved source bytes retained locally under `.pm/proposal-sources/`. Current proposal and delivery checks still require current evidence. See the [proposal format reference](skills/groom/references/proposal-format.md#historical-source-retention) for recovery and integrity checks.
+
 A backlog entry after grooming:
 
 ```yaml

@@ -127,9 +127,11 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
       projectRoot: proposalProjectRoot(root),
       expectedSlug: promotionTargetSlug(brief, targetRef),
       expectedDecision: brief.promotion.approval_decision,
+      historicalEvidence: true,
       // Promotion replaces the origin companion after the approved proposal has
       // bound its pre-transition bytes. Permit only that authenticated historical
-      // path/hash; every other lineage source must still match current bytes.
+      // path/hash. Other historical sources require their exact retained preimages;
+      // new proposal and delivery readers continue to require current sources.
       allowedHistoricalLineage: {
         path: decisionPath,
         sha256: brief.promotion.origin_decision_sha256,
