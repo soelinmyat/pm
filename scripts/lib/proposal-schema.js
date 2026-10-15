@@ -16,6 +16,7 @@ const {
   reviewTextTokens,
 } = require("./groom-review-contract.js");
 
+const HISTORICAL_EVIDENCE = Symbol("authenticated historical evidence");
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 2 * 1024 * 1024;
 const MAX_EVIDENCE_SOURCE_BYTES = 8 * 1024 * 1024;
@@ -726,6 +727,7 @@ function validateProposal(proposal, options = {}) {
     const evidenceResult = validateCurrentProposalEvidence(proposal, options.projectRoot, {
       path: at,
       allowedHistoricalLineage: options.allowedHistoricalLineage,
+      [HISTORICAL_EVIDENCE]: options[HISTORICAL_EVIDENCE],
     });
     issues.push(...evidenceResult.issues);
   }
@@ -799,6 +801,26 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
       totalSourceBytes += source.bytes.length;
       if (entry.sha256 !== source.sha256) {
         source = retainedPromotionOrigin(source, entry, proposal) || source;
+        if (
+          entry.sha256 !== source.sha256 &&
+          options[HISTORICAL_EVIDENCE] &&
+          SHA256.test(entry.sha256 || "")
+        ) {
+          try {
+            const historical = readBoundEvidenceFile(
+              root,
+              `.pm/proposal-sources/${entry.sha256.slice(7)}`,
+              {
+                projectRootAnchor: rootAnchor,
+                remainingBytes: MAX_EVIDENCE_TOTAL_BYTES - totalSourceBytes,
+              }
+            );
+            totalSourceBytes += historical.bytes.length;
+            source = { ...historical, path: source.path, extension: source.extension };
+          } catch (error) {
+            if (error.message !== "retained evidence source does not exist") throw error;
+          }
+        }
       }
       sources.set(entry.path, source);
     } catch (error) {
@@ -1962,6 +1984,7 @@ function executionContract(proposal) {
 
 function readApprovedProposal(filePath, options = {}) {
   const source = readProposal(filePath, {
+    [HISTORICAL_EVIDENCE]: options.historicalEvidence === true,
     projectRoot: options.projectRoot,
     expectedSlug: options.expectedSlug,
     allowedHistoricalLineage: options.allowedHistoricalLineage,
@@ -2219,6 +2242,7 @@ function readProposal(filePath, options = {}) {
       expectedSlug: options.expectedSlug,
       projectRoot: options.projectRoot,
       allowedHistoricalLineage: options.allowedHistoricalLineage,
+      [HISTORICAL_EVIDENCE]: options[HISTORICAL_EVIDENCE],
       requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
       requireExperienceClassification: options.requireExperienceClassification,
       requireValueDecision: options.requireValueDecision,

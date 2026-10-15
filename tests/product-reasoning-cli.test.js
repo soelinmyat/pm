@@ -520,6 +520,21 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
   assert.equal(result.status, 2);
   assert.match(result.stdout, /does not match the retained source bytes/);
+  const archivedSource = path.join(
+    projectRoot,
+    ".pm",
+    "proposal-sources",
+    proposal.source.lineage[0].sha256.slice(7)
+  );
+  fs.mkdirSync(path.dirname(archivedSource), { recursive: true });
+  fs.writeFileSync(archivedSource, retainedEvidenceBytes);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(archivedSource, "tampered historical evidence\n");
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /does not match the retained source bytes/);
+  fs.writeFileSync(archivedSource, retainedEvidenceBytes);
   fs.writeFileSync(retainedEvidencePath, retainedEvidenceBytes);
 
   const lifecycleReader = fs
