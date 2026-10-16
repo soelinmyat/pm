@@ -230,6 +230,8 @@ still requires evidence-based review.
 
 Review targets retain immutable copies of their upstream design report. If an older target references a canonical report that has since advanced, PM can recover an archived original only when its hash, commit and outcome match exactly, preserving the historical target and recording the recovery separately.
 
+Source Review can finish when main advances during the review if the frozen base is still its ancestor and both bases have the same merge base with the reviewed commit. Exact current HEAD, remote identity, diff and file inventory checks still apply; targets and reviewer results remain unchanged.
+
 The [quality evaluation suite](evals/README.md) covers daily Research, Think,
 Strategy, and Ideate work as well as delivery workflows. It reports observed
 efficiency data and leaves unavailable measurements unknown. No general Astra
