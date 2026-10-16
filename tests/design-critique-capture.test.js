@@ -4809,12 +4809,27 @@ function remountingDateGridFixture(variant) {
   const fixture = dateGridFixture("working");
   const install = function (mode, document) {
     const initial = document.querySelector("#date-grid");
-    initial.dir = ["rtl", "persistent-grid-rtl"].includes(mode) ? "rtl" : "ltr";
+    initial.dir = ["rtl", "persistent-grid-rtl", "cycle-after-remount"].includes(mode)
+      ? "rtl"
+      : "ltr";
     initial.dataset.month = initial.querySelector("[data-day]").dataset.day.slice(0, 7);
+    const frozenLastDate = [...initial.querySelectorAll("[data-day]")].at(-1).dataset.day;
     document.addEventListener("keydown", (event) => {
       const button = event.target.closest?.("#date-grid button");
       if (!button) return;
       let grid = button.closest("[role=grid]");
+      if (event.key === "Tab" && mode === "cycle-after-remount" && grid.dataset.remounted) {
+        event.preventDefault();
+        const outsideDate = new Date(Date.parse(frozenLastDate + "T00:00:00.000Z") + 86400000)
+          .toISOString()
+          .slice(0, 10);
+        const date =
+          button.closest("[data-day]").dataset.day === frozenLastDate
+            ? outsideDate
+            : frozenLastDate;
+        grid.querySelector(`[data-day="${date}"] button`)?.focus();
+        return;
+      }
       if (event.key === "Tab" && mode === "trap-after-remount" && grid.dataset.remounted) {
         event.preventDefault();
         return;
@@ -4903,6 +4918,7 @@ for (const variant of [
   "duplicate",
   "foreign-slot",
   "trap-after-remount",
+  "cycle-after-remount",
   "hidden",
   "covered",
 ]) {

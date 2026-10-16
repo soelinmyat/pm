@@ -2941,6 +2941,13 @@ async function entryHasDocumentKeyboardReach(
   requireExitAndReturn = false
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
+  const focusInsideLiveOwner = () =>
+    callOnNode(
+      client,
+      executionContextId,
+      ownerBackendNodeId,
+      "function () { return this.isConnected ? this.contains(this.ownerDocument.activeElement) : null; }"
+    );
   // Keep a conditional popup alive while proving its native exit/return.
   // An outside predecessor can dismiss it before its entry node is tested.
   const firstLeave = entryProbe?.preferred_exit_modifiers === 8 ? 8 : 0;
@@ -2954,9 +2961,16 @@ async function entryHasDocumentKeyboardReach(
     if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
     const departed = await focusedBackendNodeId(client, executionContextId);
     if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
+    // Frozen date coverage may omit newly displayed dates. Only a native
+    // focus outside the complete live grid establishes document departure.
+    if (requireExitAndReturn && (await focusInsideLiveOwner()) !== false) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
     const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) {
+    if (
+      returnedFocus === entryBackendNodeId ||
+      groupBackendNodeIds.has(returnedFocus) ||
+      (requireExitAndReturn && (await focusInsideLiveOwner()) === true)
+    ) {
       if (memberBackendNodeIds.has(returnedFocus)) observedEntryMembers.add(returnedFocus);
       return true;
     }
