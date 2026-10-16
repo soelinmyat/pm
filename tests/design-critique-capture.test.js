@@ -4732,6 +4732,17 @@ function dateGridFixture(variant = "working", todayBorder = false) {
   const content = `<h1>Account overview</h1><button>Before calendar</button><table id="date-grid" role="grid" aria-label="Choose a date" dir="${variant === "rtl" ? "rtl" : "ltr"}" style="border-collapse:collapse;margin:16px 0"><tbody role="rowgroup">${rows}</tbody></table><button>Save changes</button>${script}`;
   let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
   html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${content}</main>`);
+  if (["body-portal", "complementary-portal"].includes(variant)) {
+    const portal = content.replace("<h1>Account overview</h1>", "");
+    const outside =
+      variant === "complementary-portal"
+        ? `<aside aria-label="Date filter">${portal}</aside>`
+        : portal;
+    html = html.replace(
+      /(<main[^>]*>)[\s\S]*?<\/main>/,
+      `$1<h1>Account overview</h1></main>${outside}`
+    );
+  }
   fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   return fixture;
 }
@@ -4747,6 +4758,8 @@ for (const variant of [
   "unreachable",
   "missing-cell",
   "duplicate-date",
+  "body-portal",
+  "complementary-portal",
 ]) {
   test(
     `native date grid proves document entry and arrow reach: ${variant}`,
@@ -4768,7 +4781,14 @@ for (const variant of [
         );
         assert.equal(
           audit.checks.focus_order,
-          ["working", "rtl", "disabled", "month-boundary"].includes(variant),
+          [
+            "working",
+            "rtl",
+            "disabled",
+            "month-boundary",
+            "body-portal",
+            "complementary-portal",
+          ].includes(variant),
           JSON.stringify(audit.findings)
         );
         assert.equal(

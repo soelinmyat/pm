@@ -3460,9 +3460,16 @@ async function probeCompositeCandidate(
               const original = liveCandidate.frozen_by_live?.get(current) ?? current;
               const scope = liveCandidate.calendar_scope_backend_node_id;
               const originalScope = liveCandidate.frozen_by_live?.get(scope) ?? scope;
+              const owner = liveCandidate.owner_backend_node_id;
+              const originalOwner = liveCandidate.frozen_by_live?.get(owner) ?? owner;
               if (
                 axIdentity(await liveAxNode(client, current)) !== frozenNode(original)?.identity ||
-                axIdentity(await liveAxNode(client, scope)) !== frozenNode(originalScope)?.identity
+                (originalOwner === owner &&
+                  axIdentity(await liveAxNode(client, owner)) !==
+                    frozenNode(originalOwner)?.identity) ||
+                (scope !== null &&
+                  axIdentity(await liveAxNode(client, scope)) !==
+                    frozenNode(originalScope)?.identity)
               )
                 break;
             }
