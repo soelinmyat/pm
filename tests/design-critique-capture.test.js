@@ -4825,17 +4825,33 @@ for (const variant of [
 
 function remountingDateGridFixture(variant) {
   const fixture = dateGridFixture(
-    ["body-portal", "complementary-portal"].includes(variant) ? variant : "working"
+    variant.startsWith("active-descendant-remount")
+      ? "active-descendant"
+      : ["body-portal", "complementary-portal"].includes(variant)
+        ? variant
+        : "working"
   );
   const install = function (mode, document) {
+    const ownerFocused = mode.startsWith("active-descendant-remount");
     const initial = document.querySelector("#date-grid");
-    initial.dir = ["rtl", "persistent-grid-rtl", "cycle-after-remount"].includes(mode)
+    initial.dir = [
+      "rtl",
+      "persistent-grid-rtl",
+      "cycle-after-remount",
+      "active-descendant-remount-rtl",
+    ].includes(mode)
       ? "rtl"
       : "ltr";
     initial.dataset.month = initial.querySelector("[data-day]").dataset.day.slice(0, 7);
     const frozenLastDate = [...initial.querySelectorAll("[data-day]")].at(-1).dataset.day;
     document.addEventListener("keydown", (event) => {
-      const button = event.target.closest?.("#date-grid button");
+      const eventGrid = event.target.closest?.("#date-grid");
+      const button =
+        ownerFocused && eventGrid
+          ? [...eventGrid.querySelectorAll("button")].find(
+              (day) => day.id === eventGrid.getAttribute("aria-activedescendant")
+            )
+          : event.target.closest?.("#date-grid button");
       if (!button) return;
       let grid = button.closest("[role=grid]");
       if (event.key === "Tab" && mode === "cycle-after-remount" && grid.dataset.remounted) {
@@ -4850,7 +4866,11 @@ function remountingDateGridFixture(variant) {
         grid.querySelector(`[data-day="${date}"] button`)?.focus();
         return;
       }
-      if (event.key === "Tab" && mode === "trap-after-remount" && grid.dataset.remounted) {
+      if (
+        event.key === "Tab" &&
+        ["trap-after-remount", "active-descendant-remount-trap"].includes(mode) &&
+        grid.dataset.remounted
+      ) {
         event.preventDefault();
         return;
       }
@@ -4903,9 +4923,10 @@ function remountingDateGridFixture(variant) {
         if (mode === "foreign-scope")
           document.querySelector("main").setAttribute("aria-label", "Another calendar owner");
         if (mode === "foreign-slot") grid.before(document.createElement("div"));
-        if (["persistent-grid", "persistent-grid-rtl"].includes(mode)) {
+        if (ownerFocused || ["persistent-grid", "persistent-grid-rtl"].includes(mode)) {
           grid.replaceChildren(...next.childNodes);
           grid.dataset.month = next.dataset.month;
+          grid.dataset.remounted = next.dataset.remounted;
           grid.setAttribute("aria-label", next.getAttribute("aria-label"));
         } else {
           grid.replaceWith(next);
@@ -4914,6 +4935,17 @@ function remountingDateGridFixture(variant) {
       }
       const selected = grid.querySelector(`[data-day="${target}"] button`);
       if (!selected) return;
+      if (ownerFocused) {
+        grid.querySelectorAll("button").forEach((day) => (day.tabIndex = -1));
+        grid.setAttribute(
+          "aria-activedescendant",
+          mode === "active-descendant-remount-invalid" && grid.dataset.remounted
+            ? "missing-date"
+            : selected.id
+        );
+        grid.focus();
+        return;
+      }
       grid.querySelectorAll("button").forEach((day) => (day.tabIndex = day === selected ? 0 : -1));
       selected.focus();
     });
@@ -4933,6 +4965,10 @@ for (const variant of [
   "rtl",
   "persistent-grid",
   "persistent-grid-rtl",
+  "active-descendant-remount",
+  "active-descendant-remount-rtl",
+  "active-descendant-remount-trap",
+  "active-descendant-remount-invalid",
   "body-portal",
   "complementary-portal",
   "renamed",
@@ -4969,6 +5005,8 @@ for (const variant of [
             "rtl",
             "persistent-grid",
             "persistent-grid-rtl",
+            "active-descendant-remount",
+            "active-descendant-remount-rtl",
             "body-portal",
             "complementary-portal",
           ].includes(variant),

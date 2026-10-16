@@ -3188,8 +3188,10 @@ async function remapCalendarCandidate(client, contextId, candidate, frozenNode) 
     members.push(entry.button.backendNodeId);
     frozenByLive.set(entry.button.backendNodeId, prior);
   }
-  const focused = await focusedBackendNodeId(client, contextId);
-  if (!members.includes(focused)) return null;
+  const liveCandidate = { ...candidate, owner_backend_node_id: liveOwner };
+  const state = await compositeFocusState(client, contextId, liveCandidate);
+  const focused = focusedCompositeMember(state, liveCandidate, new Set(members));
+  if (focused === null) return null;
   const focusedNode = liveDates.get(focused).button;
   await verifyAssertionHitTargets(
     client,
