@@ -4784,6 +4784,123 @@ for (const variant of [
   );
 }
 
+function remountingDateGridFixture(variant) {
+  const fixture = dateGridFixture("working");
+  const install = function (mode, document) {
+    const initial = document.querySelector("#date-grid");
+    initial.dir = mode === "rtl" ? "rtl" : "ltr";
+    initial.dataset.month = initial.querySelector("[data-day]").dataset.day.slice(0, 7);
+    document.addEventListener("keydown", (event) => {
+      const button = event.target.closest?.("#date-grid button");
+      if (!button) return;
+      let grid = button.closest("[role=grid]");
+      const horizontal = grid.dir === "rtl" ? -1 : 1;
+      const delta = { ArrowRight: horizontal, ArrowLeft: -horizontal, ArrowDown: 7, ArrowUp: -7 }[
+        event.key
+      ];
+      if (!delta) return;
+      event.preventDefault();
+      const current = Date.parse(button.closest("[data-day]").dataset.day + "T00:00:00.000Z");
+      const target = new Date(current + delta * 86400000).toISOString().slice(0, 10);
+      if (target.slice(0, 7) !== grid.dataset.month) {
+        const next = grid.cloneNode(false);
+        next.dataset.month = target.slice(0, 7);
+        next.setAttribute("aria-label", "Choose a date " + target.slice(0, 7));
+        const first = Date.parse(target.slice(0, 7) + "-01T00:00:00.000Z");
+        const body = document.createElement("tbody");
+        body.setAttribute("role", "rowgroup");
+        for (let row = 0; row < 5; row++) {
+          const tr = document.createElement("tr");
+          tr.setAttribute("role", "row");
+          for (let column = 0; column < 7; column++) {
+            const index = row * 7 + column;
+            const date = new Date(first + index * 86400000).toISOString().slice(0, 10);
+            const td = document.createElement("td");
+            td.setAttribute("role", "gridcell");
+            td.dataset.day =
+              mode === "duplicate" && index === 1 ? target.slice(0, 7) + "-01" : date;
+            td.style.padding = "0";
+            const day = document.createElement("button");
+            day.id = "date-" + index;
+            day.className = "date-button";
+            day.tabIndex = -1;
+            day.setAttribute("aria-label", (mode === "renamed" ? "Unrelated " : "Choose ") + date);
+            day.textContent = String(Number(date.slice(-2)));
+            day.style.cssText = "padding:0;width:28px;height:28px";
+            td.append(day);
+            tr.append(td);
+          }
+          body.append(tr);
+        }
+        next.append(body);
+        if (mode === "hidden") next.style.opacity = "0";
+        if (mode === "covered") {
+          const cover = document.createElement("div");
+          cover.style.cssText = "position:fixed;inset:0;background:black;z-index:999999";
+          document.body.append(cover);
+        }
+        if (mode === "foreign-scope")
+          document.querySelector("main").setAttribute("aria-label", "Another calendar owner");
+        if (mode === "foreign-slot") grid.before(document.createElement("div"));
+        grid.replaceWith(next);
+        grid = next;
+      }
+      const selected = grid.querySelector(`[data-day="${target}"] button`);
+      if (!selected) return;
+      grid.querySelectorAll("button").forEach((day) => (day.tabIndex = day === selected ? 0 : -1));
+      selected.focus();
+    });
+  };
+  let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+  html = html.replace('<main id="account"', '<main aria-label="Calendar owner" id="account"');
+  html = html.replace(
+    /<script>[\s\S]*?<\/script>/,
+    `<script>(${install.toString()})(${JSON.stringify(variant)},document)</script>`
+  );
+  fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return fixture;
+}
+
+for (const variant of [
+  "working",
+  "rtl",
+  "renamed",
+  "foreign-scope",
+  "duplicate",
+  "foreign-slot",
+  "hidden",
+  "covered",
+]) {
+  test(
+    `native date grid follows verified month replacements: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = remountingDateGridFixture(variant);
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "accessibility-tree",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.accessibility_observations,
+          },
+          { path: ".pm/test/date-remount-raw.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(
+          audit.checks.focus_order,
+          ["working", "rtl"].includes(variant),
+          JSON.stringify(audit.findings)
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
 for (const variant of [
   "today",
   "no-grid",

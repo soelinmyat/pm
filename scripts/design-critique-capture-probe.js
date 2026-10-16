@@ -665,6 +665,22 @@ function frozenCompositeNodes(axTree, model) {
   };
 }
 
+function calendarScope(owner, byAxId) {
+  const seen = new Set();
+  let parent = byAxId.get(owner.parentId);
+  while (parent && !seen.has(parent.nodeId)) {
+    seen.add(parent.nodeId);
+    const role = String(valueOf(parent.role) || "").toLowerCase();
+    if (
+      ["dialog", "alertdialog", "main", "region"].includes(role) &&
+      (role === "main" || String(valueOf(parent.name) || "").trim())
+    )
+      return parent;
+    parent = byAxId.get(parent.parentId);
+  }
+  return null;
+}
+
 function compositeKeyboardCandidates(
   axTree,
   model,
@@ -716,6 +732,8 @@ function compositeKeyboardCandidates(
     if (group.owner_role === "grid") {
       group.calendar_days ??= {};
       group.calendar_days[node.backendNodeId] = calendar.day;
+      group.calendar_scope_backend_node_id = calendarScope(owner, byAxId)?.backendDOMNodeId ?? null;
+      group.calendar_computed_styles = computedStyles;
       group.calendar_rtl =
         calendar.grid.layout?.styles?.[computedStyles.indexOf("direction")] === "rtl";
     }
@@ -3095,6 +3113,87 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
   };
 }
 
+async function remapCalendarCandidate(client, contextId, candidate, frozenNode) {
+  const originalId = (id) => candidate.frozen_by_live?.get(id) ?? id;
+  const ownerId = originalId(candidate.owner_backend_node_id);
+  const scopeId = originalId(candidate.calendar_scope_backend_node_id);
+  const owner = frozenNode(ownerId);
+  const scope = frozenNode(scopeId);
+  if (!owner?.path || !scope?.path || !scope.identity) return null;
+  const resolve = await liveElementResolver(client);
+  const liveOwner = resolve(owner.path);
+  const liveScope = resolve(scope.path);
+  if (liveOwner === null || liveScope === null) return null;
+  const styles = candidate.calendar_computed_styles;
+  const [snapshot, axTree, metrics] = await Promise.all([
+    client.send("DOMSnapshot.captureSnapshot", { computedStyles: styles }),
+    client.send("Accessibility.getFullAXTree"),
+    client.send("Page.getLayoutMetrics"),
+  ]);
+  const axById = new Map(axTree.nodes.map((node) => [node.nodeId, node]));
+  const axByBackend = new Map(
+    axTree.nodes.filter((node) => !node.ignored).map((node) => [node.backendDOMNodeId, node])
+  );
+  const liveGrid = axByBackend.get(liveOwner);
+  if (
+    String(valueOf(liveGrid?.role) || "").toLowerCase() !== "grid" ||
+    axIdentity(axByBackend.get(liveScope)) !== scope.identity
+  )
+    return null;
+  const visited = new Set();
+  let ancestor = liveGrid;
+  while (ancestor && ancestor.backendDOMNodeId !== liveScope && !visited.has(ancestor.nodeId)) {
+    visited.add(ancestor.nodeId);
+    ancestor = axById.get(ancestor.parentId);
+  }
+  if (ancestor?.backendDOMNodeId !== liveScope) return null;
+  const model = snapshotNodeModel(snapshot);
+  const styleIndex = new Map(styles.map((name, index) => [name, index]));
+  const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
+  const visibility = createVisibilityEvaluator(model, style, metrics);
+  const frozenByDay = new Map(
+    Object.entries(candidate.calendar_days).map(([id, day]) => [day, Number(id)])
+  );
+  const frozenByLive = new Map([
+    [liveOwner, ownerId],
+    [liveScope, scopeId],
+  ]);
+  const members = [];
+  const liveDates = dateGridButtons(model);
+  for (const entry of liveDates.values()) {
+    if (entry.grid.backendNodeId !== liveOwner || !frozenByDay.has(entry.day)) continue;
+    const prior = frozenByDay.get(entry.day);
+    const live = axByBackend.get(entry.button.backendNodeId);
+    if (
+      !live ||
+      axIdentity(live) !== frozenNode(prior)?.identity ||
+      disabledControl(entry.button, axProperties(live))
+    )
+      return null;
+    if (!visibility(entry.button)) continue;
+    members.push(entry.button.backendNodeId);
+    frozenByLive.set(entry.button.backendNodeId, prior);
+  }
+  const focused = await focusedBackendNodeId(client, contextId);
+  if (!members.includes(focused)) return null;
+  const focusedNode = liveDates.get(focused).button;
+  await verifyAssertionHitTargets(
+    client,
+    [{ node: focusedNode, label: "remounted date focus" }],
+    model,
+    style,
+    metrics,
+    visibility
+  );
+  return {
+    ...candidate,
+    owner_backend_node_id: liveOwner,
+    calendar_scope_backend_node_id: liveScope,
+    member_backend_node_ids: members,
+    frozen_by_live: frozenByLive,
+  };
+}
+
 // A remounted previous tab stop also detaches the candidate: its entry probe
 // would otherwise focus a stale node and skip an intact widget.
 async function candidateDetached(client, executionContextId, candidate) {
@@ -3212,6 +3311,9 @@ async function probeCompositeCandidate(
   frozenNode,
   ownedPopups
 ) {
+  const calendarTargets = candidate.calendar_days
+    ? new Set(Object.keys(candidate.calendar_days).map(Number))
+    : null;
   for (const originalEntryBackendNodeId of candidate.entry_backend_node_ids) {
     let entryBackendNodeId = originalEntryBackendNodeId;
     let liveCandidate = candidate;
@@ -3290,11 +3392,11 @@ async function probeCompositeCandidate(
         try {
           // Owned popups continue from native reopening and preceding arrows.
           // Resetting to the frozen owner can invent an unreachable entry path.
-          if (!candidate.popup_requires_owned_reentry)
+          if (!candidate.popup_requires_owned_reentry && candidate.owner_role !== "grid")
             await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
           let state = await compositeFocusState(client, executionContextId, liveCandidate);
           let previous = focusedCompositeMember(state, liveCandidate, members);
-          for (let step = 0; step < members.size; step += 1) {
+          for (let step = 0; step < (calendarTargets?.size ?? members.size); step += 1) {
             if (liveCandidate.calendar_days) {
               const frozen = liveCandidate.frozen_by_live?.get(previous) ?? previous;
               const day = liveCandidate.calendar_days[frozen];
@@ -3305,8 +3407,8 @@ async function probeCompositeCandidate(
                 ArrowDown: 7,
                 ArrowUp: -7,
               }[key];
-              // Do not navigate into a different month and replace frozen
-              // members. Only actual arrows within the retained range count.
+              // Stay within the frozen date range. Native month replacements
+              // inside that range require a separately verified identity map.
               if (
                 !Number.isFinite(day) ||
                 day + delta < liveCandidate.calendar_min_day ||
@@ -3323,8 +3425,27 @@ async function probeCompositeCandidate(
               // the first protocol response as the completed interaction.
               const deadline = Date.now() + 250;
               do {
-                state = await compositeFocusState(client, executionContextId, liveCandidate);
-                current = focusedCompositeMember(state, liveCandidate, members);
+                try {
+                  state = await compositeFocusState(client, executionContextId, liveCandidate);
+                  current = focusedCompositeMember(state, liveCandidate, members);
+                } catch (error) {
+                  if (!calendarTargets) throw error;
+                  current = null;
+                }
+                if (current === null && calendarTargets) {
+                  const replacement = await remapCalendarCandidate(
+                    client,
+                    executionContextId,
+                    liveCandidate,
+                    frozenNode
+                  ).catch(() => null);
+                  if (replacement) {
+                    liveCandidate = replacement;
+                    members = new Set(replacement.member_backend_node_ids);
+                    state = await compositeFocusState(client, executionContextId, liveCandidate);
+                    current = focusedCompositeMember(state, liveCandidate, members);
+                  }
+                }
                 if (current !== null && current !== previous) break;
                 if (Date.now() >= deadline) break;
                 await sleep(10);
@@ -3335,6 +3456,16 @@ async function probeCompositeCandidate(
               }
             }
             if (current === null) break;
+            if (calendarTargets) {
+              const original = liveCandidate.frozen_by_live?.get(current) ?? current;
+              const scope = liveCandidate.calendar_scope_backend_node_id;
+              const originalScope = liveCandidate.frozen_by_live?.get(scope) ?? scope;
+              if (
+                axIdentity(await liveAxNode(client, current)) !== frozenNode(original)?.identity ||
+                axIdentity(await liveAxNode(client, scope)) !== frozenNode(originalScope)?.identity
+              )
+                break;
+            }
             if (current === previous) {
               // Native Tab entry already exposes an active sole member. At the
               // end of a one-item list, an arrow may correctly leave it in place.
@@ -3349,7 +3480,7 @@ async function probeCompositeCandidate(
           // A detached or replaced widget cannot certify the frozen control rows.
         }
         if (
-          [...members].every((member) =>
+          [...(calendarTargets ?? members)].every((member) =>
             observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
           )
         )
