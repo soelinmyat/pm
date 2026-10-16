@@ -467,6 +467,15 @@ omission, an in-scope claim, or relabeling them as a restorable dependency canno
 substitute for trusted product direction. Preserve the original report and rows
 through restoration or a separately approved product decision.
 
+An authenticated nonpassing predecessor may retain native audit checks whose
+original boolean value is false. This records its failure; it does not convert
+the earlier audit to a pass. Historical evidence must match the exact entry in
+that predecessor's bound capture manifest and retain its raw-probe hashes,
+deterministic normalization, native observation bindings and reviewer history.
+Only recursive frozen validation applies this rule; a caller flag or a blocked
+label cannot exempt a current audit. Every active audit still requires all of
+its checks to pass, including after recovery.
+
 Continue authorized scoped repair with a fresh Primary/Fresh Eyes pair and
 strict capture/manifest/receipt chronology. Preserve the aggregate 2,000-capture,
 JSON/file/cache budgets and 50-round resource ceiling; report an actual resource
