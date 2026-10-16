@@ -9,6 +9,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { pendingRequestsReady } = require("./lib/capture-loading-readiness");
 const { validateCaptureActions } = require("./design-critique-capture");
+const { dateGridButtons } = require("./lib/design-critique-date-grid");
 
 const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
@@ -444,6 +445,7 @@ function tabIndexForNode(node, properties) {
 }
 
 const COMPOSITE_OWNER_ROLES = Object.freeze({
+  button: new Set(["grid"]),
   menuitem: new Set(["menu", "menubar"]),
   menuitemcheckbox: new Set(["menu", "menubar"]),
   menuitemradio: new Set(["menu", "menubar"]),
@@ -452,6 +454,7 @@ const COMPOSITE_OWNER_ROLES = Object.freeze({
   tab: new Set(["tablist"]),
 });
 const COMPOSITE_ARROW_KEYS = Object.freeze({
+  grid: Object.freeze(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]),
   combobox: Object.freeze(["ArrowDown", "ArrowUp"]),
   listbox: Object.freeze(["ArrowDown", "ArrowUp"]),
   menu: Object.freeze(["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"]),
@@ -495,13 +498,25 @@ function compositeOwnerForNode(axNode, role, byAxId, listboxOwners) {
   const ownerRoles = COMPOSITE_OWNER_ROLES[role];
   if (!ownerRoles) return null;
   const visited = new Set();
+  let gridCell = false;
+  let gridRow = false;
   let parentId = axNode.parentId;
   while (parentId && !visited.has(parentId)) {
     visited.add(parentId);
     const parent = byAxId.get(parentId);
     if (!parent) return null;
     const parentRole = String(valueOf(parent.role) || "").toLowerCase();
+    if (role === "button") {
+      if (parentRole === "gridcell") {
+        if (gridCell || gridRow) return null;
+        gridCell = true;
+      } else if (parentRole === "row") {
+        if (!gridCell || gridRow) return null;
+        gridRow = true;
+      }
+    }
     if (ownerRoles.has(parentRole)) {
+      if (role === "button" && (!gridCell || !gridRow)) return null;
       // Editable comboboxes retain DOM focus on the input while their options
       // live in a separate popup. AX controls identifies that owner; actual
       // Tab and arrow events below must still prove every reachable option.
@@ -642,7 +657,7 @@ function frozenCompositeNodes(axTree, model) {
       const elementPath = frozenElementPath(model, byIndex);
       lookup = (id) => {
         const node = byBackendId.get(id);
-        const path = node ? elementPath(node) : null;
+        const path = node ? (node.nodeName === "#document" ? [] : elementPath(node)) : null;
         return path ? { path, identity: axIdentity(axByBackendId.get(id)) } : null;
       };
     }
@@ -650,7 +665,29 @@ function frozenCompositeNodes(axTree, model) {
   };
 }
 
-function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()) {
+function calendarScope(owner, byAxId) {
+  const seen = new Set();
+  let parent = byAxId.get(owner.parentId);
+  while (parent && !seen.has(parent.nodeId)) {
+    seen.add(parent.nodeId);
+    const role = String(valueOf(parent.role) || "").toLowerCase();
+    if (
+      ["dialog", "alertdialog", "main", "region", "complementary", "rootwebarea"].includes(role) &&
+      (["main", "rootwebarea"].includes(role) || String(valueOf(parent.name) || "").trim())
+    )
+      return parent;
+    parent = byAxId.get(parent.parentId);
+  }
+  return null;
+}
+
+function compositeKeyboardCandidates(
+  axTree,
+  model,
+  ownedPopupScopes = new Set(),
+  computedStyles = []
+) {
+  const dates = dateGridButtons(model);
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -666,8 +703,11 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
   const listboxOwners = controlledListboxOwners(axTree);
   for (const axNode of axTree.nodes || []) {
     const role = String(valueOf(axNode.role) || "").toLowerCase();
+    const calendar = dates.get(axNode.backendDOMNodeId);
+    if (role === "button" && !calendar) continue;
     const owner = compositeOwnerForNode(axNode, role, byAxId, listboxOwners);
     if (!owner) continue;
+    if (role === "button" && owner.backendDOMNodeId !== calendar.grid.backendNodeId) continue;
     const node = byBackendId.get(axNode.backendDOMNodeId);
     if (
       !node ||
@@ -686,9 +726,17 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
     }
     const group = groups.get(owner.nodeId);
     const properties = axProperties(axNode);
-    if (["menu", "listbox"].includes(group.owner_role) && disabledControl(node, properties))
+    if (["menu", "listbox", "grid"].includes(group.owner_role) && disabledControl(node, properties))
       continue;
     group.member_backend_node_ids.push(node.backendNodeId);
+    if (group.owner_role === "grid") {
+      group.calendar_days ??= {};
+      group.calendar_days[node.backendNodeId] = calendar.day;
+      group.calendar_scope_backend_node_id = calendarScope(owner, byAxId)?.backendDOMNodeId ?? null;
+      group.calendar_computed_styles = computedStyles;
+      group.calendar_rtl =
+        calendar.grid.layout?.styles?.[computedStyles.indexOf("direction")] === "rtl";
+    }
     if (selectionState(role, properties) === true)
       group.selected_backend_node_ids.push(node.backendNodeId);
     if (
@@ -777,6 +825,11 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
   const candidates = [];
   for (const group of groups.values()) {
     group.member_backend_node_ids = [...new Set(group.member_backend_node_ids)];
+    if (group.calendar_days) {
+      const days = Object.values(group.calendar_days);
+      group.calendar_min_day = Math.min(...days);
+      group.calendar_max_day = Math.max(...days);
+    }
     group.entry_backend_node_ids = [...new Set(group.entry_backend_node_ids)];
     for (const backendNodeId of group.entry_backend_node_ids) {
       const probe = entryProbes.get(backendNodeId);
@@ -1996,7 +2049,7 @@ function normalizedClassTokens(node) {
   ].sort();
 }
 
-function declaredComponentVariantIdentity(node, groupName, focused = false) {
+function declaredComponentVariantIdentity(node, groupName, focused = false, currentDate = null) {
   const component = String(node.attributes["data-component"] || "").trim() || null;
   const variant = String(node.attributes["data-variant"] || "").trim() || null;
   const inputType =
@@ -2052,7 +2105,15 @@ function declaredComponentVariantIdentity(node, groupName, focused = false) {
   const isButton = role === "button" || (!role && node.nodeName === "button");
   const pressed =
     isButton && ["true", "false", "mixed"].includes(pressedValue) ? pressedValue : null;
-  const nativeState = { input_type: inputType, disabled, selected, checked, pressed, focused };
+  const nativeState = {
+    input_type: inputType,
+    disabled,
+    selected,
+    checked,
+    pressed,
+    focused,
+    current_date: currentDate,
+  };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -2150,6 +2211,21 @@ function domObservations(
   };
   const byIndex = new Map(model.map((node) => [node.index, node]));
   const nearestRegion = new Map();
+  const calendarDates = dateGridButtons(model);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const currentCalendarDate = (node) => {
+    const entry = calendarDates.get(node.backendNodeId);
+    if (!entry) return null;
+    // A data flag alone cannot exempt a control from consistency checks.
+    // Its semantic grid/cell date must independently match the capture day.
+    return (
+      entry.isoDate === today &&
+      (entry.cell.attributes["data-today"] === "true" ||
+        entry.cell.attributes["aria-current"] === "date" ||
+        entry.button.attributes["aria-current"] === "date")
+    );
+  };
   const resolveRegion = (start) => {
     const trail = [];
     const seen = new Set();
@@ -2517,7 +2593,8 @@ function domObservations(
           : declaredComponentVariantIdentity(
               node,
               group.name,
-              focusedBackendNodeIds.has(node.backendNodeId)
+              focusedBackendNodeIds.has(node.backendNodeId),
+              currentCalendarDate(node)
             );
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
@@ -2656,6 +2733,9 @@ function domObservations(
   };
   for (const parent of visibleNodes.filter(alignmentParent)) {
     const children = (byParent.get(parent.index) || []).filter((node) => {
+      // Positioned overlays do not participate in their parent's normal flow.
+      // Relative and sticky children still do, as do unknown position values.
+      if (["absolute", "fixed"].includes(style(node, "position"))) return false;
       const intersection = visibleIntersections.get(node);
       return (
         intersection.right - intersection.left >= 8 && intersection.bottom - intersection.top >= 8
@@ -2857,9 +2937,17 @@ async function entryHasDocumentKeyboardReach(
   budget,
   memberBackendNodeIds = new Set(),
   ownerBackendNodeId = entryBackendNodeId,
-  observedEntryMembers = new Set()
+  observedEntryMembers = new Set(),
+  requireExitAndReturn = false
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
+  const focusInsideLiveOwner = () =>
+    callOnNode(
+      client,
+      executionContextId,
+      ownerBackendNodeId,
+      "function () { return this.isConnected ? this.contains(this.ownerDocument.activeElement) : null; }"
+    );
   // Keep a conditional popup alive while proving its native exit/return.
   // An outside predecessor can dismiss it before its entry node is tested.
   const firstLeave = entryProbe?.preferred_exit_modifiers === 8 ? 8 : 0;
@@ -2873,13 +2961,21 @@ async function entryHasDocumentKeyboardReach(
     if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
     const departed = await focusedBackendNodeId(client, executionContextId);
     if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
+    // Frozen date coverage may omit newly displayed dates. Only a native
+    // focus outside the complete live grid establishes document departure.
+    if (requireExitAndReturn && (await focusInsideLiveOwner()) !== false) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
     const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) {
+    if (
+      returnedFocus === entryBackendNodeId ||
+      groupBackendNodeIds.has(returnedFocus) ||
+      (requireExitAndReturn && (await focusInsideLiveOwner()) === true)
+    ) {
       if (memberBackendNodeIds.has(returnedFocus)) observedEntryMembers.add(returnedFocus);
       return true;
     }
   }
+  if (requireExitAndReturn) return false;
   if (
     entryProbe &&
     entryProbe.from_backend_node_id !== entryBackendNodeId &&
@@ -3031,6 +3127,89 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
   };
 }
 
+async function remapCalendarCandidate(client, contextId, candidate, frozenNode) {
+  const originalId = (id) => candidate.frozen_by_live?.get(id) ?? id;
+  const ownerId = originalId(candidate.owner_backend_node_id);
+  const scopeId = originalId(candidate.calendar_scope_backend_node_id);
+  const owner = frozenNode(ownerId);
+  const scope = frozenNode(scopeId);
+  if (!owner?.path || !scope?.path || !scope.identity) return null;
+  const resolve = await liveElementResolver(client);
+  const liveOwner = resolve(owner.path);
+  const liveScope = resolve(scope.path);
+  if (liveOwner === null || liveScope === null) return null;
+  const styles = candidate.calendar_computed_styles;
+  const [snapshot, axTree, metrics] = await Promise.all([
+    client.send("DOMSnapshot.captureSnapshot", { computedStyles: styles }),
+    client.send("Accessibility.getFullAXTree"),
+    client.send("Page.getLayoutMetrics"),
+  ]);
+  const axById = new Map(axTree.nodes.map((node) => [node.nodeId, node]));
+  const axByBackend = new Map(
+    axTree.nodes.filter((node) => !node.ignored).map((node) => [node.backendDOMNodeId, node])
+  );
+  const liveGrid = axByBackend.get(liveOwner);
+  if (
+    String(valueOf(liveGrid?.role) || "").toLowerCase() !== "grid" ||
+    axIdentity(axByBackend.get(liveScope)) !== scope.identity
+  )
+    return null;
+  const visited = new Set();
+  let ancestor = liveGrid;
+  while (ancestor && ancestor.backendDOMNodeId !== liveScope && !visited.has(ancestor.nodeId)) {
+    visited.add(ancestor.nodeId);
+    ancestor = axById.get(ancestor.parentId);
+  }
+  if (ancestor?.backendDOMNodeId !== liveScope) return null;
+  const model = snapshotNodeModel(snapshot);
+  const styleIndex = new Map(styles.map((name, index) => [name, index]));
+  const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
+  const visibility = createVisibilityEvaluator(model, style, metrics);
+  const frozenByDay = new Map(
+    Object.entries(candidate.calendar_days).map(([id, day]) => [day, Number(id)])
+  );
+  const frozenByLive = new Map([
+    [liveOwner, ownerId],
+    [liveScope, scopeId],
+  ]);
+  const members = [];
+  const liveDates = dateGridButtons(model);
+  for (const entry of liveDates.values()) {
+    if (entry.grid.backendNodeId !== liveOwner || !frozenByDay.has(entry.day)) continue;
+    const prior = frozenByDay.get(entry.day);
+    const live = axByBackend.get(entry.button.backendNodeId);
+    if (
+      !live ||
+      axIdentity(live) !== frozenNode(prior)?.identity ||
+      disabledControl(entry.button, axProperties(live))
+    )
+      return null;
+    if (!visibility(entry.button)) continue;
+    members.push(entry.button.backendNodeId);
+    frozenByLive.set(entry.button.backendNodeId, prior);
+  }
+  const liveCandidate = { ...candidate, owner_backend_node_id: liveOwner };
+  const state = await compositeFocusState(client, contextId, liveCandidate);
+  const focused = focusedCompositeMember(state, liveCandidate, new Set(members));
+  if (focused === null) return null;
+  const focusedNode = liveDates.get(focused).button;
+  await verifyAssertionHitTargets(
+    client,
+    [{ node: focusedNode, label: "remounted date focus" }],
+    model,
+    style,
+    metrics,
+    visibility
+  );
+  return {
+    ...candidate,
+    owner_backend_node_id: liveOwner,
+    calendar_scope_backend_node_id: liveScope,
+    member_backend_node_ids: members,
+    frozen_by_live: frozenByLive,
+  };
+}
+
 // A remounted previous tab stop also detaches the candidate: its entry probe
 // would otherwise focus a stale node and skip an intact widget.
 async function candidateDetached(client, executionContextId, candidate) {
@@ -3144,10 +3323,16 @@ async function probeCompositeCandidate(
   executionContextId,
   candidate,
   budget,
-  observed,
+  observedGlobal,
   frozenNode,
   ownedPopups
 ) {
+  const calendarTargets = candidate.calendar_days
+    ? new Set(Object.keys(candidate.calendar_days).map(Number))
+    : null;
+  // Reaching dates is provisional until the resulting live calendar still
+  // permits a native document exit and return after arrow-driven changes.
+  const observed = calendarTargets ? new Set() : observedGlobal;
   for (const originalEntryBackendNodeId of candidate.entry_backend_node_ids) {
     let entryBackendNodeId = originalEntryBackendNodeId;
     let liveCandidate = candidate;
@@ -3179,7 +3364,8 @@ async function probeCompositeCandidate(
           budget,
           members,
           candidate.owner_backend_node_id,
-          observedEntryMembers
+          observedEntryMembers,
+          candidate.owner_role === "grid"
         );
     } catch {
       continue;
@@ -3225,11 +3411,30 @@ async function probeCompositeCandidate(
         try {
           // Owned popups continue from native reopening and preceding arrows.
           // Resetting to the frozen owner can invent an unreachable entry path.
-          if (!candidate.popup_requires_owned_reentry)
+          if (!candidate.popup_requires_owned_reentry && candidate.owner_role !== "grid")
             await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
           let state = await compositeFocusState(client, executionContextId, liveCandidate);
           let previous = focusedCompositeMember(state, liveCandidate, members);
-          for (let step = 0; step < members.size; step += 1) {
+          for (let step = 0; step < (calendarTargets?.size ?? members.size); step += 1) {
+            if (liveCandidate.calendar_days) {
+              const frozen = liveCandidate.frozen_by_live?.get(previous) ?? previous;
+              const day = liveCandidate.calendar_days[frozen];
+              const horizontal = liveCandidate.calendar_rtl ? -1 : 1;
+              const delta = {
+                ArrowRight: horizontal,
+                ArrowLeft: -horizontal,
+                ArrowDown: 7,
+                ArrowUp: -7,
+              }[key];
+              // Stay within the frozen date range. Native month replacements
+              // inside that range require a separately verified identity map.
+              if (
+                !Number.isFinite(day) ||
+                day + delta < liveCandidate.calendar_min_day ||
+                day + delta > liveCandidate.calendar_max_day
+              )
+                break;
+            }
             await focusObservation.start();
             let current;
             try {
@@ -3239,8 +3444,27 @@ async function probeCompositeCandidate(
               // the first protocol response as the completed interaction.
               const deadline = Date.now() + 250;
               do {
-                state = await compositeFocusState(client, executionContextId, liveCandidate);
-                current = focusedCompositeMember(state, liveCandidate, members);
+                try {
+                  state = await compositeFocusState(client, executionContextId, liveCandidate);
+                  current = focusedCompositeMember(state, liveCandidate, members);
+                } catch (error) {
+                  if (!calendarTargets) throw error;
+                  current = null;
+                }
+                if (current === null && calendarTargets) {
+                  const replacement = await remapCalendarCandidate(
+                    client,
+                    executionContextId,
+                    liveCandidate,
+                    frozenNode
+                  ).catch(() => null);
+                  if (replacement) {
+                    liveCandidate = replacement;
+                    members = new Set(replacement.member_backend_node_ids);
+                    state = await compositeFocusState(client, executionContextId, liveCandidate);
+                    current = focusedCompositeMember(state, liveCandidate, members);
+                  }
+                }
                 if (current !== null && current !== previous) break;
                 if (Date.now() >= deadline) break;
                 await sleep(10);
@@ -3251,6 +3475,23 @@ async function probeCompositeCandidate(
               }
             }
             if (current === null) break;
+            if (calendarTargets) {
+              const original = liveCandidate.frozen_by_live?.get(current) ?? current;
+              const scope = liveCandidate.calendar_scope_backend_node_id;
+              const originalScope = liveCandidate.frozen_by_live?.get(scope) ?? scope;
+              const owner = liveCandidate.owner_backend_node_id;
+              const originalOwner = liveCandidate.frozen_by_live?.get(owner) ?? owner;
+              if (
+                axIdentity(await liveAxNode(client, current)) !== frozenNode(original)?.identity ||
+                (!liveCandidate.frozen_by_live &&
+                  axIdentity(await liveAxNode(client, owner)) !==
+                    frozenNode(originalOwner)?.identity) ||
+                (scope !== null &&
+                  axIdentity(await liveAxNode(client, scope)) !==
+                    frozenNode(originalScope)?.identity)
+              )
+                break;
+            }
             if (current === previous) {
               // Native Tab entry already exposes an active sole member. At the
               // end of a one-item list, an arrow may correctly leave it in place.
@@ -3265,7 +3506,7 @@ async function probeCompositeCandidate(
           // A detached or replaced widget cannot certify the frozen control rows.
         }
         if (
-          [...members].every((member) =>
+          [...(calendarTargets ?? members)].every((member) =>
             observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
           )
         )
@@ -3273,6 +3514,31 @@ async function probeCompositeCandidate(
       }
     } finally {
       await focusObservation.close();
+    }
+    if (calendarTargets && [...calendarTargets].every((member) => observed.has(member))) {
+      let exitVerified = false;
+      try {
+        const state = await compositeFocusState(client, executionContextId, liveCandidate);
+        const focused = state.focusedBackendNodeId;
+        if (focusedCompositeMember(state, liveCandidate, members) !== null)
+          exitVerified = await entryHasDocumentKeyboardReach(
+            client,
+            executionContextId,
+            focused,
+            null,
+            budget,
+            members,
+            liveCandidate.owner_backend_node_id,
+            new Set(),
+            true
+          );
+      } catch {
+        // A detached state or failed native exit cannot certify these dates.
+      }
+      if (exitVerified) {
+        for (const member of calendarTargets) observedGlobal.add(member);
+        return true;
+      }
     }
     if (
       candidate.popup_requires_owned_reentry &&
@@ -3827,7 +4093,12 @@ async function nativeSample(
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     accessibilityPopupMemberBackendNodeIds: accessibility.popupMemberBackendNodeIds,
     accessibilityPopupOwnerBackendNodeIds: accessibility.popupOwnerBackendNodeIds,
-    compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model, ownedPopupScopes),
+    compositeKeyboardCandidates: compositeKeyboardCandidates(
+      axTree,
+      model,
+      ownedPopupScopes,
+      computedStyles
+    ),
     compositeFrozenNode: frozenCompositeNodes(axTree, model),
     dom: domObservations(
       model,
@@ -4402,6 +4673,7 @@ async function main() {
 
     const computedStyles = [
       "display",
+      "direction",
       "visibility",
       "opacity",
       "font-size",

@@ -74,6 +74,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.13",
   "1.14.14",
   "1.14.15",
+  "1.14.17",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -1248,12 +1249,11 @@ function nativeNamedTextGuards(observation) {
 }
 
 function hasNativeNamedTextChange(root, left, right, observations) {
-  const role =
-    left.coverage.state === "primary"
-      ? "heading"
-      : left.coverage.state === "success"
-        ? "statictext"
-        : null;
+  const role = ["primary", "focus", "keyboard"].includes(left.coverage.state)
+    ? "heading"
+    : left.coverage.state === "success"
+      ? "statictext"
+      : null;
   if (
     !role ||
     left.coverage.state !== right.coverage.state ||
@@ -1270,6 +1270,11 @@ function hasNativeNamedTextChange(root, left, right, observations) {
     !before ||
     !after ||
     !isDeepStrictEqual(before.manifest.page.css_viewport, after.manifest.page.css_viewport)
+  )
+    return false;
+  if (
+    ["focus", "keyboard"].includes(left.coverage.state) &&
+    ![before, after].every((observation) => nativeKeyboardFocusRegions(observation).length > 0)
   )
     return false;
   const afterGuards = nativeNamedTextGuards(after);
@@ -1376,6 +1381,24 @@ function isAlertLocator(locator) {
   return separator >= 0 && locator.value.slice(0, separator).trim().toLowerCase() === "alert";
 }
 
+function nativeKeyboardFocusRegions(observation) {
+  const assertion = observation.assertion;
+  if (!assertion?.before_capture?.some((action) => action.kind === "tab" && action.count > 0))
+    return [];
+  const regions = [];
+  for (const clause of assertion.all.filter((item) => item.expect.kind === "focused")) {
+    const index = assertion.all.findIndex(
+      (item) => item.expect.kind === "visible" && isDeepStrictEqual(item.locator, clause.locator)
+    );
+    if (index < 0) continue;
+    const point = observation.manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === `state assertion clause ${index + 1}`
+    );
+    if (point?.focus_indicator_regions?.length >= 2) regions.push(point.focus_indicator_regions);
+  }
+  return regions;
+}
+
 // A native focus indicator can be much smaller than a viewport tile. Inspect a
 // native bounds of the hit-tested focused control and its bounded outline instead.
 // This is only a visual-distance fallback: all receipt, focus, audit and pixel
@@ -1399,24 +1422,9 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
   for (const side of [left, right]) {
     if (!["focus", "keyboard"].includes(side.coverage.state)) continue;
     const observation = observations.get(side.capture.id);
-    const assertion = observation.assertion;
-    if (!assertion?.before_capture?.some((action) => action.kind === "tab" && action.count > 0))
-      continue;
-    const focused = assertion.all.filter((clause) => clause.expect.kind === "focused");
-    for (const clause of focused) {
-      const index = assertion.all.findIndex(
-        (candidate) =>
-          candidate.expect.kind === "visible" &&
-          isDeepStrictEqual(candidate.locator, clause.locator)
-      );
-      if (index < 0) continue;
-      const point = observation.manifest.page.state_assertion.visibility.checks.find(
-        (check) => check.label === `state assertion clause ${index + 1}`
-      );
-      // Legacy hit-point-only receipts remain valid, but cannot grant this
-      // fallback: geometry must have been measured by the native producer.
-      const regions = point?.focus_indicator_regions;
-      if (!regions || regions.length < 2) continue;
+    // Legacy hit-point-only receipts remain valid, but cannot grant a local
+    // visual fallback without measured native focus-indicator geometry.
+    for (const regions of nativeKeyboardFocusRegions(observation)) {
       try {
         const before = readBoundFile(root, left.capture.path, "focus comparison", []);
         const after = readBoundFile(root, right.capture.path, "focus comparison", []);

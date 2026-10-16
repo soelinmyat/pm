@@ -4713,6 +4713,419 @@ for (const round of [1, 2, 50]) {
     assert.equal(prepareCapturePlan(route(), `${base}/route.json`, options).round, round);
   });
 }
+function dateGridFixture(variant = "working", todayBorder = false) {
+  const fixture = createBrowserFixture();
+  const now = new Date();
+  const start = Date.UTC(now.getFullYear(), now.getMonth(), 1);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const disabled = variant === "disabled" ? [7, 24] : [];
+  const cells = Array.from({ length: 35 }, (_, index) => {
+    const dateIndex = variant === "duplicate-date" && index === 17 ? 16 : index;
+    const date = new Date(start + dateIndex * 86400000).toISOString().slice(0, 10);
+    return `<td role="${variant === "missing-cell" ? "group" : "gridcell"}" data-day="${date}"${date === today ? ' data-today="true"' : ""} style="padding:0"><button id="date-${index}" class="date-button" tabindex="${variant !== "no-entry" && index === 15 ? 0 : -1}" aria-label="Choose ${date}"${disabled.includes(index) ? " disabled" : ""} style="padding:0;width:28px;height:28px;${todayBorder && date === today ? "border:1px solid gray;" : ""}">${Number(date.slice(-2))}</button></td>`;
+  });
+  const rows = Array.from(
+    { length: 5 },
+    (_, index) => `<tr role="row">${cells.slice(index * 7, index * 7 + 7).join("")}</tr>`
+  ).join("");
+  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];let moved=false;grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&(${JSON.stringify(variant === "trap")}||(${JSON.stringify(["trap-after-arrow", "active-descendant-trap"].includes(variant))}&&moved))){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();moved=true;});}</script>`;
+  const content = `<h1>Account overview</h1><button>Before calendar</button><table id="date-grid" role="grid" aria-label="Choose a date" dir="${variant === "rtl" ? "rtl" : "ltr"}" style="border-collapse:collapse;margin:16px 0"><tbody role="rowgroup">${rows}</tbody></table><button>Save changes</button>${script}`;
+  let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+  html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${content}</main>`);
+  if (["active-descendant", "active-descendant-trap"].includes(variant)) {
+    html = html.replaceAll('tabindex="0"', 'tabindex="-1"');
+    html = html.replace(
+      'id="date-grid" role="grid"',
+      'id="date-grid" role="grid" tabindex="0" aria-activedescendant="date-15"'
+    );
+    html = html.replace(
+      "buttons.indexOf(document.activeElement)",
+      'buttons.findIndex(button=>button.id===grid.getAttribute("aria-activedescendant"))'
+    );
+    html = html.replace(
+      "buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();",
+      'grid.setAttribute("aria-activedescendant",buttons[next].id);'
+    );
+  }
+  if (["body-portal", "complementary-portal"].includes(variant)) {
+    const portal = content.replace("<h1>Account overview</h1>", "");
+    const outside =
+      variant === "complementary-portal"
+        ? `<aside aria-label="Date filter">${portal}</aside>`
+        : portal;
+    html = html.replace(
+      /(<main[^>]*>)[\s\S]*?<\/main>/,
+      `$1<h1>Account overview</h1></main>${outside}`
+    );
+  }
+  fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return fixture;
+}
+
+for (const variant of [
+  "working",
+  "rtl",
+  "disabled",
+  "month-boundary",
+  "static",
+  "no-entry",
+  "trap",
+  "trap-after-arrow",
+  "active-descendant",
+  "active-descendant-trap",
+  "unreachable",
+  "missing-cell",
+  "duplicate-date",
+  "body-portal",
+  "complementary-portal",
+]) {
+  test(
+    `native date grid proves document entry and arrow reach: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = dateGridFixture(variant);
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "accessibility-tree",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.accessibility_observations,
+          },
+          { path: ".pm/test/date-grid-a11y.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(
+          audit.checks.focus_order,
+          [
+            "working",
+            "rtl",
+            "disabled",
+            "month-boundary",
+            "body-portal",
+            "complementary-portal",
+            "active-descendant",
+          ].includes(variant),
+          JSON.stringify(audit.findings)
+        );
+        assert.equal(
+          result.accessibility_observations.controls.filter((node) =>
+            node.locator.startsWith("button#date-")
+          ).length,
+          35
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+function remountingDateGridFixture(variant) {
+  const fixture = dateGridFixture(
+    variant.startsWith("active-descendant-remount")
+      ? "active-descendant"
+      : ["body-portal", "complementary-portal"].includes(variant)
+        ? variant
+        : "working"
+  );
+  const install = function (mode, document) {
+    const ownerFocused = mode.startsWith("active-descendant-remount");
+    const initial = document.querySelector("#date-grid");
+    initial.dir = [
+      "rtl",
+      "persistent-grid-rtl",
+      "cycle-after-remount",
+      "active-descendant-remount-rtl",
+    ].includes(mode)
+      ? "rtl"
+      : "ltr";
+    initial.dataset.month = initial.querySelector("[data-day]").dataset.day.slice(0, 7);
+    const frozenLastDate = [...initial.querySelectorAll("[data-day]")].at(-1).dataset.day;
+    document.addEventListener("keydown", (event) => {
+      const eventGrid = event.target.closest?.("#date-grid");
+      const button =
+        ownerFocused && eventGrid
+          ? [...eventGrid.querySelectorAll("button")].find(
+              (day) => day.id === eventGrid.getAttribute("aria-activedescendant")
+            )
+          : event.target.closest?.("#date-grid button");
+      if (!button) return;
+      let grid = button.closest("[role=grid]");
+      if (event.key === "Tab" && mode === "cycle-after-remount" && grid.dataset.remounted) {
+        event.preventDefault();
+        const outsideDate = new Date(Date.parse(frozenLastDate + "T00:00:00.000Z") + 86400000)
+          .toISOString()
+          .slice(0, 10);
+        const date =
+          button.closest("[data-day]").dataset.day === frozenLastDate
+            ? outsideDate
+            : frozenLastDate;
+        grid.querySelector(`[data-day="${date}"] button`)?.focus();
+        return;
+      }
+      if (
+        event.key === "Tab" &&
+        ["trap-after-remount", "active-descendant-remount-trap"].includes(mode) &&
+        grid.dataset.remounted
+      ) {
+        event.preventDefault();
+        return;
+      }
+      const horizontal = grid.dir === "rtl" ? -1 : 1;
+      const delta = { ArrowRight: horizontal, ArrowLeft: -horizontal, ArrowDown: 7, ArrowUp: -7 }[
+        event.key
+      ];
+      if (!delta) return;
+      event.preventDefault();
+      const current = Date.parse(button.closest("[data-day]").dataset.day + "T00:00:00.000Z");
+      const target = new Date(current + delta * 86400000).toISOString().slice(0, 10);
+      if (target.slice(0, 7) !== grid.dataset.month) {
+        const next = grid.cloneNode(false);
+        next.dataset.month = target.slice(0, 7);
+        next.dataset.remounted = "true";
+        next.setAttribute("aria-label", "Choose a date " + target.slice(0, 7));
+        const first = Date.parse(target.slice(0, 7) + "-01T00:00:00.000Z");
+        const body = document.createElement("tbody");
+        body.setAttribute("role", "rowgroup");
+        for (let row = 0; row < 5; row++) {
+          const tr = document.createElement("tr");
+          tr.setAttribute("role", "row");
+          for (let column = 0; column < 7; column++) {
+            const index = row * 7 + column;
+            const date = new Date(first + index * 86400000).toISOString().slice(0, 10);
+            const td = document.createElement("td");
+            td.setAttribute("role", "gridcell");
+            td.dataset.day =
+              mode === "duplicate" && index === 1 ? target.slice(0, 7) + "-01" : date;
+            td.style.padding = "0";
+            const day = document.createElement("button");
+            day.id = "date-" + index;
+            day.className = "date-button";
+            day.tabIndex = -1;
+            day.setAttribute("aria-label", (mode === "renamed" ? "Unrelated " : "Choose ") + date);
+            day.textContent = String(Number(date.slice(-2)));
+            day.style.cssText = "padding:0;width:28px;height:28px";
+            td.append(day);
+            tr.append(td);
+          }
+          body.append(tr);
+        }
+        next.append(body);
+        if (mode === "hidden") next.style.opacity = "0";
+        if (mode === "covered") {
+          const cover = document.createElement("div");
+          cover.style.cssText = "position:fixed;inset:0;background:black;z-index:999999";
+          document.body.append(cover);
+        }
+        if (mode === "foreign-scope")
+          document.querySelector("main").setAttribute("aria-label", "Another calendar owner");
+        if (mode === "foreign-slot") grid.before(document.createElement("div"));
+        if (ownerFocused || ["persistent-grid", "persistent-grid-rtl"].includes(mode)) {
+          grid.replaceChildren(...next.childNodes);
+          grid.dataset.month = next.dataset.month;
+          grid.dataset.remounted = next.dataset.remounted;
+          grid.setAttribute("aria-label", next.getAttribute("aria-label"));
+        } else {
+          grid.replaceWith(next);
+          grid = next;
+        }
+      }
+      const selected = grid.querySelector(`[data-day="${target}"] button`);
+      if (!selected) return;
+      if (ownerFocused) {
+        grid.querySelectorAll("button").forEach((day) => (day.tabIndex = -1));
+        grid.setAttribute(
+          "aria-activedescendant",
+          mode === "active-descendant-remount-invalid" && grid.dataset.remounted
+            ? "missing-date"
+            : selected.id
+        );
+        grid.focus();
+        return;
+      }
+      grid.querySelectorAll("button").forEach((day) => (day.tabIndex = day === selected ? 0 : -1));
+      selected.focus();
+    });
+  };
+  let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+  html = html.replace('<main id="account"', '<main aria-label="Calendar owner" id="account"');
+  html = html.replace(
+    /<script>[\s\S]*?<\/script>/,
+    `<script>(${install.toString()})(${JSON.stringify(variant)},document)</script>`
+  );
+  fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return fixture;
+}
+
+for (const variant of [
+  "working",
+  "rtl",
+  "persistent-grid",
+  "persistent-grid-rtl",
+  "active-descendant-remount",
+  "active-descendant-remount-rtl",
+  "active-descendant-remount-trap",
+  "active-descendant-remount-invalid",
+  "body-portal",
+  "complementary-portal",
+  "renamed",
+  "foreign-scope",
+  "duplicate",
+  "foreign-slot",
+  "trap-after-remount",
+  "cycle-after-remount",
+  "hidden",
+  "covered",
+]) {
+  test(
+    `native date grid follows verified month replacements: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = remountingDateGridFixture(variant);
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "accessibility-tree",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.accessibility_observations,
+          },
+          { path: ".pm/test/date-remount-raw.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(
+          audit.checks.focus_order,
+          [
+            "working",
+            "rtl",
+            "persistent-grid",
+            "persistent-grid-rtl",
+            "active-descendant-remount",
+            "active-descendant-remount-rtl",
+            "body-portal",
+            "complementary-portal",
+          ].includes(variant),
+          JSON.stringify(audit.findings)
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const variant of [
+  "today",
+  "no-grid",
+  "missing-row",
+  "duplicate-date",
+  "data-only",
+  "wrong-date",
+  "ordinary-drift",
+]) {
+  test(
+    `native calendar Today styling requires dated semantic ownership: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = dateGridFixture(
+        variant === "duplicate-date" ? variant : "working",
+        !["data-only", "wrong-date"].includes(variant)
+      );
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      if (["no-grid", "data-only"].includes(variant))
+        html = html.replace('role="grid"', 'role="group"');
+      if (variant === "missing-row") html = html.replaceAll('role="row"', 'role="group"');
+      if (["data-only", "wrong-date", "ordinary-drift"].includes(variant)) {
+        const index = new Date().getDate() === 1 ? 1 : 0;
+        html = html.replace(
+          new RegExp(`(<button id="date-${index}"[^>]*style=")`),
+          "$1border:2px solid red;"
+        );
+        if (variant === "data-only")
+          html = html.replace(`id="date-${index}"`, `id="date-${index}" data-today="true"`);
+        if (variant === "wrong-date")
+          html = html.replace(
+            new RegExp(`(<td[^>]*)(><button id="date-${index}")`),
+            '$1 data-today="true"$2'
+          );
+      }
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "dom-audit",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.dom_observations,
+          },
+          { path: ".pm/test/date-grid-dom.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(audit.checks.consistency, variant === "today", JSON.stringify(audit.findings));
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const position of ["absolute", "fixed", "static", "relative", "sticky", ""]) {
+  test(
+    `native stacked flow keeps ${position || "implicit static"} controls in their CSS flow`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture();
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      const sheet = `<h1>Account overview</h1><div class="sheet-panel" style="position:relative;width:360px;padding:16px"><button class="sheet-close" style="${position ? `position:${position};` : ""}right:16px;top:16px;width:44px;height:44px;padding:0">Close</button><div style="height:60px">Header</div><div style="height:60px">Body</div><div style="height:60px"><button>Save changes</button></div></div>`;
+      html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${sheet}</main>`);
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      try {
+        const result = runBrowserCapture(fixture);
+        const closeIssues = result.dom_observations.edge_alignment.filter(
+          (item) => item.code === "stacked-sibling-edge" && item.locator.includes("sheet-close")
+        );
+        assert.equal(
+          closeIssues.length > 0,
+          !["absolute", "fixed"].includes(position),
+          JSON.stringify(closeIssues)
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+test(
+  "native stacked flow retains actual row drift beside an absolute close control",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const sheet =
+      '<h1>Account overview</h1><div class="sheet-panel" style="position:relative;width:360px;padding:16px"><button class="sheet-close" style="position:absolute;right:16px;top:16px;width:44px;height:44px;padding:0">Close</button><div id="misaligned-row" style="width:280px;height:60px">Header</div><div style="height:60px">Body</div><div style="height:60px"><button>Save changes</button></div></div>';
+    html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${sheet}</main>`);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.ok(
+        result.dom_observations.edge_alignment.some(
+          (item) => item.code === "stacked-sibling-edge" && item.locator === "div#misaligned-row"
+        )
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
 test("immutable route planning rejects run drift, round drift and budget escape", () => {
   const base = ".pm/dev-sessions/test/design-critique/runs/dc_test_capture/round-1";
   const options = planOptions({

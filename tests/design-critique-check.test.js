@@ -994,6 +994,11 @@ function attachTrustedCaptureObservation(
         ? "Compte"
         : "Account";
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
+    if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
+      assertion.all.push({
+        locator: { by: "role-name", value: "button:Save account" },
+        expect: { kind: "visible" },
+      });
   }
   if (
     pendingButtonProof &&
@@ -1147,6 +1152,15 @@ function attachTrustedCaptureObservation(
   }
   if (namedTextProof) {
     const check = assertionVisibility.checks[1];
+    if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state)) {
+      assertionVisibility.verified_nodes++;
+      assertionVisibility.checks.push({
+        ...structuredClone(check),
+        label: "state assertion clause 3",
+        asserted_backend_node_id: 3,
+        hit_backend_node_id: 3,
+      });
+    }
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
     const name = assertion.all[0].locator.value.split(":").slice(1).join(":");
     Object.assign(check, {
@@ -2584,6 +2598,8 @@ function namedTextVariantFixture({
 for (const [state, role] of [
   ["primary", "heading"],
   ["success", "statictext"],
+  ["focus", "heading"],
+  ["keyboard", "heading"],
 ]) {
   test("named " + state + " text variants accept meaningful native " + role + " changes", () => {
     const fixture = namedTextVariantFixture({ state, role });
@@ -2593,6 +2609,38 @@ for (const [state, role] of [
       []
     );
   });
+}
+
+for (const state of ["focus", "keyboard"]) {
+  for (const [proof, pixels] of [
+    ["-same-name", "state-content"],
+    ["-missing-hash", "state-content"],
+    ["-bad-hash", "state-content"],
+    ["-wrong-role", "state-content"],
+    ["-unnamed", "state-content"],
+    ["-moved", "state-content"],
+    ["-height-drift", "state-content"],
+    ["", "pending-idle"],
+    ["", "pending-beacon"],
+    ["", "pending-four-pixel"],
+    ["", "nearby-noise"],
+  ]) {
+    test(`localized ${state} retains named text and material region proof: ${proof}/${pixels}`, () => {
+      const fixture = namedTextVariantFixture({ state, role: "heading", proof, pixels });
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
+  for (const proof of [false, "no-tab", "no-geometry"]) {
+    test(`localized ${state} cannot replace native keyboard focus proof: ${proof}`, () => {
+      const fixture = namedTextVariantFixture({ state, role: "heading" });
+      fixture.nativeFocusProof = proof;
+      refreshTrustedCaptureObservations(fixture);
+      rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+      fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+      rewriteReportAndHtml(fixture);
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
 }
 
 for (const [proof, pixels] of [
@@ -4856,6 +4904,67 @@ test("localized resolved P1 proof rejects a failed before normalized audit", () 
   assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
 });
 
+function upcomingReleaseCaptureFixture() {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  const version = PLUGIN_VERSION.split(".").map(Number);
+  version[2]++;
+  const nextVersion = version.join(".");
+  fixture.producerVersionByCapture = Object.fromEntries(
+    fixture.captures.captures.map((capture) => [
+      capture.id,
+      capture.id === before.id ? "1.14.17" : nextVersion,
+    ])
+  );
+  const refresh = () => {
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const html = path.join(fixture.root, fixture.report.human_report.path);
+    fs.writeFileSync(
+      html,
+      fs
+        .readFileSync(html, "utf8")
+        .replace(`"version":"${PLUGIN_VERSION}"`, `"version":"${nextVersion}"`)
+    );
+  };
+  refresh();
+  const futureChecker = checkerAtCaptureTimeVersion(nextVersion);
+  const run = () =>
+    futureChecker({
+      root: fixture.root,
+      routePath: fixture.routePath,
+      capturesPath: fixture.capturesPath,
+      reportPath: fixture.reportPath,
+      commit: COMMIT,
+      verifyGit: false,
+      verifyBrowser: false,
+    });
+  return { fixture, before, run, refresh };
+}
+
+test("release upgrade retains immutable 1.14.17 before captures", () => {
+  const { fixture, before, run } = upcomingReleaseCaptureFixture();
+  const bytes = fs.readFileSync(path.join(fixture.root, before.observation.path));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, before.observation.path)), bytes);
+});
+
+test("release upgrade still rejects 1.14.17 as an active capture producer", () => {
+  const { fixture, run, refresh } = upcomingReleaseCaptureFixture();
+  const active = fixture.captures.captures.find((capture) => capture.active !== false);
+  fixture.producerVersionByCapture[active.id] = "1.14.17";
+  refresh();
+  const result = run();
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /capture producer/);
+});
+
 test("localized remediation retains an immutable supported 1.14.6 before producer", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
@@ -6672,6 +6781,7 @@ for (const checkpointVersion of [
   "1.14.13",
   "1.14.14",
   "1.14.15",
+  "1.14.17",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
