@@ -493,7 +493,9 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
               observation:
                 coverage.state === "loading"
                   ? `The loading state at the ${coverage.viewport} viewport shows a short dark heading at the upper left of a white page, with a separate small loading indicator centered below and no cards or action controls.`
-                  : `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
+                  : coverage.state === "boundary"
+                    ? `The boundary state at the ${coverage.viewport} viewport retains the heading and card grid while a long record label wraps beside the blue action button at the lower edge.`
+                    : `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
             };
           }),
           findings: [],
@@ -654,8 +656,24 @@ function addRequiredStateCapture(fixture, state, bytes) {
   };
   fixture.captures.captures.push(capture);
   fixture.captures.evidence.push(
-    auditEvidenceFile(fixture.root, `a11y-capture-ui-${state}`, "accessibility-tree", [capture], 2),
-    auditEvidenceFile(fixture.root, `dom-capture-ui-${state}`, "dom-audit", [capture], 2)
+    auditEvidenceFile(
+      fixture.root,
+      `a11y-capture-ui-${state}`,
+      "accessibility-tree",
+      [capture],
+      2,
+      "account-detail",
+      fixture.route.source.commit
+    ),
+    auditEvidenceFile(
+      fixture.root,
+      `dom-capture-ui-${state}`,
+      "dom-audit",
+      [capture],
+      2,
+      "account-detail",
+      fixture.route.source.commit
+    )
   );
   refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
@@ -6769,6 +6787,65 @@ function thirdRecoveryDCFixture(
   return { fixture, base, newCommit, after, git, successfulRecovery };
 }
 
+test("recovery retains failed historical visual distance without passing current failures", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    expectCurrent: false,
+    checkpointExpectedOK: false,
+    mutateCheckpoint(checkpoint) {
+      addRequiredStateCapture(
+        checkpoint,
+        "boundary",
+        validPng(1440, 1000, 21, 0, null, 1, "state-beacon")
+      );
+      checkpoint.report.reason =
+        "The retained boundary state is not visibly distinct from the primary state.";
+      checkpoint.report.top_issue = checkpoint.report.reason;
+    },
+  });
+  fixture.report.outcome = "passed";
+  fixture.report.reason = null;
+  fixture.report.top_issue = "No unresolved design issue.";
+  rewriteReviewsAndReport(fixture);
+  const retained = recoveryDCFiles(fixture.root);
+  const options = { verifyGit: true, baseRef: "origin/main", baseCommit: base };
+  const recovered = check(fixture, newCommit, options);
+  assert.equal(recovered.ok, true, JSON.stringify(recovered.issues));
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+
+  const prior = fixture.reviews.rounds[2].previous_report;
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.root, prior.path)));
+  const priorCaptures = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, checkpoint.captures.path))
+  );
+  const oldImage = priorCaptures.captures.find((capture) => capture.id === "capture-ui-boundary");
+  fs.appendFileSync(path.join(fixture.root, oldImage.path), "tampered");
+  assert.equal(
+    check(fixture, newCommit, options).ok,
+    false,
+    "Historical quality failure must not waive image identity."
+  );
+});
+
+for (const outcome of ["passed", "failed", "blocked"]) {
+  test(`current ${outcome} reports cannot waive visual-distance failures with a history flag`, () => {
+    const fixture = makeFixture();
+    addRequiredStateCapture(
+      fixture,
+      "boundary",
+      validPng(1440, 1000, 0, 0, null, 1, "state-beacon")
+    );
+    fixture.report.outcome = outcome;
+    fixture.report.reason =
+      outcome === "passed" ? null : "Current capture state is not visibly distinct.";
+    fixture.report.top_issue = fixture.report.reason || "No unresolved design issue.";
+    rewriteReviewsAndReport(fixture);
+    const result = check(fixture, COMMIT, { frozenPredecessor: true });
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /materially different decoded pixels/);
+  });
+}
+
 test("recovery retains failed historical native audits without passing current failures", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
     expectCurrent: false,
@@ -6916,6 +6993,7 @@ for (const checkpointVersion of [
   "1.14.17",
   "1.14.18",
   "1.14.19",
+  "1.14.21",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });

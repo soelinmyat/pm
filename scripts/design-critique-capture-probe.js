@@ -2606,6 +2606,8 @@ function domObservations(
       match: (node) => ["input", "select", "textarea"].includes(node.nodeName),
       properties: [
         "height",
+        "min-height",
+        "max-height",
         "padding-top",
         "padding-right",
         "padding-bottom",
@@ -3969,8 +3971,10 @@ async function probeCompositeKeyboardAccess(
 }
 
 // CSSOM height exposes the used pixel value, which varies legitimately when
-// content wraps. Typed OM retains the computed `auto` keyword. Observe that
-// value from the browser, never from a caller-controlled component attribute.
+// content wraps. Typed OM retains the computed `auto` keyword. Textareas also
+// require an explicit native `field-sizing: content`; ordinary rows-based
+// textareas retain used-height checks. Observe these computed values from the
+// browser, never from a caller-controlled component attribute.
 // Unsupported observations conservatively retain the used-height comparison.
 async function observeIntrinsicButtonHeights(client, nodes, frameId) {
   if (nodes.length === 0) return;
@@ -3998,7 +4002,10 @@ async function observeIntrinsicButtonHeights(client, nodes, frameId) {
         functionDeclaration: `function () {
           if (typeof Element.prototype.computedStyleMap !== "function" || typeof CSSKeywordValue !== "function") return false;
           const height = Element.prototype.computedStyleMap.call(this).get("height");
-          return height instanceof CSSKeywordValue && height.value === "auto";
+          if (!(height instanceof CSSKeywordValue) || height.value !== "auto") return false;
+          if (this.localName !== "textarea") return true;
+          const sizing = Element.prototype.computedStyleMap.call(this).get("field-sizing");
+          return sizing instanceof CSSKeywordValue && sizing.value === "content";
         }`,
         returnByValue: true,
         silent: true,
@@ -4072,10 +4079,10 @@ async function nativeSample(
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
   const visibilityEvaluator = createVisibilityEvaluator(model, style, metrics);
-  const sizedButtons = model.filter(
-    (node) => node.nodeName === "button" && visibilityEvaluator(node)
+  const sizedControls = model.filter(
+    (node) => ["button", "textarea"].includes(node.nodeName) && visibilityEvaluator(node)
   );
-  await observeIntrinsicButtonHeights(client, sizedButtons, frameTree.frameTree?.frame?.id);
+  await observeIntrinsicButtonHeights(client, sizedControls, frameTree.frameTree?.frame?.id);
   const hitRequirements = evaluateStateAssertion(
     stateAssertion,
     model,
@@ -4121,7 +4128,7 @@ async function nativeSample(
   }
   return {
     identity,
-    controlSizing: sizedButtons.map((node) => [node.backendNodeId, node.intrinsicHeight]),
+    controlSizing: sizedControls.map((node) => [node.backendNodeId, node.intrinsicHeight]),
     assertionVisibility,
     accessibility: accessibility.observations,
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
