@@ -139,7 +139,7 @@ Repeated native checkbox or switch buttons with entirely graphical descendants c
 
 Current capture planning and managed bundle reads also accept the immutable `.pm/dev-sessions/<slug>/design-critique/runs/<run-id>/round-R/` route directory. Its route run ID, output round, assertion directory and capture `-rR` suffix must agree within the existing scoped recovery round budget; canonical legacy paths retain their limits. Managed member reads still require the branded sibling bundle and complete verified inventory. The canonical gate reads its report's exact route/captures bindings only inside this session's same bounded run/round, then reruns the full checker for schemas, hashes, lineage, native evidence and source identity. A selected path never substitutes for those checks.
 
-For repeated buttons, the collector measures native Typed OM's computed `height: auto` in an isolated world before deriving consistency. This retains legitimate wrapping-driven used-height variation without equating it with fixed-height mismatch. Fixed height, min/max constraints, glyph/root geometry and other visual properties remain checked. Unsupported Typed OM conservatively retains used-height comparison; malformed observations fail. The measured sizing identity participates in every atomic sample, and caller attributes cannot declare intrinsic sizing.
+For repeated buttons, the collector measures native Typed OM's computed `height: auto` in an isolated world before deriving consistency. Textareas additionally require a computed `field-sizing: content` value before their legitimate content-driven height variation is retained. Ordinary rows-based textareas retain used-height comparison. Fixed height, min/max constraints, glyph/root geometry and other visual properties remain checked. Unsupported Typed OM conservatively retains used-height comparison; malformed observations fail. The measured sizing identity participates in every atomic sample, and caller attributes cannot declare intrinsic sizing.
 
 A closed `before_capture` action may request `caret-left` with an `id` or `test-id` locator. It resolves exactly one already-focused, editable native text/search input and dispatches one trusted native ArrowLeft, without assigning focus, value, style or labels. Its value, node identity/type, native role/name and editability must remain unchanged immediately and through every existing AX/DOM capture sample after settlement, rejecting delayed key-handler mutation. Focus must remain when caret-left is the last focus action; an explicitly declared later native Tab may move focus while the earlier value/identity proof remains enforced. Private field values are used only in memory and are not added to raw/log output. Unsupported kinds, ambiguous/foreign focus, disabled/readonly fields, replacements and schema extensions fail.
 
@@ -468,13 +468,15 @@ substitute for trusted product direction. Preserve the original report and rows
 through restoration or a separately approved product decision.
 
 An authenticated nonpassing predecessor may retain native audit checks whose
-original boolean value is false. This records its failure; it does not convert
-the earlier audit to a pass. Historical evidence must match the exact entry in
+original boolean value is false and cross-state visual-distance quality failures.
+This records its failure; it does not convert the earlier evidence to a pass.
+Historical evidence must match the exact entry in
 that predecessor's bound capture manifest and retain its raw-probe hashes,
 deterministic normalization, native observation bindings and reviewer history.
 Only recursive frozen validation applies this rule; a caller flag or a blocked
-label cannot exempt a current audit. Every active audit still requires all of
-its checks to pass, including after recovery.
+label cannot exempt current evidence. Current captures and active audits still
+require every quality check to pass, including after recovery. Historical hash,
+decoded-pixel identity, provenance, state and review checks are never exempted.
 
 Continue authorized scoped repair with a fresh Primary/Fresh Eyes pair and
 strict capture/manifest/receipt chronology. Preserve the aggregate 2,000-capture,

@@ -77,6 +77,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.17",
   "1.14.18",
   "1.14.19",
+  "1.14.21",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -995,7 +996,8 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     coverage,
     decodedByCapture,
     observationByCapture,
-    issues
+    issues,
+    runtime.retainFailedAuditChecks
   );
   validateEvidence(
     root,
@@ -1052,7 +1054,8 @@ function validateCrossStateVisualDistance(
   coverage,
   decodedByCapture,
   observationByCapture,
-  issues
+  issues,
+  retainFailedQualityChecks = false
 ) {
   const groups = new Map();
   for (const capture of captureRows) {
@@ -1110,6 +1113,11 @@ function validateCrossStateVisualDistance(
           !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
           !hasNativeStateContentChange(root, left, right, observationByCapture)
         ) {
+          // A failed frozen predecessor is evidence of a failed state, not a
+          // candidate for certification. Its bytes and native state proof were
+          // still authenticated above; only its known visual-quality verdict
+          // may remain failed while a fully checked current round replaces it.
+          if (retainFailedQualityChecks) continue;
           violationCount += 1;
           if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
             add(

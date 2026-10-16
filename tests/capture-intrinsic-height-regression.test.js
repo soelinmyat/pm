@@ -36,6 +36,60 @@ for (const variant of ["fixed", "min-height", "max-height", "forged-attribute"])
 }
 
 const { observeIntrinsicButtonHeights } = require("../scripts/design-critique-capture-probe");
+
+function textareaHtml(extra = "", attributes = "") {
+  return `<!doctype html><html lang="en"><head><style>body{font:16px Arial;padding:24px}h1{font-size:24px}textarea{display:block;box-sizing:border-box;width:320px;font:14px/20px Arial;padding:8px;border:1px solid gray;border-radius:8px;field-sizing:content;min-height:80px;max-height:240px}${extra}</style></head><body><main id="fixture" data-pm-state="primary"><h1>Record handover observations</h1><label for="short">Inspector</label><textarea id="short" ${attributes}>Maya</textarea><label for="long">Observations</label><textarea id="long" ${attributes}>The lobby inspection is complete.\nThe loading bay door needs a second check.\nThe next shift will verify the repair.\nAn updated report will follow.\nThe supervisor recorded the handover.</textarea></main></body></html>`;
+}
+
+test("native content-sized textarea heights permit legitimate draft growth", { skip }, (t) => {
+  const result = capture(t, textareaHtml(), guards);
+  assert.deepEqual(result.dom_observations.consistency, []);
+});
+
+for (const variant of ["fixed", "min-height", "max-height", "padding", "forged-attribute"]) {
+  test(`native content-sized textarea treatment preserves ${variant} defects`, { skip }, (t) => {
+    const extra =
+      variant === "fixed" || variant === "forged-attribute"
+        ? "#short{height:80px}#long{height:160px}"
+        : variant === "min-height"
+          ? "#short{min-height:80px}#long{min-height:160px}"
+          : variant === "max-height"
+            ? "#short{max-height:100px}#long{max-height:240px}"
+            : "#long{padding-top:20px}";
+    const result = capture(
+      t,
+      textareaHtml(extra, variant === "forged-attribute" ? 'data-pm-intrinsic-height="true"' : ""),
+      guards
+    );
+    const property = variant === "padding" ? "padding-top" : "height";
+    assert.ok(
+      result.dom_observations.consistency.some((row) => row.detail.includes(`${property}:`)),
+      JSON.stringify(result.dom_observations.consistency)
+    );
+  });
+}
+
+test("native fixed-field-sizing textareas retain differing used-height failures", { skip }, (t) => {
+  const result = capture(
+    t,
+    textareaHtml("textarea{field-sizing:fixed}#short{height:80px}#long{height:160px}"),
+    guards
+  );
+  assert.ok(result.dom_observations.consistency.some((row) => row.detail.includes("height:")));
+});
+
+test(
+  "native ordinary rows-based textareas retain differing used-height failures",
+  { skip },
+  (t) => {
+    const markup = textareaHtml("textarea{field-sizing:fixed}")
+      .replace('id="short"', 'id="short" rows="3"')
+      .replace('id="long"', 'id="long" rows="6"');
+    const result = capture(t, markup, guards);
+    assert.ok(result.dom_observations.consistency.some((row) => row.detail.includes("height:")));
+  }
+);
+
 function protocol(response = { result: { value: false } }) {
   const calls = [];
   return {
