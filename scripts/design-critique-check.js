@@ -75,6 +75,8 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.14",
   "1.14.15",
   "1.14.17",
+  "1.14.18",
+  "1.14.19",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -201,7 +203,15 @@ function checkDesignCritiqueUncached(options, frozenPredecessor = false) {
     captures,
     route,
     routeFile,
-    { options, currentSource, history, frozenPredecessor },
+    {
+      options,
+      currentSource,
+      history,
+      frozenPredecessor,
+      // Recursive history validation retains failures; it never certifies a live audit.
+      retainFailedAuditChecks:
+        frozenPredecessor && ["failed", "blocked", "deferred"].includes(report.outcome),
+    },
     issues
   );
   validateReport(
@@ -346,6 +356,7 @@ function readDesignHistory(root, reviews, report, route, options, issues) {
       routeFile: oldRoute,
       captures: oldCaptures.value,
       reviews: oldReviews.value,
+      outcome: prior.value.outcome,
       source,
     };
     for (const previousRow of oldReviews.value.rounds || [])
@@ -993,7 +1004,8 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     acceptedCaptureRows,
     observationByCapture,
     issues,
-    runtime.history
+    runtime.history,
+    runtime.retainFailedAuditChecks
   );
   return observationByCapture;
 }
@@ -2008,15 +2020,22 @@ function validateAuditEvidence(
   observationByCapture,
   label,
   issues,
-  history
+  history,
+  retainFailedAuditChecks
 ) {
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return null;
   if (Array.isArray(audit.capture_ids) && audit.capture_ids.length === 1) {
     const id = audit.capture_ids[0];
     const capture = captureRows.find((item) => item.id === id);
-    if (capture?.active === false && history?.captures.has(id))
-      route = history.captures.get(id).route;
+    const historical = history?.captures.get(id);
+    if (capture?.active === false && historical) {
+      route = historical.route;
+      retainFailedAuditChecks =
+        ["failed", "blocked", "deferred"].includes(historical.outcome) &&
+        Array.isArray(historical.captures.evidence) &&
+        historical.captures.evidence.some((retained) => isDeepStrictEqual(retained, entry));
+    }
   }
   const normalizedAuditRequired = route.schema_version === 2;
   const nativeAudit = audit.platform === "maestro-ios";
@@ -2147,8 +2166,19 @@ function validateAuditEvidence(
           ...(normalizedAuditRequired ? ["consistency", "asymmetry"] : []),
         ];
   if (object(audit.checks)) closed(audit.checks, requiredChecks, `${label}.checks`, issues);
-  if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
-    add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);
+  if (
+    !object(audit.checks) ||
+    requiredChecks.some((name) =>
+      retainFailedAuditChecks
+        ? typeof audit.checks[name] !== "boolean"
+        : audit.checks[name] !== true
+    )
+  )
+    add(
+      issues,
+      `${label}.checks`,
+      `requires ${retainFailedAuditChecks ? "boolean" : "passing"} ${requiredChecks.join(", ")}`
+    );
   if (!Array.isArray(audit.findings)) add(issues, `${label}.findings`, "must be an array");
   return audit;
 }
@@ -2203,7 +2233,8 @@ function validateEvidence(
   captureRows,
   observationByCapture,
   issues,
-  history
+  history,
+  retainFailedAuditChecks
 ) {
   if (!Array.isArray(evidence)) return add(issues, "captures.evidence", "must be an array");
   const ids = new Set();
@@ -2233,7 +2264,8 @@ function validateEvidence(
         observationByCapture,
         at,
         issues,
-        history
+        history,
+        retainFailedAuditChecks
       );
       if (audit) {
         audits.push({ entry: item, audit });

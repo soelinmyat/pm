@@ -6499,7 +6499,15 @@ test("offline verifier recomputes sparse native loading pixels and rejects chang
   }
 });
 
-function thirdRecoveryDCFixture(t, { checkpointVersion = null, expectCurrent = true } = {}) {
+function thirdRecoveryDCFixture(
+  t,
+  {
+    checkpointVersion = null,
+    expectCurrent = true,
+    mutateCheckpoint = null,
+    checkpointExpectedOK = true,
+  } = {}
+) {
   const fixture = makeFixture();
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
   configureResolvedPrimaryFinding(fixture);
@@ -6511,6 +6519,13 @@ function thirdRecoveryDCFixture(t, { checkpointVersion = null, expectCurrent = t
     fixture.producerVersionByCapture = Object.fromEntries(
       fixture.captures.captures.map((capture) => [capture.id, checkpointVersion])
     );
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+  }
+  if (mutateCheckpoint) {
+    mutateCheckpoint(fixture);
     refreshTrustedCaptureObservations(fixture);
     rewrite(fixture.root, fixture.capturesPath, fixture.captures);
     fixture.report.captures = binding(fixture.root, fixture.capturesPath);
@@ -6566,7 +6581,7 @@ function thirdRecoveryDCFixture(t, { checkpointVersion = null, expectCurrent = t
       verifyGit: false,
       verifyBrowser: false,
     }).ok,
-    true
+    checkpointExpectedOK
   );
 
   const before = fixture.captures.captures.find(
@@ -6754,6 +6769,123 @@ function thirdRecoveryDCFixture(t, { checkpointVersion = null, expectCurrent = t
   return { fixture, base, newCommit, after, git, successfulRecovery };
 }
 
+test("recovery retains failed historical native audits without passing current failures", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    expectCurrent: false,
+    checkpointExpectedOK: false,
+    mutateCheckpoint(checkpoint) {
+      checkpoint.report.outcome = "blocked";
+      checkpoint.report.reason =
+        "The calendar audit rejected its retained keyboard and Today observations.";
+      checkpoint.report.top_issue = checkpoint.report.reason;
+      for (const kind of ["accessibility-tree", "dom-audit"]) {
+        const entry = checkpoint.captures.evidence.find((item) => {
+          if (item.kind !== kind) return false;
+          const audit = JSON.parse(fs.readFileSync(path.join(checkpoint.root, item.path)));
+          return audit.capture_ids.includes("capture-ui-primary-after");
+        });
+        rewriteNormalizedAudit(checkpoint, entry, (raw) => {
+          if (kind === "accessibility-tree")
+            raw.observations.controls.push({
+              role: "button",
+              name: "Calendar day",
+              locator: "button#calendar-day",
+              disabled: false,
+              tab_index: -1,
+              document_index: 1,
+            });
+          else
+            raw.observations.consistency.push({
+              code: "today-border",
+              locator: "button#today",
+              detail: "The retained Today border differs from ordinary calendar days.",
+            });
+        });
+      }
+    },
+  });
+  fixture.report.outcome = "passed";
+  fixture.report.reason = null;
+  fixture.report.top_issue = "No unresolved design issue.";
+  rewriteReviewsAndReport(fixture);
+  const options = { verifyGit: true, baseRef: "origin/main", baseCommit: base };
+  const recovered = check(fixture, newCommit, options);
+  assert.equal(recovered.ok, true, JSON.stringify(recovered.issues));
+
+  const retained = recoveryDCFiles(fixture.root);
+  const originalCaptures = structuredClone(fixture.captures);
+  const originalReviews = structuredClone(fixture.reviews);
+  const originalReport = structuredClone(fixture.report);
+  const restore = () => {
+    for (const [file, bytes] of retained) write(fixture.root, file, bytes);
+    fixture.captures = structuredClone(originalCaptures);
+    fixture.reviews = structuredClone(originalReviews);
+    fixture.report = structuredClone(originalReport);
+  };
+  for (const outcome of ["passed", "blocked"]) {
+    restore();
+    const capture = fixture.captures.captures.find((item) => item.active === true);
+    const entry = fixture.captures.evidence.find((item) => {
+      if (item.kind !== "accessibility-tree") return false;
+      return JSON.parse(fs.readFileSync(path.join(fixture.root, item.path))).capture_ids.includes(
+        capture.id
+      );
+    });
+    rewriteNormalizedAudit(fixture, entry, (raw) => {
+      raw.observations.controls.push({
+        role: "button",
+        name: "Current unreachable action",
+        locator: "button#current-unreachable",
+        disabled: false,
+        tab_index: -1,
+        document_index: 1,
+      });
+    });
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      fixture.captures.route,
+      capture,
+      fixture.captures.evidence
+    );
+    fixture.report.outcome = outcome;
+    if (outcome === "blocked") {
+      fixture.report.reason = "A current required native audit fails.";
+      fixture.report.top_issue = fixture.report.reason;
+    }
+    publishRecoveryDC(fixture);
+    const current = check(fixture, newCommit, { ...options, frozenPredecessor: true });
+    assert.equal(
+      current.ok,
+      false,
+      "A caller flag or nonpassing label must not waive an active audit."
+    );
+    assert.match(JSON.stringify(current.issues), /requires passing landmarks, names, focus_order/);
+  }
+  restore();
+  const prior = fixture.reviews.rounds[2].previous_report;
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.root, prior.path)));
+  const checkpointCaptures = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, checkpoint.captures.path))
+  );
+  const failedEntry = checkpointCaptures.evidence.find((entry) => {
+    if (entry.kind !== "accessibility-tree") return false;
+    return (
+      JSON.parse(fs.readFileSync(path.join(fixture.root, entry.path))).checks.focus_order === false
+    );
+  });
+  const failedAudit = JSON.parse(fs.readFileSync(path.join(fixture.root, failedEntry.path)));
+  fs.appendFileSync(path.join(fixture.root, failedAudit.raw.path), "\n ");
+  assert.equal(
+    check(fixture, newCommit, options).ok,
+    false,
+    "Historical failure retention must still authenticate raw bytes."
+  );
+  restore();
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
 // Run the real checker with only its package-version dependency set to the
 // checkpoint's capture-time release. This proves the synthetic frozen report
 // was valid before the upgrade without mutating the production module or API.
@@ -6782,6 +6914,8 @@ for (const checkpointVersion of [
   "1.14.14",
   "1.14.15",
   "1.14.17",
+  "1.14.18",
+  "1.14.19",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
