@@ -2656,6 +2656,9 @@ function domObservations(
   };
   for (const parent of visibleNodes.filter(alignmentParent)) {
     const children = (byParent.get(parent.index) || []).filter((node) => {
+      // Positioned overlays do not participate in their parent's normal flow.
+      // Relative and sticky children still do, as do unknown position values.
+      if (["absolute", "fixed"].includes(style(node, "position"))) return false;
       const intersection = visibleIntersections.get(node);
       return (
         intersection.right - intersection.left >= 8 && intersection.bottom - intersection.top >= 8

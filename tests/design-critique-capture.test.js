@@ -4713,6 +4713,56 @@ for (const round of [1, 2, 50]) {
     assert.equal(prepareCapturePlan(route(), `${base}/route.json`, options).round, round);
   });
 }
+for (const position of ["absolute", "fixed", "static", "relative", "sticky", ""]) {
+  test(
+    `native stacked flow keeps ${position || "implicit static"} controls in their CSS flow`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture();
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      const sheet = `<h1>Account overview</h1><div class="sheet-panel" style="position:relative;width:360px;padding:16px"><button class="sheet-close" style="${position ? `position:${position};` : ""}right:16px;top:16px;width:44px;height:44px;padding:0">Close</button><div style="height:60px">Header</div><div style="height:60px">Body</div><div style="height:60px"><button>Save changes</button></div></div>`;
+      html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${sheet}</main>`);
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      try {
+        const result = runBrowserCapture(fixture);
+        const closeIssues = result.dom_observations.edge_alignment.filter(
+          (item) => item.code === "stacked-sibling-edge" && item.locator.includes("sheet-close")
+        );
+        assert.equal(
+          closeIssues.length > 0,
+          !["absolute", "fixed"].includes(position),
+          JSON.stringify(closeIssues)
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+test(
+  "native stacked flow retains actual row drift beside an absolute close control",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const sheet =
+      '<h1>Account overview</h1><div class="sheet-panel" style="position:relative;width:360px;padding:16px"><button class="sheet-close" style="position:absolute;right:16px;top:16px;width:44px;height:44px;padding:0">Close</button><div id="misaligned-row" style="width:280px;height:60px">Header</div><div style="height:60px">Body</div><div style="height:60px"><button>Save changes</button></div></div>';
+    html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${sheet}</main>`);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.ok(
+        result.dom_observations.edge_alignment.some(
+          (item) => item.code === "stacked-sibling-edge" && item.locator === "div#misaligned-row"
+        )
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
 test("immutable route planning rejects run drift, round drift and budget escape", () => {
   const base = ".pm/dev-sessions/test/design-critique/runs/dc_test_capture/round-1";
   const options = planOptions({
