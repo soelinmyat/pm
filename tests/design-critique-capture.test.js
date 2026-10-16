@@ -4806,7 +4806,9 @@ for (const variant of [
 }
 
 function remountingDateGridFixture(variant) {
-  const fixture = dateGridFixture("working");
+  const fixture = dateGridFixture(
+    ["body-portal", "complementary-portal"].includes(variant) ? variant : "working"
+  );
   const install = function (mode, document) {
     const initial = document.querySelector("#date-grid");
     initial.dir = ["rtl", "persistent-grid-rtl", "cycle-after-remount"].includes(mode)
@@ -4913,6 +4915,8 @@ for (const variant of [
   "rtl",
   "persistent-grid",
   "persistent-grid-rtl",
+  "body-portal",
+  "complementary-portal",
   "renamed",
   "foreign-scope",
   "duplicate",
@@ -4942,7 +4946,14 @@ for (const variant of [
         );
         assert.equal(
           audit.checks.focus_order,
-          ["working", "rtl", "persistent-grid", "persistent-grid-rtl"].includes(variant),
+          [
+            "working",
+            "rtl",
+            "persistent-grid",
+            "persistent-grid-rtl",
+            "body-portal",
+            "complementary-portal",
+          ].includes(variant),
           JSON.stringify(audit.findings)
         );
       } finally {

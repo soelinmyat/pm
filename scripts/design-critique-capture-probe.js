@@ -657,7 +657,7 @@ function frozenCompositeNodes(axTree, model) {
       const elementPath = frozenElementPath(model, byIndex);
       lookup = (id) => {
         const node = byBackendId.get(id);
-        const path = node ? elementPath(node) : null;
+        const path = node ? (node.nodeName === "#document" ? [] : elementPath(node)) : null;
         return path ? { path, identity: axIdentity(axByBackendId.get(id)) } : null;
       };
     }
@@ -672,8 +672,8 @@ function calendarScope(owner, byAxId) {
     seen.add(parent.nodeId);
     const role = String(valueOf(parent.role) || "").toLowerCase();
     if (
-      ["dialog", "alertdialog", "main", "region"].includes(role) &&
-      (role === "main" || String(valueOf(parent.name) || "").trim())
+      ["dialog", "alertdialog", "main", "region", "complementary", "rootwebarea"].includes(role) &&
+      (["main", "rootwebarea"].includes(role) || String(valueOf(parent.name) || "").trim())
     )
       return parent;
     parent = byAxId.get(parent.parentId);
