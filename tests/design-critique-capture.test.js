@@ -4809,7 +4809,7 @@ function remountingDateGridFixture(variant) {
   const fixture = dateGridFixture("working");
   const install = function (mode, document) {
     const initial = document.querySelector("#date-grid");
-    initial.dir = mode === "rtl" ? "rtl" : "ltr";
+    initial.dir = ["rtl", "persistent-grid-rtl"].includes(mode) ? "rtl" : "ltr";
     initial.dataset.month = initial.querySelector("[data-day]").dataset.day.slice(0, 7);
     document.addEventListener("keydown", (event) => {
       const button = event.target.closest?.("#date-grid button");
@@ -4868,8 +4868,14 @@ function remountingDateGridFixture(variant) {
         if (mode === "foreign-scope")
           document.querySelector("main").setAttribute("aria-label", "Another calendar owner");
         if (mode === "foreign-slot") grid.before(document.createElement("div"));
-        grid.replaceWith(next);
-        grid = next;
+        if (["persistent-grid", "persistent-grid-rtl"].includes(mode)) {
+          grid.replaceChildren(...next.childNodes);
+          grid.dataset.month = next.dataset.month;
+          grid.setAttribute("aria-label", next.getAttribute("aria-label"));
+        } else {
+          grid.replaceWith(next);
+          grid = next;
+        }
       }
       const selected = grid.querySelector(`[data-day="${target}"] button`);
       if (!selected) return;
@@ -4890,6 +4896,8 @@ function remountingDateGridFixture(variant) {
 for (const variant of [
   "working",
   "rtl",
+  "persistent-grid",
+  "persistent-grid-rtl",
   "renamed",
   "foreign-scope",
   "duplicate",
@@ -4918,7 +4926,7 @@ for (const variant of [
         );
         assert.equal(
           audit.checks.focus_order,
-          ["working", "rtl"].includes(variant),
+          ["working", "rtl", "persistent-grid", "persistent-grid-rtl"].includes(variant),
           JSON.stringify(audit.findings)
         );
       } finally {

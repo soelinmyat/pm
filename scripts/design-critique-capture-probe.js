@@ -3467,7 +3467,7 @@ async function probeCompositeCandidate(
               const originalOwner = liveCandidate.frozen_by_live?.get(owner) ?? owner;
               if (
                 axIdentity(await liveAxNode(client, current)) !== frozenNode(original)?.identity ||
-                (originalOwner === owner &&
+                (!liveCandidate.frozen_by_live &&
                   axIdentity(await liveAxNode(client, owner)) !==
                     frozenNode(originalOwner)?.identity) ||
                 (scope !== null &&
