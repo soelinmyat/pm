@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 // Shared wrapper: sanitizes the Git environment for every call site here,
 // including the frozen-diff re-derivation the target binding depends on.
 const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
+const { baseEquivalence } = require("./lib/review-freshness");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
@@ -865,10 +866,21 @@ function validateLiveTarget(root, target, issues) {
     );
     if (
       target.source?.base_ref !== trusted.ref ||
-      target.source?.base_commit !== trusted.commit ||
       target.source?.remote_push_url_sha256 !== trusted.remote_push_url_sha256
     )
       add(issues, "target.source", "does not match the authoritative remote default");
+    const base = baseEquivalence({
+      root,
+      commit: head,
+      frozenBaseCommit: target.source?.base_commit,
+      liveBaseCommit: trusted.commit,
+    });
+    if (!base.ok)
+      add(
+        issues,
+        "target.source",
+        `does not match the authoritative remote default: ${base.reason}`
+      );
     const diff = git(root, trustedDiffArgs("--binary", `${trusted.commit}...${head}`), null);
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
     if (target.source?.diff_sha256 !== digest(diff))

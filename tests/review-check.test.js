@@ -3524,6 +3524,97 @@ test(
   }
 );
 
+for (const variant of [
+  "equivalent",
+  "rewritten",
+  "absorbed",
+  "head-drift",
+  "inventory-drift",
+  "remote-drift",
+  "missing-frozen-base",
+]) {
+  test(`publication after main advances: ${variant}`, (t) => {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const control = `${fixture.root}-advance-control`;
+    const otherOrigin = `${fixture.root}-other-origin.git`;
+    t.after(() => {
+      for (const directory of [fixture.root, `${fixture.root}-origin.git`, control, otherOrigin])
+        fs.rmSync(directory, { recursive: true, force: true });
+    });
+    execFileSync("git", ["clone", "-q", `${fixture.root}-origin.git`, control]);
+    git(control, ["config", "user.email", "test@example.com"]);
+    git(control, ["config", "user.name", "Test"]);
+    if (variant === "absorbed") {
+      git(fixture.root, [
+        "push",
+        "-q",
+        "origin",
+        `${fixture.target.source.commit}:refs/heads/main`,
+      ]);
+    } else {
+      fs.writeFileSync(path.join(control, "upstream.txt"), "independent upstream change\n");
+      git(control, ["add", "upstream.txt"]);
+      git(control, [
+        "commit",
+        ...(variant === "rewritten" ? ["--amend"] : []),
+        "-qm",
+        "advance main",
+      ]);
+      if (variant === "rewritten") {
+        git(control, ["push", "-q", "origin", "HEAD:refs/heads/replacement"]);
+        execFileSync("git", [
+          "--git-dir",
+          `${fixture.root}-origin.git`,
+          "update-ref",
+          "refs/heads/main",
+          git(control, ["rev-parse", "HEAD"]).trim(),
+        ]);
+      } else git(control, ["push", "-q", "origin", "main"]);
+    }
+    if (variant === "head-drift") {
+      fs.appendFileSync(
+        path.join(fixture.root, "src/example.js"),
+        "module.exports.later = true;\n"
+      );
+      git(fixture.root, ["add", "src/example.js"]);
+      git(fixture.root, ["commit", "-qm", "unreviewed feature change"]);
+    }
+    if (variant === "remote-drift") {
+      execFileSync("git", ["clone", "-q", "--bare", `${fixture.root}-origin.git`, otherOrigin]);
+      git(fixture.root, ["config", "remote.origin.pushurl", otherOrigin]);
+    }
+    if (variant === "inventory-drift" || variant === "missing-frozen-base") {
+      if (variant === "inventory-drift") fixture.target.changed_files[0].bytes += 1;
+      else fixture.target.source.base_commit = "f".repeat(40);
+      write(fixture.root, fixture.targetPath, fixture.target);
+      for (const resultPath of fixture.resultPaths) {
+        const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+        result.target = binding(fixture.root, fixture.targetPath);
+        result.source = fixture.target.source;
+        write(fixture.root, resultPath, result);
+      }
+    }
+    const inputs = [fixture.targetPath, ...fixture.resultPaths].map((relative) => ({
+      relative,
+      bytes: fs.readFileSync(path.join(fixture.root, relative)),
+    }));
+    const checked = generate(fixture);
+    assert.equal(checked.ok, variant === "equivalent", JSON.stringify(checked.issues));
+    if (variant === "equivalent") {
+      assert.equal(checked.report.outcome, "passed");
+      assert.equal(checked.report.source.base_commit, fixture.target.source.base_commit);
+      assert.equal(checked.report.source.commit, fixture.target.source.commit);
+    } else {
+      assert.match(
+        JSON.stringify(checked.issues),
+        /authoritative remote default|stale for current HEAD|changed-file bytes/
+      );
+    }
+    for (const input of inputs)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, input.relative)), input.bytes);
+  });
+}
+
 function makeFixture({
   maxWorkers,
   deleteFile = false,
