@@ -486,3 +486,5 @@ counter alone advanced. A non-passing report is still non-passing. Current
 source/coverage, before/after pixels, independently bound reviews and every
 existing reconciliation check determine passing eligibility. Legacy reports
 without recovery metadata remain readable and retain their original checks.
+
+Centered, unblurred inset focus shadows with positive spread may supply native focus-indicator bands. The producer includes measured border widths, caps inward depth at 16 pixels and excludes the control center. Offset, blurred, excessive or unmeasured inset geometry fails closed. Native Tab, changed focus styling and material pixel differences on at least two bands remain mandatory; unchanged decorative shadows and caller attributes do not supply regions. Historical 1.14.22 evidence remains readable only through the existing inactive/frozen predecessor policy; active captures require the current producer.

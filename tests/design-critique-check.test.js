@@ -6994,6 +6994,7 @@ for (const checkpointVersion of [
   "1.14.18",
   "1.14.19",
   "1.14.21",
+  "1.14.22",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });

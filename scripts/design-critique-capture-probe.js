@@ -1773,9 +1773,10 @@ function focusIndicatorRegions(node, style, prior, metrics) {
         unchanged.splice(existing, 1);
         continue;
       }
-      if (/\binset\b/.test(shadow)) continue;
+      const isInset = /\binset\b/.test(shadow);
       const lengths = shadow
         .replace(/(?:rgba?|hsla?|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")
+        .replace(/\binset\b/g, "")
         .trim()
         .split(/\s+/);
       if (
@@ -1786,10 +1787,21 @@ function focusIndicatorRegions(node, style, prior, metrics) {
         return [];
       const [x, y, blur = 0, spread = 0] = lengths.map(Number.parseFloat);
       if (blur < 0) return [];
-      outer = Math.max(outer, Math.max(Math.abs(x), Math.abs(y)) + blur * 1.5 + spread + 1);
+      if (isInset) {
+        // Only a centered, sharp inset ring has bounded, unambiguous bands.
+        // Inset shadows start at the native padding edge, inside the border.
+        if (x !== 0 || y !== 0 || blur !== 0 || spread <= 0) return [];
+        const borders = ["top", "right", "bottom", "left"].map((side) =>
+          Number.parseFloat(style(node, `border-${side}-width`))
+        );
+        if (borders.some((width) => !Number.isFinite(width) || width < 0)) return [];
+        inset = Math.max(inset, spread + Math.max(...borders));
+      } else {
+        outer = Math.max(outer, Math.max(Math.abs(x), Math.abs(y)) + blur * 1.5 + spread + 1);
+      }
     }
   }
-  if (outer <= 0 || outer > 16 || inset > 16) return [];
+  if ((outer <= 0 && inset <= 0) || outer > 16 || inset > 16) return [];
   const [x, y, width, height] = node.layout.bounds;
   if (width <= inset * 2 || height <= inset * 2) return [];
   const left = x - outer,
@@ -4733,6 +4745,9 @@ async function main() {
       "padding-left",
       "border-radius",
       "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width",
       "border-top-style",
       "border-top-color",
       "outline-style",
