@@ -4728,7 +4728,7 @@ function dateGridFixture(variant = "working", todayBorder = false) {
     { length: 5 },
     (_, index) => `<tr role="row">${cells.slice(index * 7, index * 7 + 7).join("")}</tr>`
   ).join("");
-  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&${JSON.stringify(variant === "trap")}){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();});}</script>`;
+  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];let moved=false;grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&(${JSON.stringify(variant === "trap")}||(${JSON.stringify(variant === "trap-after-arrow")}&&moved))){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();moved=true;});}</script>`;
   const content = `<h1>Account overview</h1><button>Before calendar</button><table id="date-grid" role="grid" aria-label="Choose a date" dir="${variant === "rtl" ? "rtl" : "ltr"}" style="border-collapse:collapse;margin:16px 0"><tbody role="rowgroup">${rows}</tbody></table><button>Save changes</button>${script}`;
   let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
   html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${content}</main>`);
@@ -4755,6 +4755,7 @@ for (const variant of [
   "static",
   "no-entry",
   "trap",
+  "trap-after-arrow",
   "unreachable",
   "missing-cell",
   "duplicate-date",
@@ -4814,6 +4815,10 @@ function remountingDateGridFixture(variant) {
       const button = event.target.closest?.("#date-grid button");
       if (!button) return;
       let grid = button.closest("[role=grid]");
+      if (event.key === "Tab" && mode === "trap-after-remount" && grid.dataset.remounted) {
+        event.preventDefault();
+        return;
+      }
       const horizontal = grid.dir === "rtl" ? -1 : 1;
       const delta = { ArrowRight: horizontal, ArrowLeft: -horizontal, ArrowDown: 7, ArrowUp: -7 }[
         event.key
@@ -4825,6 +4830,7 @@ function remountingDateGridFixture(variant) {
       if (target.slice(0, 7) !== grid.dataset.month) {
         const next = grid.cloneNode(false);
         next.dataset.month = target.slice(0, 7);
+        next.dataset.remounted = "true";
         next.setAttribute("aria-label", "Choose a date " + target.slice(0, 7));
         const first = Date.parse(target.slice(0, 7) + "-01T00:00:00.000Z");
         const body = document.createElement("tbody");
@@ -4888,6 +4894,7 @@ for (const variant of [
   "foreign-scope",
   "duplicate",
   "foreign-slot",
+  "trap-after-remount",
   "hidden",
   "covered",
 ]) {

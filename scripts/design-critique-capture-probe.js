@@ -3307,13 +3307,16 @@ async function probeCompositeCandidate(
   executionContextId,
   candidate,
   budget,
-  observed,
+  observedGlobal,
   frozenNode,
   ownedPopups
 ) {
   const calendarTargets = candidate.calendar_days
     ? new Set(Object.keys(candidate.calendar_days).map(Number))
     : null;
+  // Reaching dates is provisional until the resulting live calendar still
+  // permits a native document exit and return after arrow-driven changes.
+  const observed = calendarTargets ? new Set() : observedGlobal;
   for (const originalEntryBackendNodeId of candidate.entry_backend_node_ids) {
     let entryBackendNodeId = originalEntryBackendNodeId;
     let liveCandidate = candidate;
@@ -3495,6 +3498,30 @@ async function probeCompositeCandidate(
       }
     } finally {
       await focusObservation.close();
+    }
+    if (calendarTargets && [...calendarTargets].every((member) => observed.has(member))) {
+      let exitVerified = false;
+      try {
+        const focused = await focusedBackendNodeId(client, executionContextId);
+        if (members.has(focused))
+          exitVerified = await entryHasDocumentKeyboardReach(
+            client,
+            executionContextId,
+            focused,
+            null,
+            budget,
+            members,
+            liveCandidate.owner_backend_node_id,
+            new Set(),
+            true
+          );
+      } catch {
+        // A detached state or failed native exit cannot certify these dates.
+      }
+      if (exitVerified) {
+        for (const member of calendarTargets) observedGlobal.add(member);
+        return true;
+      }
     }
     if (
       candidate.popup_requires_owned_reentry &&
