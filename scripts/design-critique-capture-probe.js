@@ -9,6 +9,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { pendingRequestsReady } = require("./lib/capture-loading-readiness");
 const { validateCaptureActions } = require("./design-critique-capture");
+const { dateGridButtons } = require("./lib/design-critique-date-grid");
 
 const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
@@ -444,6 +445,7 @@ function tabIndexForNode(node, properties) {
 }
 
 const COMPOSITE_OWNER_ROLES = Object.freeze({
+  button: new Set(["grid"]),
   menuitem: new Set(["menu", "menubar"]),
   menuitemcheckbox: new Set(["menu", "menubar"]),
   menuitemradio: new Set(["menu", "menubar"]),
@@ -452,6 +454,7 @@ const COMPOSITE_OWNER_ROLES = Object.freeze({
   tab: new Set(["tablist"]),
 });
 const COMPOSITE_ARROW_KEYS = Object.freeze({
+  grid: Object.freeze(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]),
   combobox: Object.freeze(["ArrowDown", "ArrowUp"]),
   listbox: Object.freeze(["ArrowDown", "ArrowUp"]),
   menu: Object.freeze(["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"]),
@@ -495,13 +498,25 @@ function compositeOwnerForNode(axNode, role, byAxId, listboxOwners) {
   const ownerRoles = COMPOSITE_OWNER_ROLES[role];
   if (!ownerRoles) return null;
   const visited = new Set();
+  let gridCell = false;
+  let gridRow = false;
   let parentId = axNode.parentId;
   while (parentId && !visited.has(parentId)) {
     visited.add(parentId);
     const parent = byAxId.get(parentId);
     if (!parent) return null;
     const parentRole = String(valueOf(parent.role) || "").toLowerCase();
+    if (role === "button") {
+      if (parentRole === "gridcell") {
+        if (gridCell || gridRow) return null;
+        gridCell = true;
+      } else if (parentRole === "row") {
+        if (!gridCell || gridRow) return null;
+        gridRow = true;
+      }
+    }
     if (ownerRoles.has(parentRole)) {
+      if (role === "button" && (!gridCell || !gridRow)) return null;
       // Editable comboboxes retain DOM focus on the input while their options
       // live in a separate popup. AX controls identifies that owner; actual
       // Tab and arrow events below must still prove every reachable option.
@@ -650,7 +665,13 @@ function frozenCompositeNodes(axTree, model) {
   };
 }
 
-function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()) {
+function compositeKeyboardCandidates(
+  axTree,
+  model,
+  ownedPopupScopes = new Set(),
+  computedStyles = []
+) {
+  const dates = dateGridButtons(model);
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -666,8 +687,11 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
   const listboxOwners = controlledListboxOwners(axTree);
   for (const axNode of axTree.nodes || []) {
     const role = String(valueOf(axNode.role) || "").toLowerCase();
+    const calendar = dates.get(axNode.backendDOMNodeId);
+    if (role === "button" && !calendar) continue;
     const owner = compositeOwnerForNode(axNode, role, byAxId, listboxOwners);
     if (!owner) continue;
+    if (role === "button" && owner.backendDOMNodeId !== calendar.grid.backendNodeId) continue;
     const node = byBackendId.get(axNode.backendDOMNodeId);
     if (
       !node ||
@@ -686,9 +710,15 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
     }
     const group = groups.get(owner.nodeId);
     const properties = axProperties(axNode);
-    if (["menu", "listbox"].includes(group.owner_role) && disabledControl(node, properties))
+    if (["menu", "listbox", "grid"].includes(group.owner_role) && disabledControl(node, properties))
       continue;
     group.member_backend_node_ids.push(node.backendNodeId);
+    if (group.owner_role === "grid") {
+      group.calendar_days ??= {};
+      group.calendar_days[node.backendNodeId] = calendar.day;
+      group.calendar_rtl =
+        calendar.grid.layout?.styles?.[computedStyles.indexOf("direction")] === "rtl";
+    }
     if (selectionState(role, properties) === true)
       group.selected_backend_node_ids.push(node.backendNodeId);
     if (
@@ -777,6 +807,11 @@ function compositeKeyboardCandidates(axTree, model, ownedPopupScopes = new Set()
   const candidates = [];
   for (const group of groups.values()) {
     group.member_backend_node_ids = [...new Set(group.member_backend_node_ids)];
+    if (group.calendar_days) {
+      const days = Object.values(group.calendar_days);
+      group.calendar_min_day = Math.min(...days);
+      group.calendar_max_day = Math.max(...days);
+    }
     group.entry_backend_node_ids = [...new Set(group.entry_backend_node_ids)];
     for (const backendNodeId of group.entry_backend_node_ids) {
       const probe = entryProbes.get(backendNodeId);
@@ -2860,7 +2895,8 @@ async function entryHasDocumentKeyboardReach(
   budget,
   memberBackendNodeIds = new Set(),
   ownerBackendNodeId = entryBackendNodeId,
-  observedEntryMembers = new Set()
+  observedEntryMembers = new Set(),
+  requireExitAndReturn = false
 ) {
   const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
   // Keep a conditional popup alive while proving its native exit/return.
@@ -2883,6 +2919,7 @@ async function entryHasDocumentKeyboardReach(
       return true;
     }
   }
+  if (requireExitAndReturn) return false;
   if (
     entryProbe &&
     entryProbe.from_backend_node_id !== entryBackendNodeId &&
@@ -3182,7 +3219,8 @@ async function probeCompositeCandidate(
           budget,
           members,
           candidate.owner_backend_node_id,
-          observedEntryMembers
+          observedEntryMembers,
+          candidate.owner_role === "grid"
         );
     } catch {
       continue;
@@ -3233,6 +3271,25 @@ async function probeCompositeCandidate(
           let state = await compositeFocusState(client, executionContextId, liveCandidate);
           let previous = focusedCompositeMember(state, liveCandidate, members);
           for (let step = 0; step < members.size; step += 1) {
+            if (liveCandidate.calendar_days) {
+              const frozen = liveCandidate.frozen_by_live?.get(previous) ?? previous;
+              const day = liveCandidate.calendar_days[frozen];
+              const horizontal = liveCandidate.calendar_rtl ? -1 : 1;
+              const delta = {
+                ArrowRight: horizontal,
+                ArrowLeft: -horizontal,
+                ArrowDown: 7,
+                ArrowUp: -7,
+              }[key];
+              // Do not navigate into a different month and replace frozen
+              // members. Only actual arrows within the retained range count.
+              if (
+                !Number.isFinite(day) ||
+                day + delta < liveCandidate.calendar_min_day ||
+                day + delta > liveCandidate.calendar_max_day
+              )
+                break;
+            }
             await focusObservation.start();
             let current;
             try {
@@ -3830,7 +3887,12 @@ async function nativeSample(
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     accessibilityPopupMemberBackendNodeIds: accessibility.popupMemberBackendNodeIds,
     accessibilityPopupOwnerBackendNodeIds: accessibility.popupOwnerBackendNodeIds,
-    compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model, ownedPopupScopes),
+    compositeKeyboardCandidates: compositeKeyboardCandidates(
+      axTree,
+      model,
+      ownedPopupScopes,
+      computedStyles
+    ),
     compositeFrozenNode: frozenCompositeNodes(axTree, model),
     dom: domObservations(
       model,
@@ -4405,6 +4467,7 @@ async function main() {
 
     const computedStyles = [
       "display",
+      "direction",
       "visibility",
       "opacity",
       "font-size",

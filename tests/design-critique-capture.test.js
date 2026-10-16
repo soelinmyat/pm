@@ -4713,6 +4713,77 @@ for (const round of [1, 2, 50]) {
     assert.equal(prepareCapturePlan(route(), `${base}/route.json`, options).round, round);
   });
 }
+function dateGridFixture(variant = "working", todayBorder = false) {
+  const fixture = createBrowserFixture();
+  const now = new Date();
+  const start = Date.UTC(now.getFullYear(), now.getMonth(), 1);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const disabled = variant === "disabled" ? [7, 24] : [];
+  const cells = Array.from({ length: 35 }, (_, index) => {
+    const dateIndex = variant === "duplicate-date" && index === 17 ? 16 : index;
+    const date = new Date(start + dateIndex * 86400000).toISOString().slice(0, 10);
+    return `<td role="${variant === "missing-cell" ? "group" : "gridcell"}" data-day="${date}"${date === today ? ' data-today="true"' : ""} style="padding:0"><button id="date-${index}" class="date-button" tabindex="${variant !== "no-entry" && index === 15 ? 0 : -1}" aria-label="Choose ${date}"${disabled.includes(index) ? " disabled" : ""} style="padding:0;width:28px;height:28px;${todayBorder && date === today ? "border:1px solid gray;" : ""}">${Number(date.slice(-2))}</button></td>`;
+  });
+  const rows = Array.from(
+    { length: 5 },
+    (_, index) => `<tr role="row">${cells.slice(index * 7, index * 7 + 7).join("")}</tr>`
+  ).join("");
+  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&${JSON.stringify(variant === "trap")}){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();});}</script>`;
+  const content = `<h1>Account overview</h1><button>Before calendar</button><table id="date-grid" role="grid" aria-label="Choose a date" dir="${variant === "rtl" ? "rtl" : "ltr"}" style="border-collapse:collapse;margin:16px 0"><tbody role="rowgroup">${rows}</tbody></table><button>Save changes</button>${script}`;
+  let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+  html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${content}</main>`);
+  fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return fixture;
+}
+
+for (const variant of [
+  "working",
+  "rtl",
+  "disabled",
+  "month-boundary",
+  "static",
+  "no-entry",
+  "trap",
+  "unreachable",
+  "missing-cell",
+  "duplicate-date",
+]) {
+  test(
+    `native date grid proves document entry and arrow reach: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = dateGridFixture(variant);
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "accessibility-tree",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.accessibility_observations,
+          },
+          { path: ".pm/test/date-grid-a11y.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(
+          audit.checks.focus_order,
+          ["working", "rtl", "disabled", "month-boundary"].includes(variant),
+          JSON.stringify(audit.findings)
+        );
+        assert.equal(
+          result.accessibility_observations.controls.filter((node) =>
+            node.locator.startsWith("button#date-")
+          ).length,
+          35
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
 for (const position of ["absolute", "fixed", "static", "relative", "sticky", ""]) {
   test(
     `native stacked flow keeps ${position || "implicit static"} controls in their CSS flow`,
