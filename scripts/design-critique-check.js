@@ -74,6 +74,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.13",
   "1.14.14",
   "1.14.15",
+  "1.14.17",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);

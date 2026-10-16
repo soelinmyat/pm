@@ -4904,6 +4904,67 @@ test("localized resolved P1 proof rejects a failed before normalized audit", () 
   assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
 });
 
+function upcomingReleaseCaptureFixture() {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  configureResolvedPrimaryFinding(
+    fixture,
+    validPng(before.width, before.height, 0, 0, 50, before.width * 2)
+  );
+  const version = PLUGIN_VERSION.split(".").map(Number);
+  version[2]++;
+  const nextVersion = version.join(".");
+  fixture.producerVersionByCapture = Object.fromEntries(
+    fixture.captures.captures.map((capture) => [
+      capture.id,
+      capture.id === before.id ? "1.14.17" : nextVersion,
+    ])
+  );
+  const refresh = () => {
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const html = path.join(fixture.root, fixture.report.human_report.path);
+    fs.writeFileSync(
+      html,
+      fs
+        .readFileSync(html, "utf8")
+        .replace(`"version":"${PLUGIN_VERSION}"`, `"version":"${nextVersion}"`)
+    );
+  };
+  refresh();
+  const futureChecker = checkerAtCaptureTimeVersion(nextVersion);
+  const run = () =>
+    futureChecker({
+      root: fixture.root,
+      routePath: fixture.routePath,
+      capturesPath: fixture.capturesPath,
+      reportPath: fixture.reportPath,
+      commit: COMMIT,
+      verifyGit: false,
+      verifyBrowser: false,
+    });
+  return { fixture, before, run, refresh };
+}
+
+test("release upgrade retains immutable 1.14.17 before captures", () => {
+  const { fixture, before, run } = upcomingReleaseCaptureFixture();
+  const bytes = fs.readFileSync(path.join(fixture.root, before.observation.path));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, before.observation.path)), bytes);
+});
+
+test("release upgrade still rejects 1.14.17 as an active capture producer", () => {
+  const { fixture, run, refresh } = upcomingReleaseCaptureFixture();
+  const active = fixture.captures.captures.find((capture) => capture.active !== false);
+  fixture.producerVersionByCapture[active.id] = "1.14.17";
+  refresh();
+  const result = run();
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /capture producer/);
+});
+
 test("localized remediation retains an immutable supported 1.14.6 before producer", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
@@ -6720,6 +6781,7 @@ for (const checkpointVersion of [
   "1.14.13",
   "1.14.14",
   "1.14.15",
+  "1.14.17",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });
