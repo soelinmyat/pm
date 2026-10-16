@@ -870,8 +870,42 @@ function compositeKeyboardCandidates(
     return depths.get(byBackendId.get(candidate.owner_backend_node_id)?.index) || 0;
   };
   const ownerIndex = (candidate) => byBackendId.get(candidate.owner_backend_node_id)?.index ?? -1;
+  // A body portal can be shallower than the background tabs that dismiss it.
+  // Native named-dialog ancestry establishes popup order without granting reach.
+  const axByBackendId = new Map(
+    [...byAxId.values()]
+      .filter((node) => node.ignored !== true && Number.isInteger(node.backendDOMNodeId))
+      .map((node) => [node.backendDOMNodeId, node])
+  );
+  const dialogDepths = new Map();
+  const ownerDialogDepth = (candidate) => {
+    const owner = axByBackendId.get(candidate.owner_backend_node_id);
+    let node = owner;
+    const trail = [];
+    const seen = new Set();
+    while (node && !dialogDepths.has(node.nodeId) && !seen.has(node.nodeId)) {
+      seen.add(node.nodeId);
+      trail.push(node);
+      node = byAxId.get(node.parentId);
+    }
+    let depth = node ? dialogDepths.get(node.nodeId) || 0 : 0;
+    for (const ancestor of trail.reverse()) {
+      const role = String(valueOf(ancestor.role) || "").toLowerCase();
+      if (
+        ancestor.ignored !== true &&
+        ["dialog", "alertdialog"].includes(role) &&
+        String(valueOf(ancestor.name) || "").trim()
+      )
+        depth += 1;
+      dialogDepths.set(ancestor.nodeId, depth);
+    }
+    return dialogDepths.get(owner?.nodeId) || 0;
+  };
   return candidates.sort(
-    (left, right) => ownerDepth(right) - ownerDepth(left) || ownerIndex(right) - ownerIndex(left)
+    (left, right) =>
+      ownerDialogDepth(right) - ownerDialogDepth(left) ||
+      ownerDepth(right) - ownerDepth(left) ||
+      ownerIndex(right) - ownerIndex(left)
   );
 }
 

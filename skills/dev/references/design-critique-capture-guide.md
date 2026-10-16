@@ -108,6 +108,8 @@ For the state marker and every `visible` guard, visible means the node and its a
 
 Native composite keyboard checks retain the member actually reached by document Tab entry, including when a focusable owner delegates entry to a member with `tabindex="-1"`. Arrow probes still have to reach the other members. Programmatic focus alone, an unreachable predecessor, or a keyboard trap does not establish entry.
 
+Composites inside native named dialogs are probed before background widgets. This preserves a body-portaled calendar long enough to test it before automatic tab activation can dismiss it; native entry, arrow traversal, exit/return, identity and final URL checks remain required.
+
 ### Native preparation for below-fold and keyboard states
 
 An assertion may include an optional `before_capture` array. It is hash-bound with
