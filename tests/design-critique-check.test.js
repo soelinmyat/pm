@@ -994,6 +994,11 @@ function attachTrustedCaptureObservation(
         ? "Compte"
         : "Account";
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
+    if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
+      assertion.all.push({
+        locator: { by: "role-name", value: "button:Save account" },
+        expect: { kind: "visible" },
+      });
   }
   if (
     pendingButtonProof &&
@@ -1147,6 +1152,15 @@ function attachTrustedCaptureObservation(
   }
   if (namedTextProof) {
     const check = assertionVisibility.checks[1];
+    if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state)) {
+      assertionVisibility.verified_nodes++;
+      assertionVisibility.checks.push({
+        ...structuredClone(check),
+        label: "state assertion clause 3",
+        asserted_backend_node_id: 3,
+        hit_backend_node_id: 3,
+      });
+    }
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
     const name = assertion.all[0].locator.value.split(":").slice(1).join(":");
     Object.assign(check, {
@@ -2584,6 +2598,8 @@ function namedTextVariantFixture({
 for (const [state, role] of [
   ["primary", "heading"],
   ["success", "statictext"],
+  ["focus", "heading"],
+  ["keyboard", "heading"],
 ]) {
   test("named " + state + " text variants accept meaningful native " + role + " changes", () => {
     const fixture = namedTextVariantFixture({ state, role });
@@ -2593,6 +2609,38 @@ for (const [state, role] of [
       []
     );
   });
+}
+
+for (const state of ["focus", "keyboard"]) {
+  for (const [proof, pixels] of [
+    ["-same-name", "state-content"],
+    ["-missing-hash", "state-content"],
+    ["-bad-hash", "state-content"],
+    ["-wrong-role", "state-content"],
+    ["-unnamed", "state-content"],
+    ["-moved", "state-content"],
+    ["-height-drift", "state-content"],
+    ["", "pending-idle"],
+    ["", "pending-beacon"],
+    ["", "pending-four-pixel"],
+    ["", "nearby-noise"],
+  ]) {
+    test(`localized ${state} retains named text and material region proof: ${proof}/${pixels}`, () => {
+      const fixture = namedTextVariantFixture({ state, role: "heading", proof, pixels });
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
+  for (const proof of [false, "no-tab", "no-geometry"]) {
+    test(`localized ${state} cannot replace native keyboard focus proof: ${proof}`, () => {
+      const fixture = namedTextVariantFixture({ state, role: "heading" });
+      fixture.nativeFocusProof = proof;
+      refreshTrustedCaptureObservations(fixture);
+      rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+      fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+      rewriteReportAndHtml(fixture);
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
 }
 
 for (const [proof, pixels] of [
