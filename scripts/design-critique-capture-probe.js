@@ -3516,8 +3516,9 @@ async function probeCompositeCandidate(
     if (calendarTargets && [...calendarTargets].every((member) => observed.has(member))) {
       let exitVerified = false;
       try {
-        const focused = await focusedBackendNodeId(client, executionContextId);
-        if (members.has(focused))
+        const state = await compositeFocusState(client, executionContextId, liveCandidate);
+        const focused = state.focusedBackendNodeId;
+        if (focusedCompositeMember(state, liveCandidate, members) !== null)
           exitVerified = await entryHasDocumentKeyboardReach(
             client,
             executionContextId,

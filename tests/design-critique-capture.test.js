@@ -4728,10 +4728,25 @@ function dateGridFixture(variant = "working", todayBorder = false) {
     { length: 5 },
     (_, index) => `<tr role="row">${cells.slice(index * 7, index * 7 + 7).join("")}</tr>`
   ).join("");
-  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];let moved=false;grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&(${JSON.stringify(variant === "trap")}||(${JSON.stringify(variant === "trap-after-arrow")}&&moved))){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();moved=true;});}</script>`;
+  const script = `<script>{const grid=document.querySelector('#date-grid');const buttons=[...grid.querySelectorAll('button')];let moved=false;grid.addEventListener('keydown',event=>{if(event.key==='Tab'&&(${JSON.stringify(variant === "trap")}||(${JSON.stringify(["trap-after-arrow", "active-descendant-trap"].includes(variant))}&&moved))){event.preventDefault();return;}if(${JSON.stringify(variant === "static")})return;const horizontal=${JSON.stringify(variant === "rtl" ? -1 : 1)};const delta=({ArrowRight:horizontal,ArrowLeft:-horizontal,ArrowDown:7,ArrowUp:-7})[event.key];if(!delta)return;event.preventDefault();let next=buttons.indexOf(document.activeElement)+delta;while(buttons[next]?.disabled)next+=delta;if(next<0||next>=buttons.length){if(${JSON.stringify(variant === "month-boundary")})grid.outerHTML='<p>Next month replaces the visible dates</p>';return;}if(${JSON.stringify(variant === "unreachable")}&&[5,29].includes(next))return;buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();moved=true;});}</script>`;
   const content = `<h1>Account overview</h1><button>Before calendar</button><table id="date-grid" role="grid" aria-label="Choose a date" dir="${variant === "rtl" ? "rtl" : "ltr"}" style="border-collapse:collapse;margin:16px 0"><tbody role="rowgroup">${rows}</tbody></table><button>Save changes</button>${script}`;
   let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
   html = html.replace(/(<main[^>]*>)[\s\S]*?<\/main>/, `$1${content}</main>`);
+  if (["active-descendant", "active-descendant-trap"].includes(variant)) {
+    html = html.replaceAll('tabindex="0"', 'tabindex="-1"');
+    html = html.replace(
+      'id="date-grid" role="grid"',
+      'id="date-grid" role="grid" tabindex="0" aria-activedescendant="date-15"'
+    );
+    html = html.replace(
+      "buttons.indexOf(document.activeElement)",
+      'buttons.findIndex(button=>button.id===grid.getAttribute("aria-activedescendant"))'
+    );
+    html = html.replace(
+      "buttons.forEach((button,index)=>button.tabIndex=index===next?0:-1);buttons[next].focus();",
+      'grid.setAttribute("aria-activedescendant",buttons[next].id);'
+    );
+  }
   if (["body-portal", "complementary-portal"].includes(variant)) {
     const portal = content.replace("<h1>Account overview</h1>", "");
     const outside =
@@ -4756,6 +4771,8 @@ for (const variant of [
   "no-entry",
   "trap",
   "trap-after-arrow",
+  "active-descendant",
+  "active-descendant-trap",
   "unreachable",
   "missing-cell",
   "duplicate-date",
@@ -4789,6 +4806,7 @@ for (const variant of [
             "month-boundary",
             "body-portal",
             "complementary-portal",
+            "active-descendant",
           ].includes(variant),
           JSON.stringify(audit.findings)
         );
