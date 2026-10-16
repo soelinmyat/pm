@@ -2031,7 +2031,7 @@ function normalizedClassTokens(node) {
   ].sort();
 }
 
-function declaredComponentVariantIdentity(node, groupName, focused = false) {
+function declaredComponentVariantIdentity(node, groupName, focused = false, currentDate = null) {
   const component = String(node.attributes["data-component"] || "").trim() || null;
   const variant = String(node.attributes["data-variant"] || "").trim() || null;
   const inputType =
@@ -2087,7 +2087,15 @@ function declaredComponentVariantIdentity(node, groupName, focused = false) {
   const isButton = role === "button" || (!role && node.nodeName === "button");
   const pressed =
     isButton && ["true", "false", "mixed"].includes(pressedValue) ? pressedValue : null;
-  const nativeState = { input_type: inputType, disabled, selected, checked, pressed, focused };
+  const nativeState = {
+    input_type: inputType,
+    disabled,
+    selected,
+    checked,
+    pressed,
+    focused,
+    current_date: currentDate,
+  };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -2185,6 +2193,21 @@ function domObservations(
   };
   const byIndex = new Map(model.map((node) => [node.index, node]));
   const nearestRegion = new Map();
+  const calendarDates = dateGridButtons(model);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const currentCalendarDate = (node) => {
+    const entry = calendarDates.get(node.backendNodeId);
+    if (!entry) return null;
+    // A data flag alone cannot exempt a control from consistency checks.
+    // Its semantic grid/cell date must independently match the capture day.
+    return (
+      entry.isoDate === today &&
+      (entry.cell.attributes["data-today"] === "true" ||
+        entry.cell.attributes["aria-current"] === "date" ||
+        entry.button.attributes["aria-current"] === "date")
+    );
+  };
   const resolveRegion = (start) => {
     const trail = [];
     const seen = new Set();
@@ -2552,7 +2575,8 @@ function domObservations(
           : declaredComponentVariantIdentity(
               node,
               group.name,
-              focusedBackendNodeIds.has(node.backendNodeId)
+              focusedBackendNodeIds.has(node.backendNodeId),
+              currentCalendarDate(node)
             );
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);

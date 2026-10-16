@@ -4784,6 +4784,63 @@ for (const variant of [
   );
 }
 
+for (const variant of [
+  "today",
+  "no-grid",
+  "missing-row",
+  "duplicate-date",
+  "data-only",
+  "wrong-date",
+  "ordinary-drift",
+]) {
+  test(
+    `native calendar Today styling requires dated semantic ownership: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = dateGridFixture(
+        variant === "duplicate-date" ? variant : "working",
+        !["data-only", "wrong-date"].includes(variant)
+      );
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      if (["no-grid", "data-only"].includes(variant))
+        html = html.replace('role="grid"', 'role="group"');
+      if (variant === "missing-row") html = html.replaceAll('role="row"', 'role="group"');
+      if (["data-only", "wrong-date", "ordinary-drift"].includes(variant)) {
+        const index = new Date().getDate() === 1 ? 1 : 0;
+        html = html.replace(
+          new RegExp(`(<button id="date-${index}"[^>]*style=")`),
+          "$1border:2px solid red;"
+        );
+        if (variant === "data-only")
+          html = html.replace(`id="date-${index}"`, `id="date-${index}" data-today="true"`);
+        if (variant === "wrong-date")
+          html = html.replace(
+            new RegExp(`(<td[^>]*)(><button id="date-${index}")`),
+            '$1 data-today="true"$2'
+          );
+      }
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      try {
+        const result = runBrowserCapture(fixture);
+        const audit = normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "dom-audit",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations: result.dom_observations,
+          },
+          { path: ".pm/test/date-grid-dom.json", sha256: "b".repeat(64) }
+        );
+        assert.equal(audit.checks.consistency, variant === "today", JSON.stringify(audit.findings));
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
 for (const position of ["absolute", "fixed", "static", "relative", "sticky", ""]) {
   test(
     `native stacked flow keeps ${position || "implicit static"} controls in their CSS flow`,
