@@ -6271,6 +6271,81 @@ test("loading task comparisons are independent of which busy assertion comes fir
   assert.equal(distanceIssues().length, 0);
 });
 
+test("focus comparison stops before exhausting the remaining native decode budget", () => {
+  const Module = require("node:module");
+  const file = path.resolve(__dirname, "../scripts/design-critique-check.js");
+  const isolated = new Module(file, module);
+  isolated.filename = file;
+  isolated.paths = Module._nodeModulePaths(path.dirname(file));
+  // Isolate the actual comparison and real bounded cache; this does not certify
+  // provenance, which remains covered by full checker/native browser tests.
+  isolated._compile(
+    fs.readFileSync(file, "utf8") +
+      `
+    module.exports.focusWithCache = (root, left, right, observations, nativeRegions) => {
+      const prior = activeReadCache;
+      activeReadCache = { files: new Map(), bytes: 0, nativeRegions };
+      try { return hasNativeFocusPixelChange(root, left, right, observations); }
+      finally { activeReadCache = prior; }
+    };`,
+    file
+  );
+  const fixture = makeFixture();
+  const before = write(fixture.root, "evidence/files/budget-before.png", validPng(1440, 1000));
+  const after = write(
+    fixture.root,
+    "evidence/files/budget-after.png",
+    validPng(1440, 1000, 0, 0, null, 1, true)
+  );
+  const side = (id, state, record) => ({
+    capture: { id, width: 1440, height: 1000, full_page: false, ...record },
+    coverage: { state },
+  });
+  const left = side("before", "primary", before),
+    right = side("after", "keyboard", after);
+  const locator = { by: "id", value: "save" };
+  const bands = [
+    { x: 5, y: 5, width: 70, height: 3 },
+    { x: 5, y: 37, width: 70, height: 3 },
+    { x: 5, y: 8, width: 3, height: 29 },
+    { x: 72, y: 8, width: 3, height: 29 },
+  ];
+  const observation = {
+    assertion: {
+      before_capture: [{ kind: "tab", count: 1 }],
+      all: [
+        { locator, expect: { kind: "visible" } },
+        { locator, expect: { kind: "focused" } },
+      ],
+    },
+    manifest: {
+      page: {
+        css_viewport: { width: 1440, height: 1000 },
+        state_assertion: {
+          visibility: {
+            checks: [{ label: "state assertion clause 1", focus_indicator_regions: bands }],
+          },
+        },
+      },
+    },
+  };
+  const cache = createNativeRegionCache({ maxRegions: 4, maxDecodedPixels: 1440 * 1000 * 4 });
+  assert.equal(
+    isolated.exports.focusWithCache(
+      fixture.root,
+      left,
+      right,
+      new Map([
+        ["before", observation],
+        ["after", observation],
+      ]),
+      cache
+    ),
+    true
+  );
+  assert.equal(cache.failure, null, "sufficient proof must not spend the next decode");
+});
+
 test("native region cache reuses verified metrics and fails closed at both work limits", (t) => {
   const bytes = validPng(1440, 1000, 20, 0, null, 1, "pending-idle");
   const file = { path: "verified.png", sha256: digest(bytes), bytes };

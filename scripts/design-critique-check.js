@@ -1473,8 +1473,8 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
             qualifying++;
             pixelSupport += nativeRegionPixelSupport(difference, beforeRegion, region);
           }
+          if (qualifying >= 2 && pixelSupport >= 32) return true;
         }
-        if (qualifying >= 2 && pixelSupport >= 32) return true;
       } catch {
         // Invalid or unavailable local evidence cannot grant an exception.
       }
