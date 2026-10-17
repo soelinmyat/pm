@@ -72,9 +72,11 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // 1.14.25 extends checker-side named-text comparison only. Its native producer,
 // audit and report observation contracts remain unchanged. Compatibility is
 // explicit and never grants acceptance to an unknown future release.
+// 1.14.26 changes only checker-side localized pending-button comparison.
 const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.24", new Set(["1.14.23"])],
   ["1.14.25", new Set(["1.14.23", "1.14.24"])],
+  ["1.14.26", new Set(["1.14.23", "1.14.24", "1.14.25"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1220,13 +1222,13 @@ function hasNativePendingButtonChange(root, left, right, observations) {
         visibleButton(other, guard.locator)
       );
       if (!region) continue;
-      if (hasMaterialNativeRegionChange(root, left, right, region)) return true;
+      if (hasMaterialNativeRegionChange(root, left, right, region, true)) return true;
     }
   }
   return false;
 }
 
-function hasMaterialNativeRegionChange(root, left, right, region) {
+function hasMaterialNativeRegionChange(root, left, right, region, allowLocalizedChange = false) {
   try {
     const a = readBoundFile(root, left.capture.path, "native regional comparison", []);
     const b = readBoundFile(root, right.capture.path, "native regional comparison", []);
@@ -1240,7 +1242,15 @@ function hasMaterialNativeRegionChange(root, left, right, region) {
     validateMeaningfulVisual(bRegion);
     const difference = visualDifference(aRegion, bRegion);
     const pixelSupport = nativeRegionPixelSupport(difference, aRegion, region);
-    if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
+    // A verified busy button may add a small spinner inside a wide unchanged
+    // control. Keep the native changed-tile and absolute pixel-support floors
+    // rather than diluting that change over the whole button's area.
+    const material =
+      isMaterialVisualDifference(difference) ||
+      (allowLocalizedChange &&
+        difference !== null &&
+        difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO);
+    if (material && pixelSupport >= 32) return true;
   } catch {
     // Invalid, absent or unverified geometry grants no localized fallback.
   }

@@ -26,7 +26,11 @@ const {
   reconciliationId,
   reviewFindingId,
 } = require("../scripts/design-critique-check");
-const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
+const {
+  inspectPngVisualBytes,
+  visualDifference,
+  PRODUCT_UI_VISUAL_THRESHOLDS,
+} = require("../scripts/lib/media-inspect");
 const {
   createReviewReceipt,
   normalizePrimaryReviewResult,
@@ -1157,6 +1161,9 @@ function attachTrustedCaptureObservation(
       check.y = 340;
       check.visual_bounds = { x: 434, y: 330, width: 32, height: 20 };
     }
+    if (nativeStateProof === "pending-wide-localized") {
+      check.visual_bounds = { x: 390, y: 324, width: 341, height: 45 };
+    }
     if (nativeStateProof === "pending-tiny") {
       check.x = 450;
       check.y = 340;
@@ -1570,6 +1577,29 @@ function validPng(
         const pixel = y * (width * 4 + 1) + 1 + x * 4;
         for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = color[channel];
       }
+    if (focusRing.startsWith("pending-wide-localized")) {
+      for (let y = 324; y < 369; y++)
+        for (let x = 390; x < 731; x++) {
+          const text = y >= 342 && y < 351 && x >= 520 && x < 604 && (x - 520) % 12 < 5;
+          const spinner =
+            focusRing === "pending-wide-localized-busy" &&
+            x >= 492 &&
+            x < 508 &&
+            y >= 338 &&
+            y < 354 &&
+            (x === 492 || x === 507 || y === 338 || y === 353);
+          const color = text || spinner ? [255, 255, 255] : [190, 55, 45];
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = color[channel];
+        }
+      if (focusRing === "pending-wide-localized-beacon") {
+        for (let y = 345; y < 347; y++)
+          for (let x = 501; x < 503; x++) {
+            const pixel = y * (width * 4 + 1) + 1 + x * 4;
+            rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 255;
+          }
+      }
+    }
     if (focusRing === "pending-four-pixel") {
       for (let y = 339; y <= 340; y++)
         for (let x = 449; x <= 450; x++) {
@@ -5115,6 +5145,36 @@ for (const version of ["1.14.23", "1.14.24"]) {
     );
   });
 }
+for (const version of ["1.14.23", "1.14.24", "1.14.25"]) {
+  test(`pending-button release preserves native evidence ${version} without mutation`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.26");
+    const files = [
+      fixture.capturesPath,
+      fixture.reportPath,
+      ...fixture.captures.captures.map((capture) => capture.observation.path),
+    ];
+    const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    files.forEach((file, index) =>
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[index])
+    );
+  });
+}
+
+test("pending-button release retains native audit failures and rejects unknown producer versions", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.25", "1.14.26");
+  const evidence = fixture.captures.evidence.find((row) => row.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.22", "0.0.0", "1.14.27"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.26");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
+});
+
 test("caption release still rejects incompatible and future native evidence", () => {
   for (const version of ["1.14.22", "0.0.0", "1.14.26"]) {
     const { run } = recertificationReleaseFixture(version, "1.14.25");
@@ -6594,6 +6654,43 @@ test("native pending button comparison accepts meaningful change inside the meas
     false
   );
 });
+
+test("native wide pending button accepts a localized spinner below the regional average floor", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = "pending-wide-localized";
+  const idle = validPng(1440, 1000, 20, 0, null, 1, "pending-wide-localized-idle");
+  const busy = validPng(1440, 1000, 20, 0, null, 1, "pending-wide-localized-busy");
+  const region = { x: 390, y: 324, width: 341, height: 45 };
+  const difference = visualDifference(
+    inspectPngVisualBytes(idle, region),
+    inspectPngVisualBytes(busy, region)
+  );
+  assert.ok(difference.distance < PRODUCT_UI_VISUAL_THRESHOLDS.minVisualDistance);
+  assert.ok(difference.changedTileRatio >= PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileRatio);
+  addRequiredStateCapture(fixture, "boundary", idle);
+  addRequiredStateCapture(fixture, "loading", busy);
+  const result = check(fixture);
+  assert.deepEqual(result, { ok: true, issues: [] });
+});
+
+for (const pixels of ["pending-wide-localized-idle", "pending-wide-localized-beacon"]) {
+  test(`native wide pending button rejects ${pixels}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeStateProof = "pending-wide-localized";
+    addRequiredStateCapture(
+      fixture,
+      "boundary",
+      validPng(1440, 1000, 20, 0, null, 1, "pending-wide-localized-idle")
+    );
+    addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      true
+    );
+  });
+}
 
 test("native pending button accepts intrinsic spinner width growth at an unchanged anchor", () => {
   const fixture = makeFixture();
