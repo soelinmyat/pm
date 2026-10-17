@@ -55,6 +55,8 @@ Explicit evidence recertification supersedes the original records at its verifie
 
 Release 1.14.24 retains the unchanged 1.14.23 native capture and Design Critique report contract. This explicit compatibility pair preserves valid evidence across the recorder-only update while rerunning all source, browser, pixel, audit, reviewer, history and report checks. Older incompatible active producers and unknown future versions remain rejected.
 
+Release 1.14.25 also accepts those unchanged 1.14.23/1.14.24 native observation contracts. Localized primary captions can establish a visual difference through an exact visibly asserted native StaticText name and material pixel changes in its anchored measured region, even when an authored heading stays unchanged. Heading, keyboard-focus, duplicate-image and all other evidence checks remain required; a changed label or a few pixels alone cannot grant a pass.
+
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)

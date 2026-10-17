@@ -2692,10 +2692,44 @@ for (const [proof, pixels] of [
     const fixture = namedTextVariantFixture({ proof, pixels });
     assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
   });
-test("named primary variants cannot borrow a success StaticText proof", () => {
+test("primary caption variants accept measured native StaticText changes", () => {
   const fixture = namedTextVariantFixture({ role: "statictext" });
-  assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
 });
+test("primary caption variants accept intrinsic-width localized text", () => {
+  const fixture = namedTextVariantFixture({ role: "statictext", proof: "-thin-wide-text" });
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+for (const [proof, pixels] of [
+  ["-same-name", "state-content"],
+  ["-missing-hash", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["-wrong-role", "state-content"],
+  ["-unnamed", "state-content"],
+  ["-moved", "state-content"],
+  ["-height-drift", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+]) {
+  test(`primary caption variants reject invalid proof ${proof}/${pixels}`, () => {
+    const fixture = namedTextVariantFixture({ role: "statictext", proof, pixels });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
+for (const state of ["focus", "keyboard"]) {
+  test(`primary caption proof cannot replace a ${state} heading`, () => {
+    const fixture = namedTextVariantFixture({ state, role: "statictext" });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
 test("named success variants cannot borrow a primary heading proof", () => {
   const fixture = namedTextVariantFixture({ state: "success", role: "heading" });
   assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
@@ -4998,7 +5032,7 @@ test("release upgrade still rejects 1.14.17 as an active capture producer", () =
   assert.match(JSON.stringify(result.issues), /capture producer/);
 });
 
-function recertificationReleaseFixture(version) {
+function recertificationReleaseFixture(version, consumerVersion = "1.14.24") {
   const fixture = makeFixture();
   fixture.producerVersionByCapture = Object.fromEntries(
     fixture.captures.captures.map((capture) => [capture.id, version])
@@ -5017,7 +5051,7 @@ function recertificationReleaseFixture(version) {
     );
   };
   refresh();
-  const checker = checkerAtCaptureTimeVersion("1.14.24");
+  const checker = checkerAtCaptureTimeVersion(consumerVersion);
   const run = () =>
     checker({
       root: fixture.root,
@@ -5064,6 +5098,37 @@ test("compatible 1.14.23 evidence still requires passing native audits", () => {
   const result = run();
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /landmarks/);
+});
+
+for (const version of ["1.14.23", "1.14.24"]) {
+  test(`caption release preserves native evidence ${version} without mutation`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.25");
+    const files = [
+      fixture.capturesPath,
+      fixture.reportPath,
+      ...fixture.captures.captures.map((c) => c.observation.path),
+    ];
+    const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    files.forEach((file, i) =>
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[i])
+    );
+  });
+}
+test("caption release still rejects incompatible and future native evidence", () => {
+  for (const version of ["1.14.22", "0.0.0", "1.14.26"]) {
+    const { run } = recertificationReleaseFixture(version, "1.14.25");
+    assert.equal(run().ok, false);
+  }
+});
+test("caption release preserves native audit failures", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.24", "1.14.25");
+  const evidence = fixture.captures.evidence.find((row) => row.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.equal(run().ok, false);
 });
 
 test("localized remediation retains an immutable supported 1.14.6 before producer", () => {

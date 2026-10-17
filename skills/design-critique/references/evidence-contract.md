@@ -346,6 +346,15 @@ Reviewer finding IDs use `drf-` plus the first 16 lowercase hex characters of SH
 
 ## Report
 
+Localized primary-state variants may prove a text difference through a native
+heading or StaticText caption. Both captures must visibly assert the exact
+native names, retain matching role and anchored measured geometry, and show a
+material difference in that semantic region. This does not replace source,
+viewport, distinct-image, native-observation or other state checks. Focus and
+keyboard variants retain their heading and native focus requirements; a caption
+cannot substitute for that proof. The checker-only 1.14.25 update retains the
+unchanged 1.14.23/1.14.24 native observation and report contracts explicitly.
+
 `report.json` is the schema-v2 machine outcome. Schema v1 remains readable only in explicit inspection mode and can never certify a gate.
 
 ```json
