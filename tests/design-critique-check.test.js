@@ -1111,12 +1111,20 @@ function attachTrustedCaptureObservation(
           ? {}
           : {
               visual_bounds: { x: 5, y: 5, width: 70, height: 35 },
-              focus_indicator_regions: [
-                { x: 5, y: 5, width: 70, height: 3 },
-                { x: 5, y: 37, width: 70, height: 3 },
-                { x: 5, y: 8, width: 3, height: 29 },
-                { x: 72, y: 8, width: 3, height: 29 },
-              ],
+              focus_indicator_regions:
+                nativeFocusProof === "thin-bands"
+                  ? [
+                      { x: 5, y: 5, width: 70, height: 2 },
+                      { x: 5, y: 38, width: 70, height: 2 },
+                      { x: 5, y: 7, width: 2, height: 31 },
+                      { x: 73, y: 7, width: 2, height: 31 },
+                    ]
+                  : [
+                      { x: 5, y: 5, width: 70, height: 3 },
+                      { x: 5, y: 37, width: 70, height: 3 },
+                      { x: 5, y: 8, width: 3, height: 29 },
+                      { x: 72, y: 8, width: 3, height: 29 },
+                    ],
             }),
       },
     ],
@@ -1598,6 +1606,13 @@ function validPng(
         rows[pixel + 2] = 30;
       }
     }
+  } else if (focusRing === "focus-edge-beacons") {
+    for (const top of [5, 38])
+      for (let y = top; y < top + 2; y++)
+        for (let x = 10; x < 12; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = 255;
+        }
   } else if (focusRing === "nearby-noise" || focusRing === "interior-noise") {
     const left = focusRing === "interior-noise" ? 30 : 90;
     const size = focusRing === "interior-noise" ? 6 : 16;
@@ -6005,6 +6020,33 @@ test("accepts a thin native keyboard focus ring that coarse viewport tiles miss"
   );
 });
 
+test("native keyboard focus accepts visible rings in two-pixel bands with empty grid cells", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "thin-bands";
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
+});
+
+test("native keyboard focus rejects eight edge beacon pixels inside genuine indicator bands", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(
+    fixture,
+    "keyboard",
+    validPng(1440, 1000, 0, 0, null, 1, "focus-edge-beacons")
+  );
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
 test("native keyboard focus does not excuse unrelated corner noise", () => {
   const fixture = makeFixture();
   addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, 50, 100));
@@ -6227,6 +6269,81 @@ test("loading task comparisons are independent of which busy assertion comes fir
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
   rewriteReportAndHtml(fixture);
   assert.equal(distanceIssues().length, 0);
+});
+
+test("focus comparison stops before exhausting the remaining native decode budget", () => {
+  const Module = require("node:module");
+  const file = path.resolve(__dirname, "../scripts/design-critique-check.js");
+  const isolated = new Module(file, module);
+  isolated.filename = file;
+  isolated.paths = Module._nodeModulePaths(path.dirname(file));
+  // Isolate the actual comparison and real bounded cache; this does not certify
+  // provenance, which remains covered by full checker/native browser tests.
+  isolated._compile(
+    fs.readFileSync(file, "utf8") +
+      `
+    module.exports.focusWithCache = (root, left, right, observations, nativeRegions) => {
+      const prior = activeReadCache;
+      activeReadCache = { files: new Map(), bytes: 0, nativeRegions };
+      try { return hasNativeFocusPixelChange(root, left, right, observations); }
+      finally { activeReadCache = prior; }
+    };`,
+    file
+  );
+  const fixture = makeFixture();
+  const before = write(fixture.root, "evidence/files/budget-before.png", validPng(1440, 1000));
+  const after = write(
+    fixture.root,
+    "evidence/files/budget-after.png",
+    validPng(1440, 1000, 0, 0, null, 1, true)
+  );
+  const side = (id, state, record) => ({
+    capture: { id, width: 1440, height: 1000, full_page: false, ...record },
+    coverage: { state },
+  });
+  const left = side("before", "primary", before),
+    right = side("after", "keyboard", after);
+  const locator = { by: "id", value: "save" };
+  const bands = [
+    { x: 5, y: 5, width: 70, height: 3 },
+    { x: 5, y: 37, width: 70, height: 3 },
+    { x: 5, y: 8, width: 3, height: 29 },
+    { x: 72, y: 8, width: 3, height: 29 },
+  ];
+  const observation = {
+    assertion: {
+      before_capture: [{ kind: "tab", count: 1 }],
+      all: [
+        { locator, expect: { kind: "visible" } },
+        { locator, expect: { kind: "focused" } },
+      ],
+    },
+    manifest: {
+      page: {
+        css_viewport: { width: 1440, height: 1000 },
+        state_assertion: {
+          visibility: {
+            checks: [{ label: "state assertion clause 1", focus_indicator_regions: bands }],
+          },
+        },
+      },
+    },
+  };
+  const cache = createNativeRegionCache({ maxRegions: 4, maxDecodedPixels: 1440 * 1000 * 4 });
+  assert.equal(
+    isolated.exports.focusWithCache(
+      fixture.root,
+      left,
+      right,
+      new Map([
+        ["before", observation],
+        ["after", observation],
+      ]),
+      cache
+    ),
+    true
+  );
+  assert.equal(cache.failure, null, "sufficient proof must not spend the next decode");
 });
 
 test("native region cache reuses verified metrics and fails closed at both work limits", (t) => {
@@ -6994,6 +7111,7 @@ for (const checkpointVersion of [
   "1.14.18",
   "1.14.19",
   "1.14.21",
+  "1.14.22",
 ]) {
   test(`frozen recovery retains original active rows from producer ${checkpointVersion}`, (t) => {
     const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion });

@@ -78,6 +78,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.18",
   "1.14.19",
   "1.14.21",
+  "1.14.22",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -1222,19 +1223,24 @@ function hasMaterialNativeRegionChange(root, left, right, region) {
     validateMeaningfulVisual(aRegion);
     validateMeaningfulVisual(bRegion);
     const difference = visualDifference(aRegion, bRegion);
-    const gridCells = Buffer.from(aRegion.perceptualGrid, "base64").length / 3;
-    const gridSize = Math.sqrt(gridCells);
-    // Each tile mean can understate its pixels' absolute difference. Weight
-    // all tile differences by the smallest tile area for a conservative
-    // lower bound, never magnifying four pixels into regional state proof.
-    const minimumCellPixels =
-      Math.floor(region.width / gridSize) * Math.floor(region.height / gridSize);
-    const pixelSupport = difference?.distance * gridCells * minimumCellPixels;
+    const pixelSupport = nativeRegionPixelSupport(difference, aRegion, region);
     if (isMaterialVisualDifference(difference) && pixelSupport >= 32) return true;
   } catch {
     // Invalid, absent or unverified geometry grants no localized fallback.
   }
   return false;
+}
+
+function nativeRegionPixelSupport(difference, metrics, region) {
+  const gridCells = Buffer.from(metrics.perceptualGrid, "base64").length / 3;
+  const gridSize = Math.sqrt(gridCells);
+  // Weight by the smallest occupied tile area. Thin bands have empty grid
+  // cells, which contribute zero difference, and nonempty cells of at least
+  // one pixel. This never magnifies a small beacon into regional state proof.
+  const minimumCellPixels =
+    Math.max(1, Math.floor(region.width / gridSize)) *
+    Math.max(1, Math.floor(region.height / gridSize));
+  return difference?.distance * gridCells * minimumCellPixels;
 }
 
 function nativeNamedTextGuards(observation) {
@@ -1456,17 +1462,18 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
         )
           continue;
         let qualifying = 0;
+        let pixelSupport = 0;
         for (const region of regions) {
-          if (
-            isMaterialVisualDifference(
-              visualDifference(
-                activeReadCache.nativeRegions.inspect(before, region),
-                activeReadCache.nativeRegions.inspect(after, region)
-              )
-            )
-          )
+          const beforeRegion = activeReadCache.nativeRegions.inspect(before, region);
+          const difference = visualDifference(
+            beforeRegion,
+            activeReadCache.nativeRegions.inspect(after, region)
+          );
+          if (isMaterialVisualDifference(difference)) {
             qualifying++;
-          if (qualifying >= 2) return true;
+            pixelSupport += nativeRegionPixelSupport(difference, beforeRegion, region);
+          }
+          if (qualifying >= 2 && pixelSupport >= 32) return true;
         }
       } catch {
         // Invalid or unavailable local evidence cannot grant an exception.
