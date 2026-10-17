@@ -65,7 +65,18 @@ const {
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
-// capture-time identities. Current active evidence must use this release.
+// capture-time identities. Active evidence must use this release or an
+// explicitly compatible release with the same native evidence contract.
+// 1.14.24 changes evidence-record selection only; its capture producer, native
+// audits, pixel thresholds and report renderer are unchanged from 1.14.23.
+// This pair does not grant compatibility to an unknown future release.
+const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([["1.14.24", new Set(["1.14.23"])]]);
+function currentNativeEvidenceVersion(version) {
+  return (
+    version === PLUGIN_VERSION ||
+    COMPATIBLE_NATIVE_EVIDENCE_VERSIONS.get(PLUGIN_VERSION)?.has(version) === true
+  );
+}
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -1868,7 +1879,7 @@ function validateTrustedObservationIdentity(
   if (
     observation.assurance_level !== TRUSTED_CAPTURE_ASSURANCE ||
     observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
-    (observation.producer.version !== PLUGIN_VERSION &&
+    (!currentNativeEvidenceVersion(observation.producer.version) &&
       !(
         (capture.active === false || runtime.frozenPredecessor === true) &&
         HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(observation.producer.version)
@@ -4772,7 +4783,7 @@ function validateHumanReport(
   if (!metadata) return;
   if (
     metadata.generator?.name !== "pm:design-critique" ||
-    (metadata.generator?.version !== PLUGIN_VERSION &&
+    (!currentNativeEvidenceVersion(metadata.generator?.version) &&
       !(
         options.frozenPredecessor === true &&
         HISTORICAL_CAPTURE_PRODUCER_VERSIONS.has(metadata.generator?.version)

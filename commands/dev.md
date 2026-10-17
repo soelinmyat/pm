@@ -16,3 +16,5 @@ PM automatically discovers repository-native delivery capabilities with zero con
 For explicitly enrolled ProductMemory work, follow `references/productmemory-native-workflow.md`: fresh structured remote-native sessions and resumed native sessions advance only through an already authorized live host transport. The same canonical quality gates apply; current bundle review grants no external actions.
 
 QA continues authorized scoped recovery beyond three rounds without a counter-triggered approval request. Persistent failures require diagnosis and a changed approach; immutable failure history, acceptance criteria and genuine dependency/product/scope-risk boundaries remain intact.
+
+Use `dev-session recertify` for rechecked phase evidence. Its verification records take precedence at the verified commit even when that is the original commit; missing or failing replacement records never restore an older passing result. Preserve the original records and all gate-specific evidence checks.

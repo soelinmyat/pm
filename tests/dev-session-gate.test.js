@@ -159,6 +159,41 @@ test("gate binds recertified evidence with verified_commit and verified_at toget
   }
 });
 
+test("same-commit CLI recertification selects the refreshed gate artifact", () => {
+  const repo = makeRepo();
+  try {
+    repo.recordEvidence("implementation", passingTest);
+    const artifact = path.join(path.dirname(repo.sessionPath), "fresh-test.txt");
+    fs.writeFileSync(artifact, "fresh passing test evidence\n");
+    const evidence = path.join(path.dirname(repo.sessionPath), "recertify.json");
+    fs.writeFileSync(
+      evidence,
+      JSON.stringify({
+        implementation: [{ kind: "test", command: "node --test", exit_code: 0, artifact }],
+      })
+    );
+    const recertified = repo.run([
+      "recertify",
+      "--session",
+      repo.sessionPath,
+      "--phases",
+      "implementation",
+      "--commit",
+      repo.head(),
+      "--evidence",
+      evidence,
+    ]);
+    assert.equal(recertified.status, 0, recertified.stderr);
+    assert.deepEqual(repo.session().evidence.implementation.records, passingTest);
+    const result = repo.gate(["--name", "tdd"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(repo.gates().gates[0].artifact, ".pm/dev-sessions/gate-cli/fresh-test.txt");
+    assert.equal("verified_commit" in repo.gates().gates[0], false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("gate upserts only the named row and preserves the others", () => {
   const repo = makeRepo();
   try {
@@ -1089,6 +1124,42 @@ for (const variant of ["mismatched-human-report", "malformed-human-report", "sym
     }
   });
 }
+
+test("same-commit Design recertification selects its canonical report and still reruns the checker", () => {
+  const fx = selectedReportFixture();
+  try {
+    const selected = path.posix.dirname(fx.report.route.path);
+    const reportPath = `${selected}/report.json`;
+    fs.writeFileSync(path.join(fx.root, reportPath), JSON.stringify(fx.report));
+    const phase = fx.session.evidence["design-critique"];
+    phase.records[0].artifact = path.join(fx.root, selected, "report-draft.json");
+    phase.verified_commit = phase.commit;
+    phase.verified_at = "2026-10-17T00:00:00.000Z";
+    phase.verification_records = [
+      {
+        kind: "review",
+        command: "design-critique-check.js",
+        exit_code: 0,
+        artifact: path.join(fx.root, reportPath),
+      },
+    ];
+    const before = structuredClone(phase);
+    const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    const plan = planGateWrite(request, fx.deps);
+    assert.equal(fx.calls.designCritique.reportPath, reportPath);
+    assert.equal(fx.calls.designCritique.commit, phase.commit);
+    assert.equal(fx.calls.designCritique.verifyRemote, false);
+    assert.equal(plan.row.artifact, `${selected}/report.html`);
+    assert.deepEqual(phase, before);
+    fx.deps.checkDesignCritique = () => ({
+      ok: false,
+      issues: [{ path: "report.captures.sha256", message: "hash mismatch" }],
+    });
+    assert.throws(() => planGateWrite(request, fx.deps), /hash mismatch/);
+  } finally {
+    fx.cleanup();
+  }
+});
 
 test("phase-bound immutable report selects a later round without overwriting the predecessor", () => {
   const fx = selectedReportFixture();

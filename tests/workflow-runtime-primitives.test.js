@@ -10,6 +10,7 @@ const {
   appendTransition,
   createTransition,
   currentEvidenceRecords,
+  hasCurrentEvidence,
   hashResult,
   stableStringify,
 } = require("../scripts/lib/workflow-runtime/records");
@@ -79,6 +80,34 @@ test("current evidence uses original or recertified records consistently", () =>
   assert.equal(currentEvidenceRecords(record, "head"), verified);
   assert.equal(currentEvidenceRecords(record, "other"), null);
 });
+
+test("same-commit recertification supersedes the original evidence without mutation", () => {
+  const original = [{ kind: "review", exit_code: 0, artifact: "draft.json" }];
+  const verified = [{ kind: "review", exit_code: 0, artifact: "report.json" }];
+  const record = {
+    commit: "head",
+    records: original,
+    verified_commit: "head",
+    verified_at: "2026-10-17T00:00:00.000Z",
+    verification_records: verified,
+  };
+  const before = structuredClone(record);
+  assert.equal(currentEvidenceRecords(record, "head"), verified);
+  assert.deepEqual(record, before);
+});
+
+for (const verified of [undefined, null, {}, [], [{ kind: "test", exit_code: 1 }]]) {
+  test(`same-commit recertification never falls back to stale success: ${JSON.stringify(verified)}`, () => {
+    const record = {
+      commit: "head",
+      records: [{ kind: "test", exit_code: 0 }],
+      verified_commit: "head",
+      verified_at: "2026-10-17T00:00:00.000Z",
+      verification_records: verified,
+    };
+    assert.equal(hasCurrentEvidence(record, "head"), false);
+  });
+}
 
 test("authority grants are allowlisted, deduplicated, and immutable", () => {
   const authority = { push: false, merge: false };
