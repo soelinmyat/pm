@@ -4998,6 +4998,74 @@ test("release upgrade still rejects 1.14.17 as an active capture producer", () =
   assert.match(JSON.stringify(result.issues), /capture producer/);
 });
 
+function recertificationReleaseFixture(version) {
+  const fixture = makeFixture();
+  fixture.producerVersionByCapture = Object.fromEntries(
+    fixture.captures.captures.map((capture) => [capture.id, version])
+  );
+  const refresh = () => {
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const html = path.join(fixture.root, fixture.report.human_report.path);
+    fs.writeFileSync(
+      html,
+      fs
+        .readFileSync(html, "utf8")
+        .replace(`"version":"${PLUGIN_VERSION}"`, `"version":"${version}"`)
+    );
+  };
+  refresh();
+  const checker = checkerAtCaptureTimeVersion("1.14.24");
+  const run = () =>
+    checker({
+      root: fixture.root,
+      routePath: fixture.routePath,
+      capturesPath: fixture.capturesPath,
+      reportPath: fixture.reportPath,
+      commit: COMMIT,
+      verifyGit: false,
+      verifyBrowser: false,
+    });
+  return { fixture, refresh, run };
+}
+
+test("recertification-only release preserves the unchanged published 1.14.23 evidence contract", () => {
+  const { fixture, run } = recertificationReleaseFixture("1.14.23");
+  const files = [
+    fixture.capturesPath,
+    fixture.reportPath,
+    ...fixture.captures.captures.map((capture) => capture.observation.path),
+  ];
+  const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  files.forEach((file, i) =>
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[i])
+  );
+});
+
+for (const version of ["1.14.22", "0.0.0", "999.0.0"]) {
+  test(`recertification-only release rejects incompatible active evidence ${version}`, () => {
+    const { run } = recertificationReleaseFixture(version);
+    const result = run();
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture producer/);
+  });
+}
+
+test("compatible 1.14.23 evidence still requires passing native audits", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.23");
+  const evidence = fixture.captures.evidence.find((row) => row.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  const result = run();
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /landmarks/);
+});
+
 test("localized remediation retains an immutable supported 1.14.6 before producer", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
