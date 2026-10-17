@@ -57,6 +57,8 @@ Release 1.14.24 retains the unchanged 1.14.23 native capture and Design Critique
 
 Release 1.14.25 also accepts those unchanged 1.14.23/1.14.24 native observation contracts. Localized primary captions can establish a visual difference through an exact visibly asserted native StaticText name and material pixel changes in its anchored measured region, even when an authored heading stays unchanged. Heading, keyboard-focus, duplicate-image and all other evidence checks remain required; a changed label or a few pixels alone cannot grant a pass.
 
+Release 1.14.26 recognizes a localized spinner inside a wide native busy button without averaging it away across the unchanged button area. Both states must visibly assert the named button; loading must assert `aria-busy="true"`. Matching native bounds, meaningful content, changed tiles and the existing absolute pixel-support floor remain required. Other comparison rules stay unchanged, and the unchanged 1.14.23–1.14.25 native evidence contracts remain supported.
+
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)

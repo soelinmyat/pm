@@ -355,6 +355,17 @@ keyboard variants retain their heading and native focus requirements; a caption
 cannot substitute for that proof. The checker-only 1.14.25 update retains the
 unchanged 1.14.23/1.14.24 native observation and report contracts explicitly.
 
+For a native loading-button comparison, both captures must explicitly assert the
+same visibly named button, and loading must assert `aria-busy="true"`. Anchored
+native bounds constrain the compared region. A localized spinner may qualify
+through the unchanged changed-tile ratio and per-tile color-distance floors
+without a separate average-distance floor across the button. Both regions still
+require meaningful content and at least 32 full-contrast pixels of support.
+Identical images, tiny beacons, missing native guards, moved bounds and changes
+outside the button cannot supply this proof. Other regional comparisons retain
+their existing rules. The checker-only 1.14.26 update explicitly supports the
+unchanged 1.14.23–1.14.25 native observation and report contracts.
+
 `report.json` is the schema-v2 machine outcome. Schema v1 remains readable only in explicit inspection mode and can never certify a gate.
 
 ```json
