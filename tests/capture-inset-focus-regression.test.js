@@ -132,3 +132,70 @@ test("native border widths bound inset bands without including the center", () =
     []
   );
 });
+
+const { capture } = require("./fixtures/native-capture-fixture");
+test("native transparent inset plus two edge beacons cannot supply focus bands", { skip }, (t) => {
+  const html =
+    '<!doctype html><html lang="en"><style>body{font:16px Arial;margin:32px}button{position:relative;display:block;box-sizing:border-box;width:80px;height:40px;outline:none;border:0;background:white}button:focus-visible{box-shadow:inset 0 0 0 2px transparent}button:focus-visible::before,button:focus-visible::after{content:"";position:absolute;left:4px;width:2px;height:2px;background:black}button:focus-visible::before{top:0}button:focus-visible::after{bottom:0}</style><main id="fixture" data-pm-state="primary"><h1>Review submitted inspection answers</h1><p>Return to the register after checking the report.</p><button id="back">Return</button></main></html>';
+  const result = capture(
+    t,
+    html,
+    [
+      { locator: { by: "id", value: "back" }, expect: { kind: "visible" } },
+      { locator: { by: "id", value: "back" }, expect: { kind: "focused" } },
+    ],
+    [{ kind: "tab", count: 1, reverse: false }]
+  );
+  assert.deepEqual(
+    result.assertion_visibility.checks[1].focus_indicator_regions,
+    [],
+    "transparent inset styling must not grant regions despite genuine Tab and two tiny edge beacons"
+  );
+});
+test("unsupported inset decoration preserves independently visible outer outline", () => {
+  const before = {
+    "outline-style": "none",
+    "outline-width": "0px",
+    "outline-offset": "0px",
+    "outline-color": "rgb(0, 0, 0)",
+    "box-shadow": "none",
+  };
+  const after = {
+    ...before,
+    "outline-style": "solid",
+    "outline-width": "2px",
+    "outline-color": "rgb(0, 0, 255)",
+    "box-shadow": "rgba(0, 0, 0, 0.1) 0px 1px 2px 0px inset",
+  };
+  const node = { backendNodeId: 1, layout: { bounds: [20, 20, 80, 40] } },
+    metrics = { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 160, clientHeight: 100 } };
+  const expected = focusIndicatorRegions(
+    node,
+    (n, k) => (k === "box-shadow" ? "none" : after[k]),
+    before,
+    metrics
+  );
+  assert.equal(expected.length, 4);
+  assert.deepEqual(
+    focusIndicatorRegions(node, (n, k) => after[k], before, metrics),
+    expected
+  );
+});
+
+for (const color of ["rgba(0, 0, 0, 0)", "rgb(0 0 0 / 0%)", "color(srgb 0 0 0 / 0)"]) {
+  test(`transparent inset ${color} cannot supply geometry`, () =>
+    assert.deepEqual(regions(`${color} 0px 0px 0px 2px inset`), []));
+}
+
+for (const inset of [
+  "rgba(0, 0, 0, 0) 0px 0px 0px 2px inset",
+  "rgb(0, 0, 0) 0px 0px 2px 0px inset",
+  "rgb(0, 0, 0) 0px 0px 0px 17px inset",
+  "rgb(0, 0, 0) 0px 0px 0px bogus inset",
+]) {
+  test(`unsupported inset preserves valid outer shadow: ${inset}`, () => {
+    const outer = "rgb(0, 0, 255) 0px 0px 0px 2px";
+    assert.deepEqual(regions(`${inset}, ${outer}`), regions(outer));
+    assert.deepEqual(regions(`${outer}, ${inset}`), regions(outer));
+  });
+}

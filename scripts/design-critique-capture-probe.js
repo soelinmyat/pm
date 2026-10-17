@@ -1774,8 +1774,10 @@ function focusIndicatorRegions(node, style, prior, metrics) {
         continue;
       }
       const isInset = /\binset\b/.test(shadow);
+      const color = shadow.match(/(?:rgba?|hsla?|hwb|color|oklab|oklch|lab|lch)\([^)]*\)/);
+      if (isInset && (!color || (maskColorStop(color[0])?.alpha ?? 0) <= 0)) continue;
       const lengths = shadow
-        .replace(/(?:rgba?|hsla?|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")
+        .replace(/(?:rgba?|hsla?|hwb|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")
         .replace(/\binset\b/g, "")
         .trim()
         .split(/\s+/);
@@ -1783,19 +1785,24 @@ function focusIndicatorRegions(node, style, prior, metrics) {
         lengths.length < 2 ||
         lengths.length > 4 ||
         lengths.some((value) => !/^-?(?:\d+\.?\d*|\.\d+)px$/.test(value))
-      )
+      ) {
+        if (isInset) continue;
         return [];
+      }
       const [x, y, blur = 0, spread = 0] = lengths.map(Number.parseFloat);
-      if (blur < 0) return [];
+      if (blur < 0 && !isInset) return [];
       if (isInset) {
         // Only a centered, sharp inset ring has bounded, unambiguous bands.
         // Inset shadows start at the native padding edge, inside the border.
-        if (x !== 0 || y !== 0 || blur !== 0 || spread <= 0) return [];
+        if (x !== 0 || y !== 0 || blur !== 0 || spread <= 0) continue;
         const borders = ["top", "right", "bottom", "left"].map((side) =>
           Number.parseFloat(style(node, `border-${side}-width`))
         );
-        if (borders.some((width) => !Number.isFinite(width) || width < 0)) return [];
-        inset = Math.max(inset, spread + Math.max(...borders));
+        if (borders.some((width) => !Number.isFinite(width) || width < 0)) continue;
+        const depth = spread + Math.max(...borders);
+        if (depth > 16 || node.layout.bounds[2] <= depth * 2 || node.layout.bounds[3] <= depth * 2)
+          continue;
+        inset = Math.max(inset, depth);
       } else {
         outer = Math.max(outer, Math.max(Math.abs(x), Math.abs(y)) + blur * 1.5 + spread + 1);
       }

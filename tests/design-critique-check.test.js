@@ -1111,12 +1111,20 @@ function attachTrustedCaptureObservation(
           ? {}
           : {
               visual_bounds: { x: 5, y: 5, width: 70, height: 35 },
-              focus_indicator_regions: [
-                { x: 5, y: 5, width: 70, height: 3 },
-                { x: 5, y: 37, width: 70, height: 3 },
-                { x: 5, y: 8, width: 3, height: 29 },
-                { x: 72, y: 8, width: 3, height: 29 },
-              ],
+              focus_indicator_regions:
+                nativeFocusProof === "thin-bands"
+                  ? [
+                      { x: 5, y: 5, width: 70, height: 2 },
+                      { x: 5, y: 38, width: 70, height: 2 },
+                      { x: 5, y: 7, width: 2, height: 31 },
+                      { x: 73, y: 7, width: 2, height: 31 },
+                    ]
+                  : [
+                      { x: 5, y: 5, width: 70, height: 3 },
+                      { x: 5, y: 37, width: 70, height: 3 },
+                      { x: 5, y: 8, width: 3, height: 29 },
+                      { x: 72, y: 8, width: 3, height: 29 },
+                    ],
             }),
       },
     ],
@@ -1598,6 +1606,13 @@ function validPng(
         rows[pixel + 2] = 30;
       }
     }
+  } else if (focusRing === "focus-edge-beacons") {
+    for (const top of [5, 38])
+      for (let y = top; y < top + 2; y++)
+        for (let x = 10; x < 12; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          for (let channel = 0; channel < 3; channel++) rows[pixel + channel] = 255;
+        }
   } else if (focusRing === "nearby-noise" || focusRing === "interior-noise") {
     const left = focusRing === "interior-noise" ? 30 : 90;
     const size = focusRing === "interior-noise" ? 6 : 16;
@@ -6002,6 +6017,33 @@ test("accepts a thin native keyboard focus ring that coarse viewport tiles miss"
     result.issues.some((issue) => /materially different decoded pixels/.test(issue.message)),
     false,
     JSON.stringify(result.issues)
+  );
+});
+
+test("native keyboard focus accepts visible rings in two-pixel bands with empty grid cells", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "thin-bands";
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    false
+  );
+});
+
+test("native keyboard focus rejects eight edge beacon pixels inside genuine indicator bands", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(
+    fixture,
+    "keyboard",
+    validPng(1440, 1000, 0, 0, null, 1, "focus-edge-beacons")
+  );
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
   );
 });
 
