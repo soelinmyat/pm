@@ -4713,14 +4713,15 @@ for (const round of [1, 2, 50]) {
     assert.equal(prepareCapturePlan(route(), `${base}/route.json`, options).round, round);
   });
 }
-function dateGridFixture(variant = "working", todayBorder = false) {
+function dateGridFixture(variant = "working", todayBorder = false, now = new Date()) {
   const fixture = createBrowserFixture();
-  const now = new Date();
   const start = Date.UTC(now.getFullYear(), now.getMonth(), 1);
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const disabled = variant === "disabled" ? [7, 24] : [];
   const cells = Array.from({ length: 35 }, (_, index) => {
-    const dateIndex = variant === "duplicate-date" && index === 17 ? 16 : index;
+    // Duplicate Today itself; replacing a fixed date can remove Today and
+    // accidentally turn the negative styling case into uniform valid controls.
+    const dateIndex = variant === "duplicate-date" && index === now.getDate() ? index - 1 : index;
     const date = new Date(start + dateIndex * 86400000).toISOString().slice(0, 10);
     return `<td role="${variant === "missing-cell" ? "group" : "gridcell"}" data-day="${date}"${date === today ? ' data-today="true"' : ""} style="padding:0"><button id="date-${index}" class="date-button" tabindex="${variant !== "no-entry" && index === 15 ? 0 : -1}" aria-label="Choose ${date}"${disabled.includes(index) ? " disabled" : ""} style="padding:0;width:28px;height:28px;${todayBorder && date === today ? "border:1px solid gray;" : ""}">${Number(date.slice(-2))}</button></td>`;
   });
@@ -4760,6 +4761,25 @@ function dateGridFixture(variant = "working", todayBorder = false) {
   }
   fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   return fixture;
+}
+
+for (const day of [1, 17, 18, 31]) {
+  test(`duplicate calendar date fixture retains two Today cells: ${day}`, () => {
+    const now = new Date(2026, 9, day, 12);
+    const fixture = dateGridFixture("duplicate-date", true, now);
+    try {
+      const html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      const expected = `2026-10-${String(day).padStart(2, "0")}`;
+      const dates = [...html.matchAll(/data-day="([^"]+)"/g)].map((match) => match[1]);
+      assert.equal(dates.length, 35);
+      assert.equal(dates.filter((date) => date === expected).length, 2);
+      assert.equal(new Set(dates).size, 34);
+      assert.equal((html.match(/data-today="true"/g) || []).length, 2);
+      assert.equal((html.match(/border:1px solid gray;/g) || []).length, 2);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
 }
 
 for (const variant of [

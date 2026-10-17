@@ -69,8 +69,13 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // explicitly compatible release with the same native evidence contract.
 // 1.14.24 changes evidence-record selection only; its capture producer, native
 // audits, pixel thresholds and report renderer are unchanged from 1.14.23.
-// This pair does not grant compatibility to an unknown future release.
-const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([["1.14.24", new Set(["1.14.23"])]]);
+// 1.14.25 extends checker-side named-text comparison only. Its native producer,
+// audit and report observation contracts remain unchanged. Compatibility is
+// explicit and never grants acceptance to an unknown future release.
+const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
+  ["1.14.24", new Set(["1.14.23"])],
+  ["1.14.25", new Set(["1.14.23", "1.14.24"])],
+]);
 function currentNativeEvidenceVersion(version) {
   return (
     version === PLUGIN_VERSION ||
@@ -1286,13 +1291,19 @@ function nativeNamedTextGuards(observation) {
 }
 
 function hasNativeNamedTextChange(root, left, right, observations) {
-  const role = ["primary", "focus", "keyboard"].includes(left.coverage.state)
-    ? "heading"
-    : left.coverage.state === "success"
-      ? "statictext"
-      : null;
+  // A primary locale variant can translate a caption while preserving an
+  // authored heading. Require the same native name/geometry/pixel proof for
+  // that StaticText; keyboard variants still require their heading and focus.
+  const roles =
+    left.coverage.state === "primary"
+      ? ["heading", "statictext"]
+      : ["focus", "keyboard"].includes(left.coverage.state)
+        ? ["heading"]
+        : left.coverage.state === "success"
+          ? ["statictext"]
+          : [];
   if (
-    !role ||
+    roles.length === 0 ||
     left.coverage.state !== right.coverage.state ||
     (left.coverage.scenario_id ?? null) === (right.coverage.scenario_id ?? null) ||
     left.capture.full_page ||
@@ -1317,7 +1328,7 @@ function hasNativeNamedTextChange(root, left, right, observations) {
   const afterGuards = nativeNamedTextGuards(after);
   for (const [key, entries] of nativeNamedTextGuards(before)) {
     for (const a of entries) {
-      if (a.role !== role) continue;
+      if (!roles.includes(a.role)) continue;
       for (const b of afterGuards.get(key) || []) {
         if (a.name === b.name) continue;
         const region = anchoredNativeRegion(a.region, b.region, "text");
