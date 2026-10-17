@@ -51,6 +51,8 @@ When reviewers recommend the same fix in different words, they can explicitly co
 
 Release and Review can use the original Dev session across registered Git worktrees. The source worktree keeps its own evidence and release transaction; the session is not copied. Repository, namespace, branch and assigned-worktree checks prevent an unrelated session from authorizing delivery.
 
+Explicit evidence recertification supersedes the original records at its verified commit, including a refresh at the same commit. Gates still recheck the selected evidence and cannot fall back to an older success when the replacement is missing or failing.
+
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)

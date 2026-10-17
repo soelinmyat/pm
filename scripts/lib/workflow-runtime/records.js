@@ -48,10 +48,12 @@ function appendTransition(history, input) {
 
 function currentEvidenceRecords(record, commit) {
   if (!isObject(record) || typeof commit !== "string" || !commit) return null;
-  if (record.commit === commit) return Array.isArray(record.records) ? record.records : null;
+  // An explicit refresh also supersedes the original records at the same commit.
+  // Do not fall back to an earlier success if that refresh has no valid records.
   if (record.verified_commit === commit) {
     return Array.isArray(record.verification_records) ? record.verification_records : null;
   }
+  if (record.commit === commit) return Array.isArray(record.records) ? record.records : null;
   return null;
 }
 
