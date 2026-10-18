@@ -2903,6 +2903,7 @@ const KEY_DEFINITIONS = Object.freeze({
   ArrowRight: Object.freeze({ code: "ArrowRight", windowsVirtualKeyCode: 39 }),
   ArrowUp: Object.freeze({ code: "ArrowUp", windowsVirtualKeyCode: 38 }),
   Tab: Object.freeze({ code: "Tab", windowsVirtualKeyCode: 9 }),
+  Shift: Object.freeze({ code: "ShiftLeft", windowsVirtualKeyCode: 16 }),
 });
 
 async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
@@ -2923,7 +2924,11 @@ async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
     ? { type: "keyDown", text: definition.text, unmodifiedText: definition.text }
     : { type: "rawKeyDown" };
   await client.send("Input.dispatchKeyEvent", { ...down, ...event });
-  await client.send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    ...event,
+    modifiers: key === "Shift" ? 0 : modifiers,
+  });
   await client.send("Runtime.evaluate", { expression: "void 0", returnByValue: true });
   return true;
 }
@@ -4070,13 +4075,65 @@ function validateCaretValueProofs(axTree, model, proofs) {
   }
 }
 
+// Keep private AX values in memory only. Shift may change computed focus styles,
+// but must not change any DOM structure/attributes or accessible page semantics.
+function modalityIdentity(model, axTree, snapshot) {
+  const nodes = snapshot.documents[0].nodes;
+  const strings = snapshot.strings;
+  const rareText = (key) => ({
+    index: nodes[key]?.index || [],
+    value: (nodes[key]?.value || []).map((index) => strings[index] || ""),
+  });
+  return digest(
+    Buffer.from(
+      JSON.stringify({
+        dom: model.map(({ index, backendNodeId, parentIndex, nodeName, attributes }) => ({
+          backendNodeId,
+          parentIndex,
+          nodeName,
+          attributes,
+          text: strings[nodes.nodeValue?.[index]] || "",
+        })),
+        inputValue: rareText("inputValue"),
+        textValue: rareText("textValue"),
+        inputChecked: nodes.inputChecked,
+        optionSelected: nodes.optionSelected,
+        // A fresh native key may activate the browser document. Only that
+        // RootWebArea focus flag is contextual; every element focus stays bound.
+        ax: axTree.nodes.map((node) =>
+          valueOf(node.role) === "RootWebArea"
+            ? {
+                ...node,
+                properties: (node.properties || []).filter(
+                  (property) => property.name !== "focused"
+                ),
+              }
+            : node
+        ),
+      })
+    )
+  );
+}
+
+function validateFocusModalityProof(model, axTree, snapshot, proof) {
+  if (
+    proof &&
+    (modalityIdentity(model, axTree, snapshot) !== proof.identity ||
+      axProperties(axTree.nodes.find((node) => valueOf(node.role) === "RootWebArea") || {}).get(
+        "focused"
+      ) !== true)
+  )
+    throw new Error("focus modality changed page identity, focus, value or semantics");
+}
+
 async function nativeSample(
   client,
   targetId,
   computedStyles,
   stateAssertion,
   baselineStyles = null,
-  caretValueProofs = []
+  caretValueProofs = [],
+  focusModalityProof = null
 ) {
   const [frameTree, metrics, snapshot, axTree] = await Promise.all([
     client.send("Page.getFrameTree"),
@@ -4092,6 +4149,7 @@ async function nativeSample(
   ]);
   const model = snapshotNodeModel(snapshot);
   validateCaretValueProofs(axTree, model, caretValueProofs);
+  validateFocusModalityProof(model, axTree, snapshot, focusModalityProof);
   const viewport = nativeViewport(model);
   const identity = pageIdentity(frameTree, metrics, viewport);
   identity.target_id = targetId;
@@ -4787,6 +4845,7 @@ async function main() {
     // Private native field values certify caret preparation through settlement
     // and frozen samples; they are never emitted in raw evidence or logs.
     const caretValueProofs = [];
+    let focusModalityProof = null;
     if (config.stateAssertion.before_capture) {
       const baseline = snapshotNodeModel(
         await client.send("DOMSnapshot.captureSnapshot", {
@@ -4811,6 +4870,50 @@ async function main() {
           const budget = { remaining: action.count };
           while (budget.remaining > 0)
             await dispatchKeyboardKey(client, "Tab", budget, action.reverse ? 8 : 0);
+        } else if (action.kind === "focus-modality") {
+          const snapshot = await client.send("DOMSnapshot.captureSnapshot", { computedStyles: [] });
+          const model = snapshotNodeModel(snapshot);
+          const attribute = action.locator.by === "id" ? "id" : "data-testid";
+          const matches = model.filter(
+            (node) => node.attributes[attribute] === action.locator.value
+          );
+          const target = matches.length === 1 ? matches[0] : null;
+          const ax = await client.send("Accessibility.getFullAXTree", { depth: -1 });
+          const focused = ax.nodes.find(
+            (node) =>
+              node.backendDOMNodeId === target?.backendNodeId &&
+              axProperties(node).get("focused") === true
+          );
+          let editable = false;
+          for (let node = target; node; node = model[node.parentIndex]) {
+            if (Object.hasOwn(node.attributes, "contenteditable")) {
+              editable = node.attributes.contenteditable.toLowerCase() !== "false";
+              break;
+            }
+          }
+          if (
+            !target ||
+            ["input", "textarea", "select"].includes(target.nodeName) ||
+            target.attributes.tabindex !== "-1" ||
+            editable ||
+            !focused ||
+            focused.ignored === true ||
+            !["region", "heading"].includes(valueOf(focused.role)) ||
+            !String(valueOf(focused.name) || "").trim() ||
+            axProperties(focused).get("disabled") === true
+          )
+            throw new Error(
+              "focus modality requires one already-focused named noneditable tabindex=-1 region or heading"
+            );
+          focusModalityProof = { identity: modalityIdentity(model, ax, snapshot) };
+          if (!(await dispatchKeyboardKey(client, "Shift", { remaining: 1 }, 8)))
+            throw new Error("focus modality native Shift dispatch failed");
+          const nextSnapshot = await client.send("DOMSnapshot.captureSnapshot", {
+            computedStyles: [],
+          });
+          const nextModel = snapshotNodeModel(nextSnapshot);
+          const nextAx = await client.send("Accessibility.getFullAXTree", { depth: -1 });
+          validateFocusModalityProof(nextModel, nextAx, nextSnapshot, focusModalityProof);
         } else if (action.kind === "caret-left") {
           const snapshot = await client.send("DOMSnapshot.captureSnapshot", { computedStyles: [] });
           const attribute = action.locator.by === "id" ? "id" : "data-testid";
@@ -4922,7 +5025,8 @@ async function main() {
       computedStyles,
       config.stateAssertion,
       baselineStyles,
-      caretValueProofs
+      caretValueProofs,
+      focusModalityProof
     );
     const first = await client.send("Page.captureScreenshot", {
       format: "png",
@@ -4938,7 +5042,8 @@ async function main() {
       computedStyles,
       config.stateAssertion,
       baselineStyles,
-      caretValueProofs
+      caretValueProofs,
+      focusModalityProof
     );
     const second = await client.send("Page.captureScreenshot", {
       format: "png",
@@ -4957,7 +5062,8 @@ async function main() {
       computedStyles,
       config.stateAssertion,
       baselineStyles,
-      caretValueProofs
+      caretValueProofs,
+      focusModalityProof
     );
     if (
       canonicalSample(before) !== canonicalSample(middle) ||

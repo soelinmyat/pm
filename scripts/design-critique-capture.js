@@ -521,12 +521,14 @@ function validateCaptureActions(actions) {
       )
         throw new Error("Tab action requires count 1 through 100 and boolean reverse");
       tabs += action.count;
-    } else if (["scroll-into-view", "caret-left"].includes(action?.kind)) {
+    } else if (["scroll-into-view", "caret-left", "focus-modality"].includes(action?.kind)) {
       exactObject(action, ["kind", "locator"], "scroll action");
       exactObject(action.locator, ["by", "value"], "scroll locator");
       if (!["id", "test-id"].includes(action.locator.by))
         throw new Error("scroll locator must use id or test-id");
       boundedText(action.locator.value, 500, "scroll locator value");
+      if (action.kind === "focus-modality" && action !== actions.at(-1))
+        throw new Error("focus modality must be the final capture action");
     } else throw new Error("unsupported before_capture action");
   }
   if (tabs > 100) throw new Error("before_capture exceeds 100 Tab presses");

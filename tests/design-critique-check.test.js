@@ -5175,6 +5175,35 @@ test("pending-button release retains native audit failures and rejects unknown p
   }
 });
 
+for (const version of ["1.14.23", "1.14.24", "1.14.25", "1.14.26"]) {
+  test(`focus-modality release preserves native evidence ${version} without mutation`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.27");
+    const files = [
+      fixture.capturesPath,
+      fixture.reportPath,
+      ...fixture.captures.captures.map((capture) => capture.observation.path),
+    ];
+    const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    files.forEach((file, index) =>
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[index])
+    );
+  });
+}
+test("focus-modality release retains audit failures and rejects unknown producers", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.26", "1.14.27");
+  const evidence = fixture.captures.evidence.find((row) => row.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.22", "0.0.0", "1.14.28"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.27");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
+});
+
 test("caption release still rejects incompatible and future native evidence", () => {
   for (const version of ["1.14.22", "0.0.0", "1.14.26"]) {
     const { run } = recertificationReleaseFixture(version, "1.14.25");

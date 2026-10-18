@@ -132,6 +132,18 @@ the exact routed `data-pm-state` marker. Review-only fixtures may expose that
 marker, but the capture tool never manufactures it. Arbitrary JavaScript, CSS
 selectors, click, submit, and typing actions are unsupported.
 
+For a programmatic return target that is already focused, the final action may
+be `{ "kind": "focus-modality", "locator": { "by": "test-id", "value": "condition" } }`
+(or `id`). It sends only native Shift to establish keyboard
+modality without moving element focus. The unique target must be a named,
+noneditable region or heading with `tabindex="-1"`. DOM text, structure, attributes,
+field values and accessible semantics must remain unchanged immediately and in
+every capture sample. Only the browser document's own activation flag may change;
+the document must be active afterward and element focus must remain unchanged.
+This observes actual focus styling; it does not prove Tab
+reach, activation or the functional journey that returned focus. Those claims
+still need their normal native navigation and QA evidence.
+
 Normal-size viewports may be scrolled. The retained CSS viewport records the
 observed nonnegative integer offsets within document bounds; dimensions, zoom,
 scale, hit-testing, repeated observations and pixels must still match. Do not

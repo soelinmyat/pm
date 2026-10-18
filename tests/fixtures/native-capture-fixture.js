@@ -11,6 +11,9 @@ try {
 }
 const skip = process.env.PM_SKIP_BROWSER_TESTS || (!browser && "Chromium is unavailable");
 function capture(t, html, all, beforeCapture = []) {
+  return captureArtifacts(t, html, all, beforeCapture).result;
+}
+function captureArtifacts(t, html, all, beforeCapture = []) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-native-compatibility-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
@@ -27,7 +30,7 @@ function capture(t, html, all, beforeCapture = []) {
     all,
   };
   if (beforeCapture.length) assertion.before_capture = beforeCapture;
-  return runCaptureProbe({
+  const result = runCaptureProbe({
     browserPath: browser,
     url,
     expectedUrl: url,
@@ -39,5 +42,6 @@ function capture(t, html, all, beforeCapture = []) {
     verificationPath: path.join(root, "verification.png"),
     stateAssertion: assertion,
   });
+  return { result, screenshot: fs.readFileSync(path.join(root, "capture.png")) };
 }
-module.exports = { capture, skip };
+module.exports = { capture, captureArtifacts, skip };
