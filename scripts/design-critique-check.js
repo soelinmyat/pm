@@ -73,10 +73,13 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // audit and report observation contracts remain unchanged. Compatibility is
 // explicit and never grants acceptance to an unknown future release.
 // 1.14.26 changes only checker-side localized pending-button comparison.
+// 1.14.27 adds optional native Shift preparation; existing observations and
+// all audit/pixel acceptance guards are unchanged for earlier producers.
 const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.24", new Set(["1.14.23"])],
   ["1.14.25", new Set(["1.14.23", "1.14.24"])],
   ["1.14.26", new Set(["1.14.23", "1.14.24", "1.14.25"])],
+  ["1.14.27", new Set(["1.14.23", "1.14.24", "1.14.25", "1.14.26"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
