@@ -83,6 +83,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.29 changes checker-side sparse state comparison only; the native
   // producer and observation contract are unchanged from 1.14.28.
   ["1.14.29", new Set(["1.14.28"])],
+  // 1.14.30 only extends offline regional comparison of existing native proof.
+  ["1.14.30", new Set(["1.14.28", "1.14.29"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1307,6 +1309,37 @@ function nativeNamedTextGuards(observation) {
   return rows;
 }
 
+function hasBoundNativeAlertCaption(observation, caption) {
+  if (caption.role !== "statictext" || observation.assertion?.state !== "error") return false;
+  return observation.assertion.all.some((guard, index) => {
+    if (guard.expect.kind !== "visible" || guard.locator.by !== "role-text") return false;
+    const separator = guard.locator.value.indexOf(":");
+    const role = guard.locator.value.slice(0, separator).trim().toLowerCase();
+    const literal = guard.locator.value
+      .slice(separator + 1)
+      .trim()
+      .replace(/\s+/g, " ");
+    if (
+      role !== "alert" ||
+      crypto.createHash("sha256").update(literal).digest("hex") !== caption.name
+    )
+      return false;
+    const check = observation.manifest.page.state_assertion.visibility.checks.find(
+      (item) => item.label === `state assertion clause ${index + 1}`
+    );
+    const alert = check?.visual_bounds;
+    const text = caption.region;
+    return (
+      String(check?.native_role).toLowerCase() === "alert" &&
+      alert &&
+      text.x >= alert.x &&
+      text.y >= alert.y &&
+      text.x + text.width <= alert.x + alert.width &&
+      text.y + text.height <= alert.y + alert.height
+    );
+  });
+}
+
 function hasNativeNamedTextChange(root, left, right, observations) {
   // A primary locale variant can translate a caption while preserving an
   // authored heading. Require the same native name/geometry/pixel proof for
@@ -1316,7 +1349,7 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       ? ["heading", "statictext"]
       : ["focus", "keyboard"].includes(left.coverage.state)
         ? ["heading"]
-        : left.coverage.state === "success"
+        : ["success", "error"].includes(left.coverage.state)
           ? ["statictext"]
           : [];
   if (
@@ -1348,6 +1381,11 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       if (!roles.includes(a.role)) continue;
       for (const b of afterGuards.get(key) || []) {
         if (a.name === b.name) continue;
+        if (
+          left.coverage.state === "error" &&
+          (!hasBoundNativeAlertCaption(before, a) || !hasBoundNativeAlertCaption(after, b))
+        )
+          continue;
         const region = anchoredNativeRegion(a.region, b.region, "text");
         if (region && hasMaterialNativeRegionChange(root, left, right, region)) return true;
       }

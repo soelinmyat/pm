@@ -361,6 +361,15 @@ keyboard variants retain their heading and native focus requirements; a caption
 cannot substitute for that proof. The checker-only 1.14.25 update retains the
 unchanged 1.14.23/1.14.24 native observation and report contracts explicitly.
 
+Distinct error scenarios may use the same native StaticText comparison only
+when each exact caption is paired with its own visible `role-text` alert guard.
+The native alert bounds must wholly contain that caption's measured bounds.
+Both caption names must differ, with the existing anchored geometry, meaningful
+pixels, material regional difference and 32-pixel support floor. Unbound or
+outside-alert text, identical captions, styling alone and pixel beacons cannot
+establish an error-state difference. Native producer and observation schemas are
+unchanged; release 1.14.30 explicitly retains the 1.14.28/1.14.29 contracts.
+
 For a native loading-button comparison, both captures must explicitly assert the
 same visibly named button, and loading must assert `aria-busy="true"`. Anchored
 native bounds constrain the compared region. A localized spinner may qualify

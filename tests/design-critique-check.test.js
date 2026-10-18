@@ -1011,6 +1011,8 @@ function attachTrustedCaptureObservation(
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
   const namedTextProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("named-");
+  const errorCaptionProof =
+    namedTextProof && coverage.state === "error" && nativeStateProof.includes("error-caption");
   if (namedTextProof) {
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
     const name =
@@ -1023,6 +1025,21 @@ function attachTrustedCaptureObservation(
         locator: { by: "role-name", value: "button:Save account" },
         expect: { kind: "visible" },
       });
+    if (errorCaptionProof && !nativeStateProof.includes("missing-alert")) {
+      const literal = nativeStateProof.includes("unbound-caption") ? "Error" : name;
+      assertion.all.push({
+        locator: {
+          by: nativeStateProof.includes("role-name-only") ? "role-name" : "role-text",
+          value: `alert:${literal}`,
+        },
+        expect: { kind: "visible" },
+      });
+      if (literal !== name)
+        assertion.all.push({
+          locator: { by: "role-name", value: `statictext:${literal}` },
+          expect: { kind: "visible" },
+        });
+    }
   }
   if (
     pendingButtonProof &&
@@ -1275,7 +1292,7 @@ function attachTrustedCaptureObservation(
       y: 20,
     });
   }
-  if (nativeStateProof && coverage.state === "error") {
+  if (nativeStateProof && coverage.state === "error" && !errorCaptionProof) {
     const check = assertionVisibility.checks[1];
     check.x = 350;
     check.y = 350;
@@ -1286,6 +1303,35 @@ function attachTrustedCaptureObservation(
       check.y = 324;
       check.visual_bounds = { x: 390, y: 324, width: 2, height: 1 };
     } else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
+  }
+  if (errorCaptionProof && !nativeStateProof.includes("missing-alert")) {
+    assertionVisibility.verified_nodes++;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 350,
+      y: 350,
+      native_role: nativeStateProof.includes("wrong-alert-role") ? "status" : "alert",
+      native_name_present: nativeStateProof.includes("role-name-only"),
+      visual_bounds: nativeStateProof.includes("outside-alert")
+        ? { x: 800, y: 700, width: 400, height: 200 }
+        : { x: 300, y: 300, width: 400, height: 200 },
+    });
+    if (nativeStateProof.includes("unbound-caption")) {
+      assertionVisibility.verified_nodes++;
+      assertionVisibility.checks.push({
+        label: "state assertion clause 3",
+        asserted_backend_node_id: 4,
+        hit_backend_node_id: 4,
+        x: 350,
+        y: 310,
+        native_role: "StaticText",
+        native_name_present: true,
+        native_name_sha256: digest(Buffer.from("Error")),
+        visual_bounds: { x: 310, y: 300, width: 80, height: 20 },
+      });
+    }
   }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading") {
     Object.assign(assertionVisibility.checks[0], {
@@ -2812,6 +2858,48 @@ for (const state of ["focus", "keyboard"]) {
       assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
     });
   }
+}
+
+test("native error caption variants accept changed text inside their asserted alerts", () => {
+  const fixture = namedTextVariantFixture({
+    state: "error",
+    role: "statictext",
+    proof: "-error-caption",
+  });
+  const result = check(fixture);
+  assert.deepEqual(
+    result.issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+for (const [proof, pixels] of [
+  ["-same-name", "state-content"],
+  ["-missing-hash", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["-wrong-role", "state-content"],
+  ["-unnamed", "state-content"],
+  ["-moved", "state-content"],
+  ["-height-drift", "state-content"],
+  ["-outside-alert", "state-content"],
+  ["-unbound-caption", "state-content"],
+  ["-role-name-only", "state-content"],
+  ["-missing-alert", "state-content"],
+  ["-wrong-alert-role", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+]) {
+  test(`native error caption variants reject ${proof || "pixel-proof"}/${pixels}`, () => {
+    const fixture = namedTextVariantFixture({
+      state: "error",
+      role: "statictext",
+      proof: "-error-caption" + proof,
+      pixels,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
 }
 
 for (const [proof, pixels] of [
