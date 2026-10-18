@@ -80,6 +80,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.25", new Set(["1.14.23", "1.14.24"])],
   ["1.14.26", new Set(["1.14.23", "1.14.24", "1.14.25"])],
   ["1.14.27", new Set(["1.14.23", "1.14.24", "1.14.25", "1.14.26"])],
+  // 1.14.29 changes checker-side sparse state comparison only; the native
+  // producer and observation contract are unchanged from 1.14.28.
+  ["1.14.29", new Set(["1.14.28"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1133,7 +1136,8 @@ function validateCrossStateVisualDistance(
           !nativeFocusChange &&
           !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
           !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
-          !hasNativeStateContentChange(root, left, right, observationByCapture)
+          !hasNativeStateContentChange(root, left, right, observationByCapture) &&
+          !hasNativeEmptyLoadingChange(root, left, right, observationByCapture)
         ) {
           // A failed frozen predecessor is evidence of a failed state, not a
           // candidate for certification. Its bytes and native state proof were
@@ -1431,6 +1435,121 @@ function hasNativeStateContentChange(root, left, right, observations) {
         return true;
     } catch {
       // Unavailable or invalid native geometry cannot grant this fallback.
+    }
+  }
+  return false;
+}
+
+// A small named loading indicator and its replacement empty heading may both
+// fall below one viewport tile. Measure only their native semantic regions, with
+// the same meaningful pixels, changed tiles and absolute support as other
+// native regional comparisons. Shared page headings cannot supply state proof.
+function hasNativeEmptyLoadingChange(root, left, right, observations) {
+  if (
+    activeReadCache.nativeRegions.failure ||
+    ![left.coverage.state, right.coverage.state].includes("empty") ||
+    ![left.coverage.state, right.coverage.state].includes("loading") ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height
+  )
+    return false;
+  const loading = observations.get((left.coverage.state === "loading" ? left : right).capture.id);
+  const empty = observations.get((left.coverage.state === "empty" ? left : right).capture.id);
+  if (
+    !loading ||
+    !empty ||
+    loading.assertion?.state !== "loading" ||
+    empty.assertion?.state !== "empty" ||
+    !isDeepStrictEqual(loading.manifest.page.css_viewport, empty.manifest.page.css_viewport)
+  )
+    return false;
+  const loadingRole = (clause) => {
+    if (!["role-name", "role-text"].includes(clause.locator.by)) return "";
+    return clause.locator.value.split(":", 1)[0].trim().toLowerCase();
+  };
+  if (
+    empty.assertion.all.some(
+      (clause) =>
+        clause.expect.kind === "visible" && ["status", "progressbar"].includes(loadingRole(clause))
+    )
+  )
+    return false;
+  const sharedNames = new Set(
+    [...nativeNamedTextGuards(loading).values()].flat().map((row) => row.name)
+  );
+  const marker = loading.manifest.page.state_assertion.visibility.checks.find(
+    (row) => row.label === "state marker"
+  );
+  if (
+    ["heading", "statictext"].includes(String(marker?.native_role).trim().toLowerCase()) &&
+    marker.native_name_present === true &&
+    /^[a-f0-9]{64}$/.test(marker.native_name_sha256)
+  )
+    sharedNames.add(marker.native_name_sha256);
+  const headings = [...nativeNamedTextGuards(empty).values()]
+    .flat()
+    .filter(
+      (row) =>
+        row.role === "heading" &&
+        !sharedNames.has(row.name) &&
+        row.region.width >= 32 &&
+        row.region.height >= 8
+    );
+  for (const [index, clause] of loading.assertion.all.entries()) {
+    const role = loadingRole(clause);
+    if (
+      clause.expect.kind !== "visible" ||
+      clause.locator.by !== "role-name" ||
+      !["status", "progressbar"].includes(role) ||
+      !clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim()
+    )
+      continue;
+    const check = loading.manifest.page.state_assertion.visibility.checks.find(
+      (row) => row.label === `state assertion clause ${index + 1}`
+    );
+    const indicator = check?.visual_bounds;
+    if (
+      !indicator ||
+      String(check.native_role).trim().toLowerCase() !== role ||
+      check.native_name_present !== true ||
+      indicator.width < 16 ||
+      indicator.height < 16
+    )
+      continue;
+    const loadingName = clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim();
+    const loadingNameHash = crypto.createHash("sha256").update(loadingName).digest("hex");
+    for (const heading of headings) {
+      if (heading.name === loadingNameHash) continue;
+      try {
+        const a = readBoundFile(root, left.capture.path, "empty/loading comparison", []);
+        const b = readBoundFile(root, right.capture.path, "empty/loading comparison", []);
+        if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+          continue;
+        const loadingFile = left.coverage.state === "loading" ? a : b;
+        const emptyFile = left.coverage.state === "empty" ? a : b;
+        // Each state must carry meaningful pixels in its own asserted element.
+        // A replacement may leave the other state's element region blank.
+        validateMeaningfulVisual(activeReadCache.nativeRegions.inspect(loadingFile, indicator));
+        validateMeaningfulVisual(activeReadCache.nativeRegions.inspect(emptyFile, heading.region));
+        for (const region of [indicator, heading.region]) {
+          const before = activeReadCache.nativeRegions.inspect(a, region);
+          const difference = visualDifference(
+            before,
+            activeReadCache.nativeRegions.inspect(b, region)
+          );
+          // Never count the gap or double-count overlapping element pixels.
+          if (
+            difference?.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO &&
+            nativeRegionPixelSupport(difference, before, region) >= 32
+          )
+            return true;
+        }
+      } catch {
+        // Invalid geometry, blank semantic content or exhausted work fails closed.
+      }
+      if (activeReadCache.nativeRegions.failure) return false;
     }
   }
   return false;

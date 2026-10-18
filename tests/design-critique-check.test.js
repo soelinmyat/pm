@@ -497,9 +497,11 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
               observation:
                 coverage.state === "loading"
                   ? `The loading state at the ${coverage.viewport} viewport shows a short dark heading at the upper left of a white page, with a separate small loading indicator centered below and no cards or action controls.`
-                  : coverage.state === "boundary"
-                    ? `The boundary state at the ${coverage.viewport} viewport retains the heading and card grid while a long record label wraps beside the blue action button at the lower edge.`
-                    : `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
+                  : coverage.state === "empty"
+                    ? `The empty state at the ${coverage.viewport} viewport places a short No records found heading below the page header, leaving the result area white without cards or rows.`
+                    : coverage.state === "boundary"
+                      ? `The boundary state at the ${coverage.viewport} viewport retains the heading and card grid while a long record label wraps beside the blue action button at the lower edge.`
+                      : `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
             };
           }),
           findings: [],
@@ -1036,6 +1038,34 @@ function attachTrustedCaptureObservation(
       locator: { by: "role-name", value: "status:Loading records" },
       expect: { kind: "visible" },
     });
+  const sparseStateProof =
+    typeof nativeStateProof === "string" && nativeStateProof.startsWith("sparse-state");
+  if (sparseStateProof && ["empty", "loading"].includes(coverage.state)) {
+    const loading = coverage.state === "loading";
+    assertion.all = [
+      {
+        locator: {
+          by: "role-name",
+          value: loading
+            ? `${nativeStateProof.includes("progressbar") ? "progressbar" : "status"}:Loading records`
+            : nativeStateProof.includes("same-name")
+              ? "heading:Loading records"
+              : "heading:No records found",
+        },
+        expect: { kind: "visible" },
+      },
+    ];
+    if (nativeStateProof.includes("shared-heading") && loading)
+      assertion.all.push({
+        locator: { by: "role-name", value: "heading:No records found" },
+        expect: { kind: "visible" },
+      });
+    if (nativeStateProof.includes("empty-loader") && !loading)
+      assertion.all.push({
+        locator: { by: "role-name", value: "status:Loading records" },
+        expect: { kind: "visible" },
+      });
+  }
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -1273,6 +1303,53 @@ function attachTrustedCaptureObservation(
       native_name_present: true,
     });
     delete assertionVisibility.checks[1].focus_indicator_regions;
+  }
+  if (sparseStateProof && ["empty", "loading"].includes(coverage.state)) {
+    const loading = coverage.state === "loading";
+    const makeCheck = (clause, index) => {
+      const [role, name] = clause.locator.value.split(":");
+      const heading = role === "heading";
+      const region = heading
+        ? { x: 390, y: 388, width: 120, height: 24 }
+        : { x: 434, y: 324, width: 32, height: 32 };
+      return {
+        label: `state assertion clause ${index + 1}`,
+        asserted_backend_node_id: index + 2,
+        hit_backend_node_id: index + 2,
+        x: region.x + Math.floor(region.width / 2),
+        y: region.y + Math.floor(region.height / 2),
+        visual_bounds: region,
+        native_role: role,
+        native_name_present: true,
+        ...(heading ? { native_name_sha256: digest(Buffer.from(name)) } : {}),
+      };
+    };
+    assertionVisibility.checks = [assertionVisibility.checks[0], ...assertion.all.map(makeCheck)];
+    assertionVisibility.verified_nodes = assertionVisibility.checks.length;
+    if (nativeStateProof.includes("marker-name") && loading)
+      Object.assign(assertionVisibility.checks[0], {
+        native_role: nativeStateProof.includes("statictext") ? "StaticText" : "heading",
+        native_name_present: true,
+        native_name_sha256: digest(
+          Buffer.from(nativeStateProof.includes("distinct") ? "Records" : "No records found")
+        ),
+        visual_bounds: { x: 390, y: 388, width: 120, height: 24 },
+        x: 450,
+        y: 400,
+      });
+    const content = assertionVisibility.checks[1];
+    if (nativeStateProof.includes("no-bounds")) delete content.visual_bounds;
+    if (nativeStateProof.includes("unnamed")) content.native_name_present = false;
+    if (nativeStateProof.includes("wrong-role")) content.native_role = "button";
+    if (nativeStateProof.includes("bad-name") && !loading)
+      content.native_name_sha256 = "f".repeat(64);
+    if (nativeStateProof.includes("tiny") && loading) {
+      content.visual_bounds.width = 8;
+      content.visual_bounds.height = 8;
+      content.x = content.visual_bounds.x + 4;
+      content.y = content.visual_bounds.y + 4;
+    }
+    if (nativeStateProof.includes("full-page") && loading) capture.full_page = true;
   }
   let sourceTree = "d".repeat(40);
   try {
@@ -1553,7 +1630,38 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (typeof focusRing === "string" && focusRing.startsWith("pending-")) {
+  if (typeof focusRing === "string" && focusRing.startsWith("sparse-state-")) {
+    for (let y = 324; y < 412; y++)
+      for (let x = 390; x < 510; x++) {
+        const spinner =
+          ["sparse-state-loading", "sparse-state-shared", "sparse-state-gap"].includes(focusRing) &&
+          x >= 434 &&
+          x < 466 &&
+          y < 356 &&
+          (x === 434 || x === 465 || y === 324 || y === 355);
+        const text =
+          focusRing !== "sparse-state-loading" && y >= 392 && y < 400 && (x - 390) % 12 < 2;
+        const pixel = y * (width * 4 + 1) + 1 + x * 4;
+        rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = spinner || text ? 32 : 255;
+      }
+    if (focusRing === "sparse-state-beacon") {
+      const pixel = 340 * (width * 4 + 1) + 1 + 450 * 4;
+      rows[pixel] = 255;
+      rows[pixel + 1] = rows[pixel + 2] = 0;
+    }
+    if (focusRing === "sparse-state-unrelated")
+      for (let y = 324; y < 332; y++)
+        for (let x = 700; x < 708; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 32;
+        }
+    if (focusRing === "sparse-state-gap")
+      for (let y = 364; y < 380; y++)
+        for (let x = 420; x < 452; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 32;
+        }
+  } else if (typeof focusRing === "string" && focusRing.startsWith("pending-")) {
     for (let y = 324; y < 360; y++)
       for (let x = 390; x < 510; x++) {
         const busy = focusRing === "pending-busy";
@@ -5204,6 +5312,33 @@ test("focus-modality release retains audit failures and rejects unknown producer
   }
 });
 
+test("sparse-state release preserves native 1.14.28 evidence without mutation", () => {
+  const { fixture, run } = recertificationReleaseFixture("1.14.28", "1.14.29");
+  const files = [
+    fixture.capturesPath,
+    ...fixture.captures.captures.map((capture) => capture.observation.path),
+  ];
+  const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  files.forEach((file, index) =>
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[index])
+  );
+});
+
+test("sparse-state release retains audit failures and rejects incompatible native producers", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.28", "1.14.29");
+  const evidence = fixture.captures.evidence.find((row) => row.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.27", "0.0.0", "1.14.30"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.29");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
+});
+
 test("caption release still rejects incompatible and future native evidence", () => {
   for (const version of ["1.14.22", "0.0.0", "1.14.26"]) {
     const { run } = recertificationReleaseFixture(version, "1.14.25");
@@ -6769,6 +6904,92 @@ for (const [proof, pixels] of [
       true
     );
   });
+
+function sparseEmptyLoadingFixture(
+  proof = "sparse-state",
+  pixels = "sparse-state-loading",
+  emptyPixels = "sparse-state-empty"
+) {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = proof;
+  addRequiredStateCapture(fixture, "empty", validPng(1440, 1000, 20, 0, null, 1, emptyPixels));
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
+  return fixture;
+}
+
+test("native empty/loading comparison rejects changes only between semantic regions", (t) => {
+  const fixture = sparseEmptyLoadingFixture(
+    "sparse-state",
+    "sparse-state-gap",
+    "sparse-state-shared"
+  );
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.equal(check(fixture).ok, false);
+});
+
+for (const [state, loadingPixels, emptyPixels] of [
+  ["loading", "sparse-state-empty", "sparse-state-shared"],
+  ["empty", "sparse-state-shared", "sparse-state-loading"],
+])
+  test(`native empty/loading comparison rejects blank ${state} semantic content`, (t) => {
+    const fixture = sparseEmptyLoadingFixture("sparse-state", loadingPixels, emptyPixels);
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(check(fixture).ok, false);
+  });
+
+for (const proof of ["sparse-state", "sparse-state-progressbar"]) {
+  test(`native empty/loading comparison accepts distinct measured content: ${proof}`, (t) => {
+    const fixture = sparseEmptyLoadingFixture(proof);
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const pixels = fixture.captures.captures
+      .filter((capture) => ["ui-empty", "ui-loading"].includes(capture.coverage_id))
+      .map((capture) =>
+        inspectPngVisualBytes(fs.readFileSync(path.join(fixture.root, capture.path)))
+      );
+    assert.ok(
+      visualDifference(...pixels).changedTileRatio <
+        PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileRatio
+    );
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  });
+}
+
+for (const role of ["heading", "statictext"])
+  test(`native empty/loading comparison rejects a shared ${role} state marker`, (t) => {
+    const fixture = sparseEmptyLoadingFixture(
+      `sparse-state-marker-name-${role}`,
+      "sparse-state-shared"
+    );
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(check(fixture).ok, false);
+  });
+
+test("native empty/loading comparison accepts an empty heading distinct from the state marker", (t) => {
+  const fixture = sparseEmptyLoadingFixture("sparse-state-marker-name-distinct");
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+for (const [name, proof, pixels] of [
+  ["missing native bounds", "sparse-state-no-bounds"],
+  ["unnamed native content", "sparse-state-unnamed"],
+  ["wrong native role", "sparse-state-wrong-role"],
+  ["incorrect heading name binding", "sparse-state-bad-name"],
+  ["heading shared with loading", "sparse-state-shared-heading"],
+  ["heading repeats the loading name", "sparse-state-same-name"],
+  ["loading status also asserted on empty", "sparse-state-empty-loader"],
+  ["tiny loading geometry", "sparse-state-tiny"],
+  ["full-page loading capture", "sparse-state-full-page"],
+  ["identical pixels", "sparse-state", "sparse-state-empty"],
+  ["single-pixel beacon", "sparse-state", "sparse-state-beacon"],
+  ["changes outside semantic content", "sparse-state", "sparse-state-unrelated"],
+]) {
+  test(`native empty/loading comparison rejects ${name}`, (t) => {
+    const fixture = sparseEmptyLoadingFixture(proof, pixels);
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(check(fixture).ok, false);
+  });
+}
 
 test("native error/empty comparison accepts material content inside the measured alert", () => {
   const fixture = makeFixture();
