@@ -30,6 +30,8 @@ Permitted CUA observations can support a specific product journey with explicit 
 
 Sparse loading captures can validate a native named heading and a separate visible loading indicator against their measured pixel regions. The full viewport image, ordinary density thresholds, atomic capture checks and offline pixel verification remain required.
 
+Sparse empty/loading comparisons can use the native measured union of an explicitly visible named loading indicator and a distinct empty-state heading. Both regions must retain meaningful pixels and material change with at least 32 full-contrast pixels of support; shared page headings, identical images and small beacons cannot establish the state difference.
+
 Native capture hit-testing uses the visible input host rather than its browser-internal shadow nodes. Static text guards accept the exact containing element returned by native hit-testing; sibling and nested overlays remain failures. Keyboard audits recognize an unambiguous combobox controlling a separate listbox, including a single suggestion, only after native Tab and arrow events demonstrate access to its options. Broken handlers, static active-descendant markup and actual occluding elements remain failures.
 
 Visible `status` and `alert` messages can use `role-text` with an exact native StaticText descendant and a separate exact visible StaticText guard. This preserves the region's native accessible name and rejects unrelated, ambiguous, hidden or covered message content; other roles still use their existing locators.

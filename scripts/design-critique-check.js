@@ -80,6 +80,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.25", new Set(["1.14.23", "1.14.24"])],
   ["1.14.26", new Set(["1.14.23", "1.14.24", "1.14.25"])],
   ["1.14.27", new Set(["1.14.23", "1.14.24", "1.14.25", "1.14.26"])],
+  // 1.14.29 changes checker-side sparse state comparison only; the native
+  // producer and observation contract are unchanged from 1.14.28.
+  ["1.14.29", new Set(["1.14.28"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1133,7 +1136,8 @@ function validateCrossStateVisualDistance(
           !nativeFocusChange &&
           !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
           !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
-          !hasNativeStateContentChange(root, left, right, observationByCapture)
+          !hasNativeStateContentChange(root, left, right, observationByCapture) &&
+          !hasNativeEmptyLoadingChange(root, left, right, observationByCapture)
         ) {
           // A failed frozen predecessor is evidence of a failed state, not a
           // candidate for certification. Its bytes and native state proof were
@@ -1431,6 +1435,95 @@ function hasNativeStateContentChange(root, left, right, observations) {
         return true;
     } catch {
       // Unavailable or invalid native geometry cannot grant this fallback.
+    }
+  }
+  return false;
+}
+
+// A small named loading indicator and its replacement empty heading may both
+// fall below one viewport tile. Measure only their native semantic union, with
+// the same meaningful pixels, changed tiles and absolute support as other
+// native regional comparisons. Shared page headings cannot supply state proof.
+function hasNativeEmptyLoadingChange(root, left, right, observations) {
+  if (
+    activeReadCache.nativeRegions.failure ||
+    ![left.coverage.state, right.coverage.state].includes("empty") ||
+    ![left.coverage.state, right.coverage.state].includes("loading") ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height
+  )
+    return false;
+  const loading = observations.get((left.coverage.state === "loading" ? left : right).capture.id);
+  const empty = observations.get((left.coverage.state === "empty" ? left : right).capture.id);
+  if (
+    !loading ||
+    !empty ||
+    loading.assertion?.state !== "loading" ||
+    empty.assertion?.state !== "empty" ||
+    !isDeepStrictEqual(loading.manifest.page.css_viewport, empty.manifest.page.css_viewport)
+  )
+    return false;
+  const loadingRole = (clause) => {
+    if (!["role-name", "role-text"].includes(clause.locator.by)) return "";
+    return clause.locator.value.split(":", 1)[0].trim().toLowerCase();
+  };
+  if (
+    empty.assertion.all.some(
+      (clause) =>
+        clause.expect.kind === "visible" && ["status", "progressbar"].includes(loadingRole(clause))
+    )
+  )
+    return false;
+  const sharedNames = new Set(
+    [...nativeNamedTextGuards(loading).values()].flat().map((row) => row.name)
+  );
+  const headings = [...nativeNamedTextGuards(empty).values()]
+    .flat()
+    .filter(
+      (row) =>
+        row.role === "heading" &&
+        !sharedNames.has(row.name) &&
+        row.region.width >= 32 &&
+        row.region.height >= 8
+    );
+  for (const [index, clause] of loading.assertion.all.entries()) {
+    const role = loadingRole(clause);
+    if (
+      clause.expect.kind !== "visible" ||
+      clause.locator.by !== "role-name" ||
+      !["status", "progressbar"].includes(role) ||
+      !clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim()
+    )
+      continue;
+    const check = loading.manifest.page.state_assertion.visibility.checks.find(
+      (row) => row.label === `state assertion clause ${index + 1}`
+    );
+    const indicator = check?.visual_bounds;
+    if (
+      !indicator ||
+      String(check.native_role).trim().toLowerCase() !== role ||
+      check.native_name_present !== true ||
+      indicator.width < 16 ||
+      indicator.height < 16
+    )
+      continue;
+    const loadingName = clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim();
+    const loadingNameHash = crypto.createHash("sha256").update(loadingName).digest("hex");
+    for (const heading of headings) {
+      if (heading.name === loadingNameHash) continue;
+      const x = Math.min(indicator.x, heading.region.x),
+        y = Math.min(indicator.y, heading.region.y);
+      const region = {
+        x,
+        y,
+        width: Math.max(indicator.x + indicator.width, heading.region.x + heading.region.width) - x,
+        height:
+          Math.max(indicator.y + indicator.height, heading.region.y + heading.region.height) - y,
+      };
+      if (hasMaterialNativeRegionChange(root, left, right, region, true)) return true;
+      if (activeReadCache.nativeRegions.failure) return false;
     }
   }
   return false;
