@@ -1479,6 +1479,15 @@ function hasNativeEmptyLoadingChange(root, left, right, observations) {
   const sharedNames = new Set(
     [...nativeNamedTextGuards(loading).values()].flat().map((row) => row.name)
   );
+  const marker = loading.manifest.page.state_assertion.visibility.checks.find(
+    (row) => row.label === "state marker"
+  );
+  if (
+    ["heading", "statictext"].includes(String(marker?.native_role).trim().toLowerCase()) &&
+    marker.native_name_present === true &&
+    /^[a-f0-9]{64}$/.test(marker.native_name_sha256)
+  )
+    sharedNames.add(marker.native_name_sha256);
   const headings = [...nativeNamedTextGuards(empty).values()]
     .flat()
     .filter(

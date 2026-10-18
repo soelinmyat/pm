@@ -1326,6 +1326,17 @@ function attachTrustedCaptureObservation(
     };
     assertionVisibility.checks = [assertionVisibility.checks[0], ...assertion.all.map(makeCheck)];
     assertionVisibility.verified_nodes = assertionVisibility.checks.length;
+    if (nativeStateProof.includes("marker-name") && loading)
+      Object.assign(assertionVisibility.checks[0], {
+        native_role: nativeStateProof.includes("statictext") ? "StaticText" : "heading",
+        native_name_present: true,
+        native_name_sha256: digest(
+          Buffer.from(nativeStateProof.includes("distinct") ? "Records" : "No records found")
+        ),
+        visual_bounds: { x: 390, y: 388, width: 120, height: 24 },
+        x: 450,
+        y: 400,
+      });
     const content = assertionVisibility.checks[1];
     if (nativeStateProof.includes("no-bounds")) delete content.visual_bounds;
     if (nativeStateProof.includes("unnamed")) content.native_name_present = false;
@@ -6942,6 +6953,22 @@ for (const proof of ["sparse-state", "sparse-state-progressbar"]) {
     assert.deepEqual(check(fixture), { ok: true, issues: [] });
   });
 }
+
+for (const role of ["heading", "statictext"])
+  test(`native empty/loading comparison rejects a shared ${role} state marker`, (t) => {
+    const fixture = sparseEmptyLoadingFixture(
+      `sparse-state-marker-name-${role}`,
+      "sparse-state-shared"
+    );
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(check(fixture).ok, false);
+  });
+
+test("native empty/loading comparison accepts an empty heading distinct from the state marker", (t) => {
+  const fixture = sparseEmptyLoadingFixture("sparse-state-marker-name-distinct");
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
 
 for (const [name, proof, pixels] of [
   ["missing native bounds", "sparse-state-no-bounds"],
