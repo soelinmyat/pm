@@ -1044,7 +1044,9 @@ function attachTrustedCaptureObservation(
   if (
     pendingButtonProof &&
     coverage.state === "loading" &&
-    !["pending-no-guard", "pending-idle-loader"].includes(nativeStateProof)
+    !["pending-no-guard", "pending-center-no-guard", "pending-idle-loader"].includes(
+      nativeStateProof
+    )
   )
     assertion.all.push({
       locator: { ...assertion.all[0].locator },
@@ -1215,6 +1217,23 @@ function attachTrustedCaptureObservation(
       check.x = 450;
       check.y = 340;
       check.visual_bounds = { x: 450, y: 340, width: 2, height: 1 };
+    }
+    if (nativeStateProof.startsWith("pending-center")) {
+      if (coverage.state === "loading") {
+        const growth = nativeStateProof.includes("excessive")
+          ? 38
+          : nativeStateProof.includes("maximum")
+            ? 36
+            : 24;
+        check.visual_bounds.x -= growth / 2;
+        check.visual_bounds.width += growth;
+        if (nativeStateProof.includes("shift")) check.visual_bounds.x++;
+        if (nativeStateProof.includes("vertical")) check.visual_bounds.y++;
+        if (nativeStateProof.includes("height")) check.visual_bounds.height++;
+      }
+      if (nativeStateProof.includes("unnamed")) check.native_name_present = false;
+      if (nativeStateProof.includes("no-counterpart") && coverage.state === "boundary")
+        check.native_role = "heading";
     }
   }
   if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading") {
@@ -6960,6 +6979,59 @@ test("native pending button accepts intrinsic spinner width growth at an unchang
     false
   );
 });
+
+function centeredPendingFixture(proof = "pending-center", pixels = "pending-busy") {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = proof;
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
+  return fixture;
+}
+
+for (const proof of ["pending-center", "pending-center-maximum"]) {
+  test(`centered native busy controls accept bounded intrinsic growth: ${proof}`, () => {
+    const fixture = centeredPendingFixture(proof);
+    assert.deepEqual(
+      check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+      []
+    );
+  });
+}
+
+test("centered native busy controls keep comparison independent of capture order", () => {
+  const fixture = centeredPendingFixture();
+  fixture.captures.captures.reverse();
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+for (const [proof, pixels] of [
+  ["pending-center-shift", "pending-busy"],
+  ["pending-center-vertical", "pending-busy"],
+  ["pending-center-height", "pending-busy"],
+  ["pending-center-excessive", "pending-busy"],
+  ["pending-center-unnamed", "pending-busy"],
+  ["pending-center-no-counterpart", "pending-busy"],
+  ["pending-center-no-guard", "pending-busy"],
+  ["pending-center", "pending-idle"],
+  ["pending-center", "pending-four-pixel"],
+  ["pending-center", "pending-two-pixel"],
+  ["pending-center", "nearby-noise"],
+]) {
+  test(`centered native busy controls reject ${proof}/${pixels}`, () => {
+    const fixture = centeredPendingFixture(proof, pixels);
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
 
 for (const [proof, pixels] of [
   ["pending-no-guard", "pending-busy"],

@@ -1169,14 +1169,15 @@ function validateCrossStateVisualDistance(
     add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
-// Native origin and height remain fixed. Controls constrain width growth;
-// text uses its measured union and the unchanged absolute pixel-support floor.
-// Caller crops cannot supply geometry or move the comparison elsewhere.
+// Native vertical origin and height remain fixed. Controls retain their exact
+// left edge or center with capped width growth; text retains its left edge.
+// Only the measured union and unchanged pixel-support floor can qualify.
 function anchoredNativeRegion(left, right, kind = "control") {
   if (
     !left ||
     !right ||
-    left.x !== right.x ||
+    (left.x !== right.x &&
+      (kind !== "control" || left.x * 2 + left.width !== right.x * 2 + right.width)) ||
     left.y !== right.y ||
     left.height !== right.height ||
     Math.min(left.width, right.width) < 32 ||
@@ -1184,7 +1185,7 @@ function anchoredNativeRegion(left, right, kind = "control") {
     (kind !== "text" && Math.abs(left.width - right.width) > left.height)
   )
     return null;
-  return { ...left, width: Math.max(left.width, right.width) };
+  return { ...left, x: Math.min(left.x, right.x), width: Math.max(left.width, right.width) };
 }
 
 // A busy button can be smaller than one viewport tile. Its named native
