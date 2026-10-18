@@ -850,25 +850,9 @@ function compositeKeyboardCandidates(
     )
       appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
   }
-  // Probe inner panels before an outer widget can unmount their frozen nodes,
-  // and later siblings before earlier ones because an earlier selection
-  // commonly discloses or replaces the widgets after it. The probe re-finds
-  // any widget that an unexpected order still remounts.
-  const byIndex = new Map(model.map((node) => [node.index, node]));
-  const depths = new Map();
-  const ownerDepth = (candidate) => {
-    let node = byBackendId.get(candidate.owner_backend_node_id);
-    const trail = [];
-    const seen = new Set();
-    while (node && !depths.has(node.index) && !seen.has(node.index)) {
-      seen.add(node.index);
-      trail.push(node.index);
-      node = byIndex.get(node.parentIndex);
-    }
-    let depth = node ? depths.get(node.index) || 0 : 0;
-    for (const index of trail.reverse()) depths.set(index, ++depth);
-    return depths.get(byBackendId.get(candidate.owner_backend_node_id)?.index) || 0;
-  };
+  // Reverse DOM pre-order visits descendants before their ancestors and later
+  // independent groups before earlier ones. Unrelated layout wrappers must not
+  // give an earlier controller priority over the controls its selection changes.
   const ownerIndex = (candidate) => byBackendId.get(candidate.owner_backend_node_id)?.index ?? -1;
   // A body portal can be shallower than the background tabs that dismiss it.
   // Native named-dialog ancestry establishes popup order without granting reach.
@@ -903,9 +887,7 @@ function compositeKeyboardCandidates(
   };
   return candidates.sort(
     (left, right) =>
-      ownerDialogDepth(right) - ownerDialogDepth(left) ||
-      ownerDepth(right) - ownerDepth(left) ||
-      ownerIndex(right) - ownerIndex(left)
+      ownerDialogDepth(right) - ownerDialogDepth(left) || ownerIndex(right) - ownerIndex(left)
   );
 }
 

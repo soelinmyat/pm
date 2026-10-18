@@ -110,6 +110,8 @@ Native composite keyboard checks retain the member actually reached by document 
 
 Composites inside native named dialogs are probed before background widgets. This preserves a body-portaled calendar long enough to test it before automatic tab activation can dismiss it; native entry, arrow traversal, exit/return, identity and final URL checks remain required.
 
+Within the same named-dialog context, native probes visit later independent groups before earlier controls can change their enabled members. Descendant widgets still precede their ancestor owners; unrelated layout wrappers do not take priority over this order. Every member still needs its own native entry and keyboard traversal proof against the frozen state.
+
 ### Native preparation for below-fold and keyboard states
 
 An assertion may include an optional `before_capture` array. It is hash-bound with
