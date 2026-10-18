@@ -136,10 +136,12 @@ For a programmatic return target that is already focused, the final action may
 be `{ "kind": "focus-modality", "locator": { "by": "test-id", "value": "condition" } }`
 (or `id`). It sends only native Shift to establish keyboard
 modality without moving element focus. The unique target must be a named,
-noneditable region or heading with `tabindex="-1"`. DOM text, structure, attributes,
+noneditable region or heading with `tabindex="-1"`. Authored DOM text, structure, attributes,
 field values and accessible semantics must remain unchanged immediately and in
 every capture sample. Only the browser document's own activation flag may change;
 the document must be active afterward and element focus must remain unchanged.
+Empty native CSS `::before`/`::after` decoration and regenerated inline paint-fragment
+IDs are excluded from content identity; generated semantic text still fails.
 This observes actual focus styling; it does not prove Tab
 reach, activation or the functional journey that returned focus. Those claims
 still need their normal native navigation and QA evidence.

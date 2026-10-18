@@ -4080,36 +4080,72 @@ function validateCaretValueProofs(axTree, model, proofs) {
 function modalityIdentity(model, axTree, snapshot) {
   const nodes = snapshot.documents[0].nodes;
   const strings = snapshot.strings;
+  const parentIndices = new Set(model.map((node) => node.parentIndex));
+  const exposed = new Set(
+    axTree.nodes.filter((node) => !node.ignored).map((node) => node.backendDOMNodeId)
+  );
+  const pseudoTypes = new Map(
+    (nodes.pseudoType?.index || []).map((index, offset) => [
+      index,
+      strings[nodes.pseudoType.value[offset]],
+    ])
+  );
+  // Empty native CSS decorations have no authored children or AX semantics.
+  const decorations = new Set(
+    model
+      .filter(
+        (node) =>
+          ["before", "after"].includes(pseudoTypes.get(node.index)) &&
+          !parentIndices.has(node.index) &&
+          !exposed.has(node.backendNodeId)
+      )
+      .map((node) => node.backendNodeId)
+  );
+  // InlineTextBox IDs describe paint fragments; StaticText and DOM text retain
+  // their actual content when a focus decoration regenerates those fragments.
+  const ignoredAx = new Set(
+    axTree.nodes
+      .filter(
+        (node) => valueOf(node.role) === "InlineTextBox" || decorations.has(node.backendDOMNodeId)
+      )
+      .map((node) => node.nodeId)
+  );
+  const backendIds = (indices = []) => indices.map((index) => model[index].backendNodeId);
   const rareText = (key) => ({
-    index: nodes[key]?.index || [],
+    index: backendIds(nodes[key]?.index),
     value: (nodes[key]?.value || []).map((index) => strings[index] || ""),
   });
   return digest(
     Buffer.from(
       JSON.stringify({
-        dom: model.map(({ index, backendNodeId, parentIndex, nodeName, attributes }) => ({
-          backendNodeId,
-          parentIndex,
-          nodeName,
-          attributes,
-          text: strings[nodes.nodeValue?.[index]] || "",
-        })),
+        dom: model
+          .filter((node) => !decorations.has(node.backendNodeId))
+          .map(({ index, backendNodeId, parentIndex, nodeName, attributes }) => ({
+            backendNodeId,
+            parent: model[parentIndex]?.backendNodeId ?? null,
+            nodeName,
+            attributes,
+            text: strings[nodes.nodeValue?.[index]] || "",
+          })),
         inputValue: rareText("inputValue"),
         textValue: rareText("textValue"),
-        inputChecked: nodes.inputChecked,
-        optionSelected: nodes.optionSelected,
+        inputChecked: backendIds(nodes.inputChecked?.index),
+        optionSelected: backendIds(nodes.optionSelected?.index),
         // A fresh native key may activate the browser document. Only that
         // RootWebArea focus flag is contextual; every element focus stays bound.
-        ax: axTree.nodes.map((node) =>
-          valueOf(node.role) === "RootWebArea"
-            ? {
-                ...node,
-                properties: (node.properties || []).filter(
-                  (property) => property.name !== "focused"
-                ),
-              }
-            : node
-        ),
+        ax: axTree.nodes
+          .filter((node) => !ignoredAx.has(node.nodeId))
+          .map((node) => ({ ...node, childIds: node.childIds?.filter((id) => !ignoredAx.has(id)) }))
+          .map((node) =>
+            valueOf(node.role) === "RootWebArea"
+              ? {
+                  ...node,
+                  properties: (node.properties || []).filter(
+                    (property) => property.name !== "focused"
+                  ),
+                }
+              : node
+          ),
       })
     )
   );

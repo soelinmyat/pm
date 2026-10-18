@@ -84,3 +84,38 @@ test("focus modality has a closed locator-only schema and must be the final acti
     assert.throws(() => validateCaptureActions([malformed]));
   assert.throws(() => validateCaptureActions([action, { kind: "tab", count: 1, reverse: false }]));
 });
+
+function pseudoHtml(pseudo = "after", content = "", effect = "") {
+  return `<!doctype html><html lang="en"><head><style>body{font:16px Arial;padding:24px}#entry{padding:16px;outline:none;position:relative}#entry:focus-visible::${pseudo}{content:"${content}";position:absolute;inset:0;border:3px solid blue;pointer-events:none}</style></head><body><main id="fixture" data-pm-state="primary"><h1>Room details</h1><section id="entry" role="region" aria-label="Condition" tabindex="-1">Room condition is awaiting telemetry.</section><input id="other" aria-label="Other" value="Saved"><input type="checkbox" checked aria-label="Selected"><script>const entry=document.querySelector('#entry');entry.focus();entry.addEventListener('keydown',event=>{if(event.key==='Shift'&&event.isTrusted){${effect}}});</script></main></body></html>`;
+}
+for (const pseudo of ["before", "after"]) {
+  test(
+    `native empty ::${pseudo} focus decoration preserves authored content and ring pixels`,
+    { skip },
+    (t) => {
+      const html = pseudoHtml(pseudo);
+      const ring = captureArtifacts(t, html, visible, [action]);
+      const plain = captureArtifacts(
+        t,
+        html.replace("border:3px solid blue", "border:none"),
+        visible,
+        [action]
+      );
+      assert.equal(ring.result.assertion_passed, true);
+      assert.notEqual(
+        inspectPngVisualBytes(ring.screenshot).pixelSha256,
+        inspectPngVisualBytes(plain.screenshot).pixelSha256
+      );
+    }
+  );
+}
+test("focus decoration cannot hide generated semantic text", { skip }, (t) => {
+  assert.throws(
+    () => capture(t, pseudoHtml("after", "Changed context"), visible, [action]),
+    /focus modality/
+  );
+});
+test("focus decoration cannot hide a changed field value", { skip }, (t) => {
+  const html = pseudoHtml("after", "", "document.querySelector('#other').value='Changed';");
+  assert.throws(() => capture(t, html, visible, [action]), /focus modality/);
+});
