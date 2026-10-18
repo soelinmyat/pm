@@ -1623,7 +1623,7 @@ function validPng(
     for (let y = 324; y < 412; y++)
       for (let x = 390; x < 510; x++) {
         const spinner =
-          focusRing === "sparse-state-loading" &&
+          ["sparse-state-loading", "sparse-state-shared", "sparse-state-gap"].includes(focusRing) &&
           x >= 434 &&
           x < 466 &&
           y < 356 &&
@@ -1641,6 +1641,12 @@ function validPng(
     if (focusRing === "sparse-state-unrelated")
       for (let y = 324; y < 332; y++)
         for (let x = 700; x < 708; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 32;
+        }
+    if (focusRing === "sparse-state-gap")
+      for (let y = 364; y < 380; y++)
+        for (let x = 420; x < 452; x++) {
           const pixel = y * (width * 4 + 1) + 1 + x * 4;
           rows[pixel] = rows[pixel + 1] = rows[pixel + 2] = 32;
         }
@@ -6888,17 +6894,37 @@ for (const [proof, pixels] of [
     );
   });
 
-function sparseEmptyLoadingFixture(proof = "sparse-state", pixels = "sparse-state-loading") {
+function sparseEmptyLoadingFixture(
+  proof = "sparse-state",
+  pixels = "sparse-state-loading",
+  emptyPixels = "sparse-state-empty"
+) {
   const fixture = makeFixture();
   fixture.nativeStateProof = proof;
-  addRequiredStateCapture(
-    fixture,
-    "empty",
-    validPng(1440, 1000, 20, 0, null, 1, "sparse-state-empty")
-  );
+  addRequiredStateCapture(fixture, "empty", validPng(1440, 1000, 20, 0, null, 1, emptyPixels));
   addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
   return fixture;
 }
+
+test("native empty/loading comparison rejects changes only between semantic regions", (t) => {
+  const fixture = sparseEmptyLoadingFixture(
+    "sparse-state",
+    "sparse-state-gap",
+    "sparse-state-shared"
+  );
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.equal(check(fixture).ok, false);
+});
+
+for (const [state, loadingPixels, emptyPixels] of [
+  ["loading", "sparse-state-empty", "sparse-state-shared"],
+  ["empty", "sparse-state-shared", "sparse-state-loading"],
+])
+  test(`native empty/loading comparison rejects blank ${state} semantic content`, (t) => {
+    const fixture = sparseEmptyLoadingFixture("sparse-state", loadingPixels, emptyPixels);
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(check(fixture).ok, false);
+  });
 
 for (const proof of ["sparse-state", "sparse-state-progressbar"]) {
   test(`native empty/loading comparison accepts distinct measured content: ${proof}`, (t) => {

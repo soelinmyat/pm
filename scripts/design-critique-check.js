@@ -1441,7 +1441,7 @@ function hasNativeStateContentChange(root, left, right, observations) {
 }
 
 // A small named loading indicator and its replacement empty heading may both
-// fall below one viewport tile. Measure only their native semantic union, with
+// fall below one viewport tile. Measure only their native semantic regions, with
 // the same meaningful pixels, changed tiles and absolute support as other
 // native regional comparisons. Shared page headings cannot supply state proof.
 function hasNativeEmptyLoadingChange(root, left, right, observations) {
@@ -1513,16 +1513,33 @@ function hasNativeEmptyLoadingChange(root, left, right, observations) {
     const loadingNameHash = crypto.createHash("sha256").update(loadingName).digest("hex");
     for (const heading of headings) {
       if (heading.name === loadingNameHash) continue;
-      const x = Math.min(indicator.x, heading.region.x),
-        y = Math.min(indicator.y, heading.region.y);
-      const region = {
-        x,
-        y,
-        width: Math.max(indicator.x + indicator.width, heading.region.x + heading.region.width) - x,
-        height:
-          Math.max(indicator.y + indicator.height, heading.region.y + heading.region.height) - y,
-      };
-      if (hasMaterialNativeRegionChange(root, left, right, region, true)) return true;
+      try {
+        const a = readBoundFile(root, left.capture.path, "empty/loading comparison", []);
+        const b = readBoundFile(root, right.capture.path, "empty/loading comparison", []);
+        if (!a || !b || a.sha256 !== left.capture.sha256 || b.sha256 !== right.capture.sha256)
+          continue;
+        const loadingFile = left.coverage.state === "loading" ? a : b;
+        const emptyFile = left.coverage.state === "empty" ? a : b;
+        // Each state must carry meaningful pixels in its own asserted element.
+        // A replacement may leave the other state's element region blank.
+        validateMeaningfulVisual(activeReadCache.nativeRegions.inspect(loadingFile, indicator));
+        validateMeaningfulVisual(activeReadCache.nativeRegions.inspect(emptyFile, heading.region));
+        for (const region of [indicator, heading.region]) {
+          const before = activeReadCache.nativeRegions.inspect(a, region);
+          const difference = visualDifference(
+            before,
+            activeReadCache.nativeRegions.inspect(b, region)
+          );
+          // Never count the gap or double-count overlapping element pixels.
+          if (
+            difference?.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO &&
+            nativeRegionPixelSupport(difference, before, region) >= 32
+          )
+            return true;
+        }
+      } catch {
+        // Invalid geometry, blank semantic content or exhausted work fails closed.
+      }
       if (activeReadCache.nativeRegions.failure) return false;
     }
   }
