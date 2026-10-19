@@ -2855,3 +2855,47 @@ test("native certification enforces canonical evidence without external grants",
     );
   assert.ok(checked.issues.every((row) => !row.message.includes("does not grant authority")));
 });
+
+test("delivery accepts policy-valid UI skips without inventing passing phase evidence", () => {
+  const session = {
+    run_id: "skip-delivery",
+    slug: "example",
+    source: { branch: "feature" },
+    routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+    evidence: {},
+    authority: { push_feature_branch: true },
+    authority_log: [{ actions: ["push_feature_branch"], reason: "User authorized delivery" }],
+  };
+  const rows = ["design-critique", "qa"].map((name) =>
+    gate(name, "abc123", {
+      status: "skipped",
+      artifact: "",
+      reason: "No UI impact: CLI only.",
+    })
+  );
+  const options = {
+    canonicalSession: session,
+    requireDeliveryEvidence: true,
+    requiredAuthorities: ["push_feature_branch"],
+    requiredGates: session.routing.required_gates,
+    currentCommit: "abc123",
+    currentBranch: "feature",
+    changedFiles: ["scripts/cli.js"],
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+  };
+  assert.equal(checkGateManifest(manifest(rows, { run_id: session.run_id }), options).ok, true);
+  assert.equal(
+    checkGateManifest(manifest(rows, { run_id: session.run_id }), {
+      ...options,
+      changedFiles: ["view.tsx"],
+    }).ok,
+    false
+  );
+  assert.equal(
+    checkGateManifest(manifest(rows, { run_id: session.run_id }), {
+      ...options,
+      currentCommit: "newhead",
+    }).ok,
+    false
+  );
+});

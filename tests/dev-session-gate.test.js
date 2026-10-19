@@ -1446,6 +1446,15 @@ test("completion rechecks policy skips against current source and commit", () =>
       runtime: { provider: "codex", model: "inherit", reasoning: "inherit", session_id: null },
     };
     assert.equal(recordResult(session, result).status, "complete");
+    const retained = repo.gates();
+    for (const corrupt of [
+      { ...retained, gates: retained.gates.map((row) => ({ ...row, checked_at: "invalid" })) },
+      { ...retained, gates: [...retained.gates, { ...retained.gates[0], status: "failed" }] },
+    ]) {
+      fs.writeFileSync(repo.gatesPath, JSON.stringify(corrupt));
+      assert.throws(() => recordResult(session, result), /missing or stale/);
+    }
+    fs.writeFileSync(repo.gatesPath, JSON.stringify(retained));
     git(repo.root, ["commit", "--allow-empty", "-qm", "advance"]);
     result.commit = repo.head();
     assert.throws(() => recordResult(session, result), /missing or stale/);

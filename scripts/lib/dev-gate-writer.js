@@ -486,8 +486,30 @@ function hasCurrentUiSkip(session, name, head) {
     const manifest = JSON.parse(readProjectInput(root, relative, 4 * 1024 * 1024).bytes);
     const row = manifest.gates?.find((gate) => gate.name === name);
     if (row?.status !== "skipped" || row.commit !== head) return false;
-    planGateWrite({ sessionPath, session, name, status: "skipped", reason: row.reason });
-    return true;
+    const deps = defaultDeps();
+    const context = deps.resolveContext({
+      cwd: root,
+      session,
+      enforce: true,
+      currentCommit: head,
+      remote: session.source.delivery_remote,
+    });
+    const checked = deps.checkManifest(manifest, {
+      currentCommit: head,
+      currentBranch: context.currentBranch,
+      manifestPath: layout.manifestPath,
+      artifactRoot: root,
+      requiredGates: [name],
+      changedFiles: context.changedFiles,
+      runId: session.run_id,
+      canonicalSession: session,
+      requireSessionBinding: true,
+      authoritativeBaseRef: context.authoritativeBaseRef,
+      authoritativeBaseCommit: context.authoritativeBaseCommit,
+      authoritativePushUrlSha256: context.authoritativePushUrlSha256,
+      reviewEvidenceMode: "enforce",
+    });
+    return checked.ok;
   } catch {
     return false;
   }
