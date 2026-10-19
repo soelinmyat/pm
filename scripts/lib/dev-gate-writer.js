@@ -474,4 +474,23 @@ function planGateWrite(request, deps = defaultDeps()) {
   return { manifestPath: layout.manifestPath, manifest: candidate, row, retired };
 }
 
-module.exports = { planGateWrite, defaultDeps };
+// Completion must revalidate the retained skip, never turn it into passed
+// phase evidence or refresh its commit merely because source is inspected.
+function hasCurrentUiSkip(session, name, head) {
+  if (!["design-critique", "qa"].includes(name)) return false;
+  try {
+    const root = session.source.worktree;
+    const sessionPath = loadDevSession(root, { slug: session.slug }).path;
+    const layout = resolveSessionLayout(sessionPath, session);
+    const relative = projectRelative(root, layout.manifestPath);
+    const manifest = JSON.parse(readProjectInput(root, relative, 4 * 1024 * 1024).bytes);
+    const row = manifest.gates?.find((gate) => gate.name === name);
+    if (row?.status !== "skipped" || row.commit !== head) return false;
+    planGateWrite({ sessionPath, session, name, status: "skipped", reason: row.reason });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { planGateWrite, defaultDeps, hasCurrentUiSkip };

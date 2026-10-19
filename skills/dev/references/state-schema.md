@@ -52,6 +52,14 @@ The runner is the only lifecycle writer. `next` and `prompt` are read-only. `rec
 - Completion requires every routed phase and final required gate to have current evidence.
 - After later review/fix commits, `recertify` preserves the original evidence commit and writes paired `verified_commit` / `verified_at` fields for phases whose evidence was actually rechecked. When the verified commit matches HEAD, gates use those fresh verification records, including a refresh at the original commit; missing or failing replacement evidence cannot fall back to the original success. Completion accepts either the original or verified commit when it equals current HEAD. QA stores both `qa_run_count` and one immutable `{run, commit, verdict, report_sha256}` anchor per accepted run. A structurally valid failing or blocked post-QA candidate is recorded first with `record-qa-nonpassing`; that command advances the count and immutable ledger, but never the verification fields or gate state, so the next fixed candidate remains exactly one run ahead.
 
+A policy-approved `gate --status skipped` for the active Design Critique or QA
+phase advances that phase and appends a skip transition. It retains the skipped
+row in `gates.json`; it does not create passing phase evidence or a QA run. The
+writer validates the skip against current source before advancing. Repeating the
+command after an interrupted write is safe; gates recorded for another phase do
+not advance the active phase. Completion rechecks retained skips against the
+current commit and skip policy. Source changes require fresh skip validation.
+
 Every accepted result appends a history record with the prior phase, next phase, reason, SHA-256 result hash, timestamp, and runner version. Results never grant authority or modify routing.
 
 When explicit user direction supersedes an unfinished review lineage, `advance-decision` performs a compare-and-swap on `routing.decision_version` and appends the reason and timestamp to `routing.decision_log`. This is the only supported way to open a new review lineage for the same Dev run; changing a review run ID alone never resets the three-round budget.

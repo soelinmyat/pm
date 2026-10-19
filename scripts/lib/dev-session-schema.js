@@ -3560,6 +3560,7 @@ function assertFinalGates(session, resultCommit, options) {
         (evidence) => evidence.kind === contract.kind && evidence.exit_code === 0
       );
     if (missingOrStale) {
+      if (require("./dev-gate-writer").hasCurrentUiSkip(session, gate, head)) continue;
       missing.push(gate);
       continue;
     }

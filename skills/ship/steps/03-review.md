@@ -65,6 +65,13 @@ The initializer's route is only a safe placeholder. Before Review, write bounded
 
 Save that object beside the session as `ship/standalone-routing-facts.json`, run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" route --session ".pm/dev-sessions/{slug}/session.json" --facts ".pm/dev-sessions/{slug}/ship/standalone-routing-facts.json" --json`, and require `routing.required_gates` to equal `tdd, design-critique, qa, review, verification` before continuing. Do not advance with the initializer's placeholder route.
 
+For a non-UI delivery, record the policy-allowed Design Critique and QA skips
+when each phase becomes active using `dev-session gate --status skipped` with a
+concrete no-UI-impact reason. The writer advances only the matching active phase
+and preserves the skip instead of manufacturing UI evidence. Bind the retained
+QA skip gate manifest as the transaction's QA evidence; passing UI deliveries
+continue to bind their canonical QA result.
+
 Before advancing to Push, execute every gate in the bootstrapped session's `routing.required_gates`, not only Review. Use the same Dev gate procedures for TDD, Design Critique, QA, and verification, recording a valid passed or policy-allowed skipped row for each routed gate. Standalone Ship is not a reduced-quality route; discovering missing rows at `git push` is a recovery path, not the normal workflow.
 
 Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm the name appears exactly in `git remote` and `git config --get "remote.${name}.url"` succeeds; this also supports valid dash-prefixed remote names that option-style commands mishandle. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.

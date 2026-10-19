@@ -15,6 +15,7 @@ const { findGitRoot } = require("./loop-git");
 const { resolveProfile } = require("./dev-runtime");
 
 const {
+  RUNNER_VERSION,
   advanceDecisionVersion,
   anchorQaHistory,
   applyRouting,
@@ -794,6 +795,31 @@ function gateCommand(options) {
       artifact: options.artifact,
     });
     writeJsonAtomic(plan.manifestPath, plan.manifest);
+    // Persist the checked row first. If session writing fails, replaying the
+    // same gate revalidates current source and safely completes the transition.
+    const session = readSession(sessionPath);
+    if (
+      plan.row.status === "skipped" &&
+      ["design-critique", "qa"].includes(plan.row.name) &&
+      session.status === "active" &&
+      session.phase === plan.row.name
+    ) {
+      const index = session.routing.required_phases.indexOf(session.phase);
+      const nextPhase = session.routing.required_phases[index + 1];
+      if (index < 0 || !nextPhase) throw new Error("skipped phase has no routed successor");
+      require("./lib/workflow-runtime/records").appendTransition(session.history, {
+        priorPhase: session.phase,
+        nextPhase,
+        reason: `policy-approved ${session.phase} skip: ${plan.row.reason}`,
+        result: plan.row,
+        timestamp: plan.row.checked_at,
+        runnerVersion: RUNNER_VERSION,
+      });
+      session.phase = nextPhase;
+      session.phase_attempt = 1;
+      session.updated_at = plan.row.checked_at;
+      writeSession(sessionPath, session);
+    }
   } catch (error) {
     throw cliError(error.message, error.invalidInput ? EXIT.INVALID : EXIT.PRECONDITION);
   } finally {
