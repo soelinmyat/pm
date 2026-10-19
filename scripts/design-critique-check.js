@@ -1304,7 +1304,7 @@ function nativeNamedTextGuards(observation) {
     const region = check.visual_bounds;
     const key = `${role}:${region.x}:${region.y}:${region.height}`;
     if (!rows.has(key)) rows.set(key, []);
-    rows.get(key).push({ role, name: check.native_name_sha256, region });
+    rows.get(key).push({ role, name: check.native_name_sha256, literal: name, region });
   }
   activeReadCache.namedTextGuards.set(observation, rows);
   return rows;
@@ -1320,11 +1320,7 @@ function hasBoundNativeAlertCaption(observation, caption) {
       .slice(separator + 1)
       .trim()
       .replace(/\s+/g, " ");
-    if (
-      role !== "alert" ||
-      crypto.createHash("sha256").update(literal).digest("hex") !== caption.name
-    )
-      return false;
+    if (role !== "alert" || literal !== caption.literal.replace(/\s+/g, " ")) return false;
     const check = observation.manifest.page.state_assertion.visibility.checks.find(
       (item) => item.label === `state assertion clause ${index + 1}`
     );

@@ -1015,10 +1015,15 @@ function attachTrustedCaptureObservation(
     namedTextProof && coverage.state === "error" && nativeStateProof.includes("error-caption");
   if (namedTextProof) {
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
-    const name =
+    const baseName =
       coverage.id.endsWith("alternate") && !nativeStateProof.includes("same-name")
         ? "Compte"
         : "Account";
+    const name = nativeStateProof.includes("caption-nbsp")
+      ? `${baseName}\u00a0message`
+      : nativeStateProof.includes("caption-spaces")
+        ? `${baseName}  message`
+        : baseName;
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
     if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
       assertion.all.push({
@@ -1026,7 +1031,11 @@ function attachTrustedCaptureObservation(
         expect: { kind: "visible" },
       });
     if (errorCaptionProof && !nativeStateProof.includes("missing-alert")) {
-      const literal = nativeStateProof.includes("unbound-caption") ? "Error" : name;
+      const literal = nativeStateProof.includes("unbound-caption")
+        ? "Error"
+        : nativeStateProof.includes("normalized-alert")
+          ? name.replace(/\s+/g, " ")
+          : name;
       assertion.all.push({
         locator: {
           by: nativeStateProof.includes("role-name-only") ? "role-name" : "role-text",
@@ -1034,7 +1043,7 @@ function attachTrustedCaptureObservation(
         },
         expect: { kind: "visible" },
       });
-      if (literal !== name)
+      if (nativeStateProof.includes("unbound-caption"))
         assertion.all.push({
           locator: { by: "role-name", value: `statictext:${literal}` },
           expect: { kind: "visible" },
@@ -2891,6 +2900,39 @@ test("native error caption variants accept changed text inside their asserted al
     []
   );
 });
+
+for (const whitespace of ["nbsp", "spaces"]) {
+  for (const alert of ["", "-normalized-alert"]) {
+    test(`native error caption whitespace accepts ${whitespace}${alert}`, () => {
+      const fixture = namedTextVariantFixture({
+        state: "error",
+        role: "statictext",
+        proof: `-error-caption-${whitespace}${alert}`,
+      });
+      assert.deepEqual(
+        check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+        []
+      );
+    });
+  }
+  for (const [proof, pixels] of [
+    ["-bad-hash", "state-content"],
+    ["-unbound-caption", "state-content"],
+    ["-outside-alert", "state-content"],
+    ["", "pending-idle"],
+    ["", "pending-beacon"],
+  ]) {
+    test(`native error caption whitespace rejects ${whitespace}${proof}/${pixels}`, () => {
+      const fixture = namedTextVariantFixture({
+        state: "error",
+        role: "statictext",
+        proof: `-error-caption-${whitespace}${proof}`,
+        pixels,
+      });
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
+}
 
 for (const [proof, pixels] of [
   ["-same-name", "state-content"],
