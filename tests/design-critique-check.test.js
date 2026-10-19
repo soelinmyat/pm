@@ -1011,23 +1011,58 @@ function attachTrustedCaptureObservation(
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
   const namedTextProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("named-");
+  const errorCaptionProof =
+    namedTextProof && coverage.state === "error" && nativeStateProof.includes("error-caption");
   if (namedTextProof) {
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
-    const name =
-      coverage.id.endsWith("alternate") && !nativeStateProof.includes("same-name")
+    const baseName =
+      coverage.id.endsWith("alternate") &&
+      !nativeStateProof.includes("same-name") &&
+      !nativeStateProof.includes("equivalent")
         ? "Compte"
         : "Account";
+    const whitespace = nativeStateProof.includes("caption-nbsp")
+      ? "\u00a0"
+      : nativeStateProof.includes("caption-spaces")
+        ? "  "
+        : null;
+    const separator =
+      nativeStateProof.includes("equivalent") && !coverage.id.endsWith("alternate")
+        ? " "
+        : whitespace;
+    const name = whitespace ? `${baseName}${separator}message` : baseName;
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
     if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
       assertion.all.push({
         locator: { by: "role-name", value: "button:Save account" },
         expect: { kind: "visible" },
       });
+    if (errorCaptionProof && !nativeStateProof.includes("missing-alert")) {
+      const literal = nativeStateProof.includes("unbound-caption")
+        ? "Error"
+        : nativeStateProof.includes("normalized-alert")
+          ? name.replace(/\s+/g, " ")
+          : name;
+      assertion.all.push({
+        locator: {
+          by: nativeStateProof.includes("role-name-only") ? "role-name" : "role-text",
+          value: `alert:${literal}`,
+        },
+        expect: { kind: "visible" },
+      });
+      if (nativeStateProof.includes("unbound-caption"))
+        assertion.all.push({
+          locator: { by: "role-name", value: `statictext:${literal}` },
+          expect: { kind: "visible" },
+        });
+    }
   }
   if (
     pendingButtonProof &&
     coverage.state === "loading" &&
-    !["pending-no-guard", "pending-idle-loader"].includes(nativeStateProof)
+    !["pending-no-guard", "pending-center-no-guard", "pending-idle-loader"].includes(
+      nativeStateProof
+    )
   )
     assertion.all.push({
       locator: { ...assertion.all[0].locator },
@@ -1199,6 +1234,23 @@ function attachTrustedCaptureObservation(
       check.y = 340;
       check.visual_bounds = { x: 450, y: 340, width: 2, height: 1 };
     }
+    if (nativeStateProof.startsWith("pending-center")) {
+      if (coverage.state === "loading") {
+        const growth = nativeStateProof.includes("excessive")
+          ? 38
+          : nativeStateProof.includes("maximum")
+            ? 36
+            : 24;
+        check.visual_bounds.x -= growth / 2;
+        check.visual_bounds.width += growth;
+        if (nativeStateProof.includes("shift")) check.visual_bounds.x++;
+        if (nativeStateProof.includes("vertical")) check.visual_bounds.y++;
+        if (nativeStateProof.includes("height")) check.visual_bounds.height++;
+      }
+      if (nativeStateProof.includes("unnamed")) check.native_name_present = false;
+      if (nativeStateProof.includes("no-counterpart") && coverage.state === "boundary")
+        check.native_role = "heading";
+    }
   }
   if (nativeStateProof === "pending-idle-loader" && coverage.state === "loading") {
     assertionVisibility.verified_nodes++;
@@ -1275,7 +1327,7 @@ function attachTrustedCaptureObservation(
       y: 20,
     });
   }
-  if (nativeStateProof && coverage.state === "error") {
+  if (nativeStateProof && coverage.state === "error" && !errorCaptionProof) {
     const check = assertionVisibility.checks[1];
     check.x = 350;
     check.y = 350;
@@ -1286,6 +1338,35 @@ function attachTrustedCaptureObservation(
       check.y = 324;
       check.visual_bounds = { x: 390, y: 324, width: 2, height: 1 };
     } else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
+  }
+  if (errorCaptionProof && !nativeStateProof.includes("missing-alert")) {
+    assertionVisibility.verified_nodes++;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 350,
+      y: 350,
+      native_role: nativeStateProof.includes("wrong-alert-role") ? "status" : "alert",
+      native_name_present: nativeStateProof.includes("role-name-only"),
+      visual_bounds: nativeStateProof.includes("outside-alert")
+        ? { x: 800, y: 700, width: 400, height: 200 }
+        : { x: 300, y: 300, width: 400, height: 200 },
+    });
+    if (nativeStateProof.includes("unbound-caption")) {
+      assertionVisibility.verified_nodes++;
+      assertionVisibility.checks.push({
+        label: "state assertion clause 3",
+        asserted_backend_node_id: 4,
+        hit_backend_node_id: 4,
+        x: 350,
+        y: 310,
+        native_role: "StaticText",
+        native_name_present: true,
+        native_name_sha256: digest(Buffer.from("Error")),
+        visual_bounds: { x: 310, y: 300, width: 80, height: 20 },
+      });
+    }
   }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading") {
     Object.assign(assertionVisibility.checks[0], {
@@ -2812,6 +2893,89 @@ for (const state of ["focus", "keyboard"]) {
       assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
     });
   }
+}
+
+test("native error caption variants accept changed text inside their asserted alerts", () => {
+  const fixture = namedTextVariantFixture({
+    state: "error",
+    role: "statictext",
+    proof: "-error-caption",
+  });
+  const result = check(fixture);
+  assert.deepEqual(
+    result.issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+for (const whitespace of ["nbsp", "spaces"]) {
+  test(`native error caption whitespace rejects equivalent ${whitespace} messages with changed pixels`, () => {
+    const fixture = namedTextVariantFixture({
+      state: "error",
+      role: "statictext",
+      proof: `-error-caption-${whitespace}-equivalent`,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+  for (const alert of ["", "-normalized-alert"]) {
+    test(`native error caption whitespace accepts ${whitespace}${alert}`, () => {
+      const fixture = namedTextVariantFixture({
+        state: "error",
+        role: "statictext",
+        proof: `-error-caption-${whitespace}${alert}`,
+      });
+      assert.deepEqual(
+        check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+        []
+      );
+    });
+  }
+  for (const [proof, pixels] of [
+    ["-bad-hash", "state-content"],
+    ["-unbound-caption", "state-content"],
+    ["-outside-alert", "state-content"],
+    ["", "pending-idle"],
+    ["", "pending-beacon"],
+  ]) {
+    test(`native error caption whitespace rejects ${whitespace}${proof}/${pixels}`, () => {
+      const fixture = namedTextVariantFixture({
+        state: "error",
+        role: "statictext",
+        proof: `-error-caption-${whitespace}${proof}`,
+        pixels,
+      });
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
+}
+
+for (const [proof, pixels] of [
+  ["-same-name", "state-content"],
+  ["-missing-hash", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["-wrong-role", "state-content"],
+  ["-unnamed", "state-content"],
+  ["-moved", "state-content"],
+  ["-height-drift", "state-content"],
+  ["-outside-alert", "state-content"],
+  ["-unbound-caption", "state-content"],
+  ["-role-name-only", "state-content"],
+  ["-missing-alert", "state-content"],
+  ["-wrong-alert-role", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+]) {
+  test(`native error caption variants reject ${proof || "pixel-proof"}/${pixels}`, () => {
+    const fixture = namedTextVariantFixture({
+      state: "error",
+      role: "statictext",
+      proof: "-error-caption" + proof,
+      pixels,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
 }
 
 for (const [proof, pixels] of [
@@ -6872,6 +7036,59 @@ test("native pending button accepts intrinsic spinner width growth at an unchang
     false
   );
 });
+
+function centeredPendingFixture(proof = "pending-center", pixels = "pending-busy") {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = proof;
+  addRequiredStateCapture(
+    fixture,
+    "boundary",
+    validPng(1440, 1000, 20, 0, null, 1, "pending-idle")
+  );
+  addRequiredStateCapture(fixture, "loading", validPng(1440, 1000, 20, 0, null, 1, pixels));
+  return fixture;
+}
+
+for (const proof of ["pending-center", "pending-center-maximum"]) {
+  test(`centered native busy controls accept bounded intrinsic growth: ${proof}`, () => {
+    const fixture = centeredPendingFixture(proof);
+    assert.deepEqual(
+      check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+      []
+    );
+  });
+}
+
+test("centered native busy controls keep comparison independent of capture order", () => {
+  const fixture = centeredPendingFixture();
+  fixture.captures.captures.reverse();
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+    []
+  );
+});
+
+for (const [proof, pixels] of [
+  ["pending-center-shift", "pending-busy"],
+  ["pending-center-vertical", "pending-busy"],
+  ["pending-center-height", "pending-busy"],
+  ["pending-center-excessive", "pending-busy"],
+  ["pending-center-unnamed", "pending-busy"],
+  ["pending-center-no-counterpart", "pending-busy"],
+  ["pending-center-no-guard", "pending-busy"],
+  ["pending-center", "pending-idle"],
+  ["pending-center", "pending-four-pixel"],
+  ["pending-center", "pending-two-pixel"],
+  ["pending-center", "nearby-noise"],
+]) {
+  test(`centered native busy controls reject ${proof}/${pixels}`, () => {
+    const fixture = centeredPendingFixture(proof, pixels);
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
 
 for (const [proof, pixels] of [
   ["pending-no-guard", "pending-busy"],

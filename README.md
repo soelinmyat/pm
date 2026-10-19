@@ -36,6 +36,10 @@ Native capture hit-testing uses the visible input host rather than its browser-i
 
 Visible `status` and `alert` messages can use `role-text` with an exact native StaticText descendant and a separate exact visible StaticText guard. This preserves the region's native accessible name and rejects unrelated, ambiguous, hidden or covered message content; other roles still use their existing locators.
 
+Distinct error variants can prove a localized message change through those exact native captions inside their own visibly asserted alerts. Anchored geometry, meaningful regional pixels, material change and the existing pixel-support floor remain required; identical messages, unbound text and beacons stay rejected.
+
+A native busy button may grow around its exact horizontal center as well as a fixed left edge. Both states must visibly assert the same named control, with unchanged vertical origin and height, width change capped by that height, genuine busy semantics and the existing meaningful-pixel and support floors. Position drift and excessive growth remain failures.
+
 Native keyboard evidence tests popup exit/return before an outside focus probe can dismiss it. A sole already-active option may keep focus after an arrow when actual native Tab entry and the focused owner/member relationship are proved. Multi-option widgets still require observed traversal to every option; functional activation remains part of QA.
 
 Named modal evidence follows focus into a popup through one expanded native controls relationship; ambiguous and cyclic links cannot establish ownership even across intervening popup or modal wrappers, and a separate focused modal keeps its own context. Typography checks retain the modal's expanded popup content, including unfocused sibling popups, while geometry checks continue observing the whole viewport.

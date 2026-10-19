@@ -17,4 +17,9 @@ Beyond the visual diagnosis threshold, continue scoped recovery with immutable e
 
 Use the closed named-scenario route contract for multiple genuine locale or task variants on one page. It preserves native and pixel checks; follow the evidence contract for frozen scope and busy-button regional proof.
 
-Named primary and success variants can use visibly asserted native heading or StaticText name changes with bounded measured geometry and unchanged material pixel requirements. Native loading controls permit only anchored intrinsic width growth; every state now retains its counterpart native semantics.
+Named primary and success variants can use visibly asserted native heading or StaticText name changes with bounded measured geometry and unchanged material pixel requirements. Native loading controls permit bounded intrinsic width growth with the same vertical anchor and height, retaining their exact left edge or center; every state retains its counterpart native semantics.
+
+Distinct error captions need their exact visible StaticText guard paired with a
+matching visible `role-text` alert, with native bounds proving containment.
+Existing regional geometry, meaningful pixels, material change and pixel-support
+floors still apply; identical, unbound or beacon-only content cannot qualify.

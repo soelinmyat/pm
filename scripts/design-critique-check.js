@@ -83,6 +83,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.29 changes checker-side sparse state comparison only; the native
   // producer and observation contract are unchanged from 1.14.28.
   ["1.14.29", new Set(["1.14.28"])],
+  // 1.14.30 only extends offline regional comparison of existing native proof.
+  ["1.14.30", new Set(["1.14.28", "1.14.29"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1167,14 +1169,15 @@ function validateCrossStateVisualDistance(
     add(issues, "captures.captures", activeReadCache.nativeRegions.failure);
 }
 
-// Native origin and height remain fixed. Controls constrain width growth;
-// text uses its measured union and the unchanged absolute pixel-support floor.
-// Caller crops cannot supply geometry or move the comparison elsewhere.
+// Native vertical origin and height remain fixed. Controls retain their exact
+// left edge or center with capped width growth; text retains its left edge.
+// Only the measured union and unchanged pixel-support floor can qualify.
 function anchoredNativeRegion(left, right, kind = "control") {
   if (
     !left ||
     !right ||
-    left.x !== right.x ||
+    (left.x !== right.x &&
+      (kind !== "control" || left.x * 2 + left.width !== right.x * 2 + right.width)) ||
     left.y !== right.y ||
     left.height !== right.height ||
     Math.min(left.width, right.width) < 32 ||
@@ -1182,7 +1185,7 @@ function anchoredNativeRegion(left, right, kind = "control") {
     (kind !== "text" && Math.abs(left.width - right.width) > left.height)
   )
     return null;
-  return { ...left, width: Math.max(left.width, right.width) };
+  return { ...left, x: Math.min(left.x, right.x), width: Math.max(left.width, right.width) };
 }
 
 // A busy button can be smaller than one viewport tile. Its named native
@@ -1301,10 +1304,37 @@ function nativeNamedTextGuards(observation) {
     const region = check.visual_bounds;
     const key = `${role}:${region.x}:${region.y}:${region.height}`;
     if (!rows.has(key)) rows.set(key, []);
-    rows.get(key).push({ role, name: check.native_name_sha256, region });
+    rows.get(key).push({ role, name: check.native_name_sha256, literal: name, region });
   }
   activeReadCache.namedTextGuards.set(observation, rows);
   return rows;
+}
+
+function hasBoundNativeAlertCaption(observation, caption) {
+  if (caption.role !== "statictext" || observation.assertion?.state !== "error") return false;
+  return observation.assertion.all.some((guard, index) => {
+    if (guard.expect.kind !== "visible" || guard.locator.by !== "role-text") return false;
+    const separator = guard.locator.value.indexOf(":");
+    const role = guard.locator.value.slice(0, separator).trim().toLowerCase();
+    const literal = guard.locator.value
+      .slice(separator + 1)
+      .trim()
+      .replace(/\s+/g, " ");
+    if (role !== "alert" || literal !== caption.literal.replace(/\s+/g, " ")) return false;
+    const check = observation.manifest.page.state_assertion.visibility.checks.find(
+      (item) => item.label === `state assertion clause ${index + 1}`
+    );
+    const alert = check?.visual_bounds;
+    const text = caption.region;
+    return (
+      String(check?.native_role).toLowerCase() === "alert" &&
+      alert &&
+      text.x >= alert.x &&
+      text.y >= alert.y &&
+      text.x + text.width <= alert.x + alert.width &&
+      text.y + text.height <= alert.y + alert.height
+    );
+  });
 }
 
 function hasNativeNamedTextChange(root, left, right, observations) {
@@ -1316,7 +1346,7 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       ? ["heading", "statictext"]
       : ["focus", "keyboard"].includes(left.coverage.state)
         ? ["heading"]
-        : left.coverage.state === "success"
+        : ["success", "error"].includes(left.coverage.state)
           ? ["statictext"]
           : [];
   if (
@@ -1348,6 +1378,13 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       if (!roles.includes(a.role)) continue;
       for (const b of afterGuards.get(key) || []) {
         if (a.name === b.name) continue;
+        if (
+          left.coverage.state === "error" &&
+          (a.literal.replace(/\s+/g, " ") === b.literal.replace(/\s+/g, " ") ||
+            !hasBoundNativeAlertCaption(before, a) ||
+            !hasBoundNativeAlertCaption(after, b))
+        )
+          continue;
         const region = anchoredNativeRegion(a.region, b.region, "text");
         if (region && hasMaterialNativeRegionChange(root, left, right, region)) return true;
       }

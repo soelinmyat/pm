@@ -104,6 +104,21 @@ Create the assertion at the canonical path for the coverage row:
 
 Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
 
+For distinct error-message variants, visibly assert the exact StaticText caption
+and its matching `role-text` alert. Native measured bounds must place the caption
+inside that alert in both captures. The checker can compare the changed caption
+within its anchored text region when page chrome dilutes the full image; all
+existing native, meaningful-pixel, material-change and pixel-support checks stay
+required. A changed title elsewhere, identical message or tiny beacon is not
+error-state proof.
+
+For a busy-button comparison, visibly assert the same named native button in
+both states and assert `aria-busy="true"` while loading. Keep its vertical
+origin and height unchanged, with the exact same left edge or horizontal center.
+Width change cannot exceed that shared height; the native measured union still
+needs meaningful pixels, material change and the existing pixel-support floor.
+A separate progress status does not become a busy button through metadata.
+
 For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. Ordinary nested content remains valid. A sibling overlay fails, and one positioned descendant branch covering at least 90% of the marker and winning every sampled point also fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
 Native composite keyboard checks retain the member actually reached by document Tab entry, including when a focusable owner delegates entry to a member with `tabindex="-1"`. Arrow probes still have to reach the other members. Programmatic focus alone, an unreachable predecessor, or a keyboard trap does not establish entry.
