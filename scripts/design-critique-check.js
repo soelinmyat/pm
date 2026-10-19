@@ -1380,7 +1380,9 @@ function hasNativeNamedTextChange(root, left, right, observations) {
         if (a.name === b.name) continue;
         if (
           left.coverage.state === "error" &&
-          (!hasBoundNativeAlertCaption(before, a) || !hasBoundNativeAlertCaption(after, b))
+          (a.literal.replace(/\s+/g, " ") === b.literal.replace(/\s+/g, " ") ||
+            !hasBoundNativeAlertCaption(before, a) ||
+            !hasBoundNativeAlertCaption(after, b))
         )
           continue;
         const region = anchoredNativeRegion(a.region, b.region, "text");

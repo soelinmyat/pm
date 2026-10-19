@@ -364,7 +364,8 @@ unchanged 1.14.23/1.14.24 native observation and report contracts explicitly.
 Distinct error scenarios may use the same native StaticText comparison only
 when each exact caption is paired with its own visible `role-text` alert guard.
 The native alert bounds must wholly contain that caption's measured bounds.
-Both caption names must differ, with the existing anchored geometry, meaningful
+Both whitespace-normalized caption literals must differ; raw native names still
+require exact hash verification. Keep the existing anchored geometry, meaningful
 pixels, material regional difference and 32 full-contrast pixels of support. Unbound or
 outside-alert text, identical captions, styling alone and pixel beacons cannot
 establish an error-state difference. Native producer and observation schemas are

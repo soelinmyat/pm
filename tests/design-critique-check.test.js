@@ -1016,14 +1016,21 @@ function attachTrustedCaptureObservation(
   if (namedTextProof) {
     const role = nativeStateProof.includes("statictext") ? "statictext" : "heading";
     const baseName =
-      coverage.id.endsWith("alternate") && !nativeStateProof.includes("same-name")
+      coverage.id.endsWith("alternate") &&
+      !nativeStateProof.includes("same-name") &&
+      !nativeStateProof.includes("equivalent")
         ? "Compte"
         : "Account";
-    const name = nativeStateProof.includes("caption-nbsp")
-      ? `${baseName}\u00a0message`
+    const whitespace = nativeStateProof.includes("caption-nbsp")
+      ? "\u00a0"
       : nativeStateProof.includes("caption-spaces")
-        ? `${baseName}  message`
-        : baseName;
+        ? "  "
+        : null;
+    const separator =
+      nativeStateProof.includes("equivalent") && !coverage.id.endsWith("alternate")
+        ? " "
+        : whitespace;
+    const name = whitespace ? `${baseName}${separator}message` : baseName;
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
     if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
       assertion.all.push({
@@ -2902,6 +2909,14 @@ test("native error caption variants accept changed text inside their asserted al
 });
 
 for (const whitespace of ["nbsp", "spaces"]) {
+  test(`native error caption whitespace rejects equivalent ${whitespace} messages with changed pixels`, () => {
+    const fixture = namedTextVariantFixture({
+      state: "error",
+      role: "statictext",
+      proof: `-error-caption-${whitespace}-equivalent`,
+    });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
   for (const alert of ["", "-normalized-alert"]) {
     test(`native error caption whitespace accepts ${whitespace}${alert}`, () => {
       const fixture = namedTextVariantFixture({
