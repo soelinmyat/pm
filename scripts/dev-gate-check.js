@@ -146,7 +146,8 @@ function checkGateManifest(manifest, opts = {}) {
       requiredGates,
       currentCommit,
       manifestPath,
-      issues
+      issues,
+      manifest.gates
     );
   }
 
@@ -239,13 +240,21 @@ function validateCanonicalDeliveryEvidence(
   requestedGates,
   currentCommit,
   manifestPath,
-  issues
+  issues,
+  gateRows
 ) {
   for (const gate of session.routing.required_gates) {
     if (!requestedGates.includes(gate)) {
       issues.push(issue(manifestPath, `delivery check omitted routed gate ${gate}`));
       continue;
     }
+    // The normal manifest checks below still validate duplicate rows, freshness,
+    // skip reasons and source impact. A UI skip is not passed phase evidence.
+    if (
+      UI_SKIP_GATES.has(gate) &&
+      gateRows.some((row) => row?.name === gate && row.status === "skipped")
+    )
+      continue;
     const { records: currentRecords, passing } = currentPassingRecords(
       session,
       gate,

@@ -1346,3 +1346,119 @@ test("report-selected inputs refuse oversized canonical report bytes", () => {
     fx.cleanup();
   }
 });
+
+test("policy-approved UI skips advance only their active phase without passing evidence", () => {
+  const repo = makeRepo();
+  try {
+    const session = repo.session();
+    session.phase = "design-critique";
+    session.routing.required_phases = [
+      "intake",
+      "workspace",
+      "implementation",
+      "design-critique",
+      "qa",
+      "review",
+      "ship",
+      "retro",
+    ];
+    session.routing.required_gates = ["tdd", "design-critique", "qa", "review", "verification"];
+    session.task.risk.ui = 1;
+    repo.saveSession(session);
+    const args = (name) => [
+      "--name",
+      name,
+      "--status",
+      "skipped",
+      "--reason",
+      "No UI impact: command-only changes.",
+    ];
+    assert.equal(repo.gate(args("qa")).status, 0);
+    assert.equal(repo.session().phase, "design-critique");
+    const first = repo.gate(args("design-critique"));
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(repo.session().phase, "qa");
+    assert.equal(repo.session().evidence["design-critique"], undefined);
+    assert.equal(repo.gate(args("qa")).status, 0);
+    assert.equal(repo.session().phase, "review");
+    assert.equal(repo.session().evidence.qa, undefined);
+    assert.equal(repo.session().history.length, 2);
+    assert.match(repo.session().history[0].reason, /policy-approved.*skip/);
+    assert.equal(repo.gate(args("qa")).status, 0);
+    assert.equal(repo.session().history.length, 2);
+    const blocked = repo.session();
+    blocked.phase = "qa";
+    repo.saveSession(blocked);
+    const before = fs.readFileSync(repo.sessionPath, "utf8");
+    assert.notEqual(
+      repo.gate(["--name", "qa", "--status", "skipped", "--reason", "Browser unavailable"]).status,
+      0
+    );
+    assert.equal(fs.readFileSync(repo.sessionPath, "utf8"), before);
+    fs.writeFileSync(path.join(repo.root, "view.tsx"), "export const View = () => <div />;\n");
+    git(repo.root, ["add", "view.tsx"]);
+    git(repo.root, ["commit", "-qm", "add UI"]);
+    assert.notEqual(repo.gate(args("qa")).status, 0);
+    assert.equal(fs.readFileSync(repo.sessionPath, "utf8"), before);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("completion rechecks policy skips against current source and commit", () => {
+  const repo = makeRepo();
+  try {
+    for (const name of ["design-critique", "qa"]) {
+      const result = repo.gate([
+        "--name",
+        name,
+        "--status",
+        "skipped",
+        "--reason",
+        "No UI impact: CLI only.",
+      ]);
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const { recordResult } = require("../scripts/lib/dev-session-schema");
+    const session = repo.session();
+    session.phase = "retro";
+    session.routing.required_phases = ["retro"];
+    session.routing.required_gates = ["design-critique", "qa"];
+    repo.saveSession(session);
+    const result = {
+      schema_version: 1,
+      run_id: session.run_id,
+      phase: "retro",
+      attempt: 1,
+      status: "passed",
+      summary: "Complete non-UI fixture",
+      commit: repo.head(),
+      files_changed: [],
+      evidence: [
+        {
+          kind: "retro",
+          command: "review retained release evidence",
+          exit_code: 0,
+          artifact: null,
+        },
+      ],
+      blocker: null,
+      runtime: { provider: "codex", model: "inherit", reasoning: "inherit", session_id: null },
+    };
+    assert.equal(recordResult(session, result).status, "complete");
+    const retained = repo.gates();
+    for (const corrupt of [
+      { ...retained, gates: retained.gates.map((row) => ({ ...row, checked_at: "invalid" })) },
+      { ...retained, gates: [...retained.gates, { ...retained.gates[0], status: "failed" }] },
+    ]) {
+      fs.writeFileSync(repo.gatesPath, JSON.stringify(corrupt));
+      assert.throws(() => recordResult(session, result), /missing or stale/);
+    }
+    fs.writeFileSync(repo.gatesPath, JSON.stringify(retained));
+    git(repo.root, ["commit", "--allow-empty", "-qm", "advance"]);
+    result.commit = repo.head();
+    assert.throws(() => recordResult(session, result), /missing or stale/);
+  } finally {
+    repo.cleanup();
+  }
+});

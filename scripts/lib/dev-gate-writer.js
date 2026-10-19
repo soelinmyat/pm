@@ -474,4 +474,45 @@ function planGateWrite(request, deps = defaultDeps()) {
   return { manifestPath: layout.manifestPath, manifest: candidate, row, retired };
 }
 
-module.exports = { planGateWrite, defaultDeps };
+// Completion must revalidate the retained skip, never turn it into passed
+// phase evidence or refresh its commit merely because source is inspected.
+function hasCurrentUiSkip(session, name, head) {
+  if (!["design-critique", "qa"].includes(name)) return false;
+  try {
+    const root = session.source.worktree;
+    const sessionPath = loadDevSession(root, { slug: session.slug }).path;
+    const layout = resolveSessionLayout(sessionPath, session);
+    const relative = projectRelative(root, layout.manifestPath);
+    const manifest = JSON.parse(readProjectInput(root, relative, 4 * 1024 * 1024).bytes);
+    const row = manifest.gates?.find((gate) => gate.name === name);
+    if (row?.status !== "skipped" || row.commit !== head) return false;
+    const deps = defaultDeps();
+    const context = deps.resolveContext({
+      cwd: root,
+      session,
+      enforce: true,
+      currentCommit: head,
+      remote: session.source.delivery_remote,
+    });
+    const checked = deps.checkManifest(manifest, {
+      currentCommit: head,
+      currentBranch: context.currentBranch,
+      manifestPath: layout.manifestPath,
+      artifactRoot: root,
+      requiredGates: [name],
+      changedFiles: context.changedFiles,
+      runId: session.run_id,
+      canonicalSession: session,
+      requireSessionBinding: true,
+      authoritativeBaseRef: context.authoritativeBaseRef,
+      authoritativeBaseCommit: context.authoritativeBaseCommit,
+      authoritativePushUrlSha256: context.authoritativePushUrlSha256,
+      reviewEvidenceMode: "enforce",
+    });
+    return checked.ok;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { planGateWrite, defaultDeps, hasCurrentUiSkip };
