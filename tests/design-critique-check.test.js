@@ -8621,6 +8621,65 @@ for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31"]) {
   });
 }
 
+test("sparse-proof compatibility preserves unchanged native 1.14.32 active evidence", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.32", "1.14.33");
+  fixture.nativeStateProof = "sparse-static";
+  addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+  fixture.producerVersionByCapture = Object.fromEntries(
+    fixture.captures.captures.map((capture) => [capture.id, "1.14.32"])
+  );
+  refresh();
+  const files = new Set([
+    fixture.capturesPath,
+    ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+    ...fixture.captures.evidence.map((entry) => entry.path),
+  ]);
+  const before = new Map(
+    [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+  );
+  const capture = fixture.captures.captures.find((row) => row.coverage_id === "ui-empty");
+  const native = JSON.parse(fs.readFileSync(path.join(fixture.root, capture.observation.path)));
+  assert.equal(native.observation.producer.version, "1.14.32");
+  assert.equal(
+    native.capture.visual_metrics.sparse_content.policy,
+    "native-heading-and-caption-v1"
+  );
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  for (const [file, bytes] of before)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
+test("sparse-proof compatibility retains native 1.14.32 frozen nonpassing evidence", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    checkpointVersion: "1.14.32",
+    mutateCheckpoint(checkpoint) {
+      checkpoint.nativeStateProof = "sparse-static";
+      addRequiredStateCapture(checkpoint, "empty", sparseLoadingPixels(true));
+      checkpoint.producerVersionByCapture = Object.fromEntries(
+        checkpoint.captures.captures.map((capture) => [capture.id, "1.14.32"])
+      );
+    },
+  });
+  const retained = recoveryDCFiles(fixture.root);
+  const prior = fixture.reviews.rounds[2].previous_report;
+  const report = JSON.parse(fs.readFileSync(path.join(fixture.root, prior.path)));
+  const captures = JSON.parse(fs.readFileSync(path.join(fixture.root, report.captures.path)));
+  const capture = captures.captures.find((row) => row.coverage_id === "ui-empty");
+  const native = JSON.parse(fs.readFileSync(path.join(fixture.root, capture.observation.path)));
+  assert.equal(report.outcome, "failed");
+  assert.equal(native.observation.producer.version, "1.14.32");
+  assert.equal(
+    native.capture.visual_metrics.sparse_content.policy,
+    "native-heading-and-caption-v1"
+  );
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
 for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32"]) {
   test(`duplicate-recovery release preserves passing native ${version} evidence unchanged`, () => {
     const { fixture, run } = recertificationReleaseFixture(version, "1.14.33");

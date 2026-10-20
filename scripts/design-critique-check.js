@@ -99,6 +99,12 @@ function currentNativeEvidenceVersion(version) {
     COMPATIBLE_NATIVE_EVIDENCE_VERSIONS.get(PLUGIN_VERSION)?.has(version) === true
   );
 }
+// Sparse heading/caption proof first shipped in 1.14.32. A compatible
+// ordinary native producer does not necessarily support this optional proof.
+const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
+  ["1.14.32", new Set(["1.14.32"])],
+  ["1.14.33", new Set(["1.14.32", "1.14.33"])],
+]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -1763,10 +1769,13 @@ function validateTrustedCaptureObservation(
       const screenshotFile = readBoundFile(root, capture.path, `${at}.capture.path`, issues);
       if (!decoded || !screenshotFile)
         throw new Error("loading content requires decoded bound full PNG bytes");
-      // No historical producer emitted sparse_content. Accept ordinary old
-      // evidence through compatibility, never a backdated new sparse claim.
-      if (hasSparseContent && manifest.observation.producer.version !== PLUGIN_VERSION)
-        throw new Error("sparse content requires the current native capture producer");
+      if (
+        hasSparseContent &&
+        !SPARSE_CONTENT_PRODUCER_VERSIONS.get(PLUGIN_VERSION)?.has(
+          manifest.observation.producer.version
+        )
+      )
+        throw new Error("sparse content requires an explicitly supported native capture producer");
       const assertionFile = hasSparseContent
         ? readBoundFile(root, manifest.page.state_assertion.path, `${at}.state_assertion`, issues)
         : null;
