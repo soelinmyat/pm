@@ -3,6 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
+const crypto = require("node:crypto");
+const { validateMeaningfulVisual } = require("../scripts/design-critique-capture");
 const {
   PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdfBytes,
@@ -445,4 +447,181 @@ function crc32(bytes) {
     for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
   }
   return (crc ^ 0xffffffff) >>> 0;
+}
+
+function sparseStaticFixture(state = "empty", pixelMode = "text") {
+  const heading = { x: 200, y: 120, width: 240, height: 40 };
+  const caption = { x: 200, y: 240, width: 360, height: 40 };
+  const names = ["Review checkpoint", "No public actions are available."];
+  const check = (region, role, name, id, label) => ({
+    label,
+    asserted_backend_node_id: id,
+    hit_backend_node_id: id,
+    x: region.x + 5,
+    y: region.y + 5,
+    visual_bounds: region,
+    native_role: role,
+    native_name_present: true,
+    native_name_sha256: crypto.createHash("sha256").update(name).digest("hex"),
+  });
+  const marker = check(heading, "heading", names[0], 1, "state marker");
+  const visibility = {
+    method: "cdp-dom-get-node-for-location-v1",
+    effective_opacity_floor: 0.01,
+    verified_nodes: 3,
+    checks: [
+      marker,
+      { ...marker, label: "state assertion clause 1" },
+      check(caption, "StaticText", names[1], 2, "state assertion clause 2"),
+    ],
+  };
+  const assertion = {
+    schema_version: 2,
+    subject_id: "checkpoint",
+    coverage_id: "checkpoint-empty",
+    state,
+    state_marker: {
+      locator: { by: "id", value: "title" },
+      attribute: "data-pm-state",
+      value: state,
+    },
+    all: ["heading", "StaticText"].map((role, i) => ({
+      locator: { by: "role-name", value: `${role}:${names[i]}` },
+      expect: { kind: "visible" },
+    })),
+  };
+  const bytes = rgbaPng(1280, 800, (x, y) => {
+    const ink = [heading, caption].some(
+      (r) => x >= r.x && x < r.x + r.width && y >= r.y + 8 && y < r.y + 18 && (x - r.x) % 12 < 6
+    );
+    if (pixelMode === "blank") return [255, 255, 255, 255];
+    if (pixelMode === "beacon") return [x === 205 && y === 125 ? 0 : 255, 255, 255, 255];
+    return ink ? [32, 32, 32, pixelMode === "faint" ? 1 : 255] : [255, 255, 255, 255];
+  });
+  return {
+    inspected: inspectPngVisualBytes(bytes),
+    options: { state, assertion, visibility, bytes },
+  };
+}
+
+for (const state of ["empty", "primary", "success"]) {
+  test(`sparse static ${state} content requires two native named text regions`, () => {
+    const { inspected, options } = sparseStaticFixture(state);
+    assert.ok(inspected.meaningfulPixelRatio < 0.01);
+    const metrics = validateMeaningfulVisual(inspected, options);
+    assert.equal(metrics.sparse_content.policy, "native-heading-and-caption-v1");
+    assert.equal(metrics.sparse_content.nodes.length, 2);
+    assert.ok(metrics.sparse_content.nodes.every((n) => n.contrast_pixel_support >= 32));
+    assert.equal(metrics.meaningful_pixel_ratio, inspected.meaningfulPixelRatio);
+  });
+}
+
+test("sparse static proof rejects missing, incorrect or geometrically invalid native text", () => {
+  for (const mutate of [
+    (o) => {
+      delete o.assertion;
+    },
+    (o) => {
+      o.state = "loading";
+    },
+    (o) => {
+      o.visibility.checks[2].native_name_sha256 = "a".repeat(64);
+    },
+    (o) => {
+      o.visibility.checks[2].native_role = "button";
+    },
+    (o) => {
+      o.visibility.checks[2].asserted_backend_node_id = 1;
+    },
+    (o) => {
+      o.visibility.checks[2].visual_bounds = { ...o.visibility.checks[0].visual_bounds };
+    },
+    (o) => {
+      o.visibility.checks[2].visual_bounds.width = 1;
+    },
+    (o) => {
+      o.visibility.checks[2].visual_bounds.x = 1270;
+    },
+    (o) => {
+      o.assertion.all[1].locator.value = "StaticText:Wrong state";
+    },
+    (o) => {
+      o.assertion.all[0].expect.kind = "absent";
+    },
+  ]) {
+    const { inspected, options } = sparseStaticFixture();
+    mutate(options);
+    assert.throws(() => validateMeaningfulVisual(inspected, options));
+  }
+});
+
+for (const mode of ["blank", "beacon", "faint"]) {
+  test(`sparse native text cannot certify ${mode} pixels`, () => {
+    const { inspected, options } = sparseStaticFixture("empty", mode);
+    assert.throws(() => validateMeaningfulVisual(inspected, options));
+  });
+}
+
+test("decoded regional contrast support rejects tiny and translucent beacons", () => {
+  const real = inspectPngVisualBytes(
+    rgbaPng(80, 24, (x) => (x % 12 < 6 ? [0, 0, 0, 255] : [255, 255, 255, 255]))
+  );
+  assert.ok(real.contrastPixelSupport >= 32);
+  for (const bytes of [
+    rgbaPng(80, 24, (x, y) => (x === 10 && y === 10 ? [0, 0, 0, 255] : [255, 255, 255, 255])),
+    rgbaPng(80, 24, (x) => (x % 12 < 6 ? [0, 0, 0, 1] : [255, 255, 255, 1])),
+  ])
+    assert.ok(inspectPngVisualBytes(bytes).contrastPixelSupport < 32);
+});
+
+for (const width of [28, 80]) {
+  test(`sparse caption selection ignores an earlier nonqualifying ${width}px text guard`, () => {
+    for (const earlier of [true, false]) {
+      const { inspected, options } = sparseStaticFixture();
+      const guard = {
+        locator: { by: "role-name", value: "StaticText:Back" },
+        expect: { kind: "visible" },
+      };
+      const check = {
+        ...options.visibility.checks[2],
+        asserted_backend_node_id: 3,
+        hit_backend_node_id: 3,
+        x: 905,
+        y: 365,
+        native_name_sha256: crypto.createHash("sha256").update("Back").digest("hex"),
+        visual_bounds: { x: 900, y: 360, width, height: 24 },
+      };
+      options.assertion.all.splice(earlier ? 1 : 2, 0, guard);
+      options.visibility.checks.splice(earlier ? 2 : 3, 0, check);
+      options.visibility.verified_nodes++;
+      options.visibility.checks.slice(1).forEach((node, index) => {
+        node.label = `state assertion clause ${index + 1}`;
+      });
+      const result = validateMeaningfulVisual(inspected, options);
+      assert.equal(result.sparse_content.nodes[1].region.x, 200);
+      if (earlier && width === 80) {
+        const inspect = createPngRegionInspector(options.bytes);
+        options.inspectNativeRegion = (region) => {
+          if (region?.x === 900) {
+            const error = new Error("native region work budget exceeded");
+            error.code = "PM_NATIVE_REGION_BUDGET";
+            throw error;
+          }
+          return inspect(region);
+        };
+        assert.throws(() => validateMeaningfulVisual(inspected, options), {
+          code: "PM_NATIVE_REGION_BUDGET",
+        });
+        delete options.inspectNativeRegion;
+      }
+      options.assertion.all = [options.assertion.all[0], guard];
+      options.visibility.checks = [
+        options.visibility.checks[0],
+        options.visibility.checks[1],
+        { ...check, label: "state assertion clause 2" },
+      ];
+      options.visibility.verified_nodes = 3;
+      assert.throws(() => validateMeaningfulVisual(inspected, options));
+    }
+  });
 }

@@ -367,6 +367,8 @@ function createVisualMetrics(width, height, region = null) {
   const visibleCellCounts = new Float64Array(gridSize * gridSize);
   let minimumLuminance = 255;
   let maximumLuminance = 0;
+  const contrastSums = [0, 0, 0];
+  const contrastSquares = [0, 0, 0];
 
   function observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha) {
     if (
@@ -391,6 +393,13 @@ function createVisualMetrics(width, height, region = null) {
     blueSums[cell] += effectiveBlue;
     cellCounts[cell] += 1;
     if (alpha === 0) return;
+    const weight = alpha / 255;
+    contrastSums[0] += weight * effectiveRed;
+    contrastSums[1] += weight * effectiveGreen;
+    contrastSums[2] += weight * effectiveBlue;
+    contrastSquares[0] += weight * effectiveRed * effectiveRed;
+    contrastSquares[1] += weight * effectiveGreen * effectiveGreen;
+    contrastSquares[2] += weight * effectiveBlue * effectiveBlue;
     visibleCellCounts[cell] += alpha;
     const bucket = (effectiveRed >> 4) * 256 + (effectiveGreen >> 4) * 16 + (effectiveBlue >> 4);
     buckets[bucket] += alpha;
@@ -441,6 +450,23 @@ function createVisualMetrics(width, height, region = null) {
       colorBucketCount,
       luminanceRange: visiblePixels === 0 ? 0 : maximumLuminance - minimumLuminance,
       perceptualGrid: perceptual.toString("base64"),
+      // For any uniform background b, weighted variance / 255 is a lower
+      // bound on summed absolute channel contrast to b (|v-b| <= 255).
+      // Normalize once more to full-contrast pixels. Unlike grid averages,
+      // repeated text retains support; tiny or translucent beacons do not.
+      contrastPixelSupport:
+        visiblePixels === 0
+          ? 0
+          : Math.floor(
+              (Math.max(
+                0,
+                ...contrastSquares.map(
+                  (squares, channel) => squares - contrastSums[channel] ** 2 / (visiblePixels / 255)
+                )
+              ) /
+                (255 * 255)) *
+                1e6
+            ) / 1e6,
     };
   }
 

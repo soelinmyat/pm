@@ -16,6 +16,7 @@ const {
   resolveBrowser,
   runCaptureProbe,
   validateProbeResult,
+  validateMeaningfulVisual,
   validateStateAssertion,
   validateSurfacePattern,
   validateViewport,
@@ -5245,3 +5246,66 @@ test("immutable route planning rejects run drift, round drift and budget escape"
     })
   );
 });
+
+test(
+  "native sparse empty capture retains full viewport and measured heading/caption pixels",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-sparse-native-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const html =
+      '<!doctype html><html lang="en"><head><title>Checkpoint</title><style>body{margin:0;background:white;color:#222;font:16px system-ui}main{padding:110px 240px}h1{margin:0 0 74px;font-size:28px}p{margin:0;width:420px}</style></head><body><main><h1 id="title" data-pm-state="empty">Checkpoint review</h1><p>No public actions are available for this checkpoint.</p></main></body></html>';
+    const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    const stateAssertion = {
+      schema_version: 2,
+      subject_id: "checkpoint",
+      coverage_id: "empty-desktop",
+      state: "empty",
+      state_marker: {
+        locator: { by: "id", value: "title" },
+        attribute: "data-pm-state",
+        value: "empty",
+      },
+      all: [
+        "heading:Checkpoint review",
+        "StaticText:No public actions are available for this checkpoint.",
+      ].map((value) => ({
+        locator: { by: "role-name", value },
+        expect: { kind: "visible" },
+      })),
+    };
+    const outputPath = path.join(root, "capture.png");
+    const verificationPath = path.join(root, "verification.png");
+    const probe = runCaptureProbe({
+      browserPath: installedBrowser,
+      url,
+      expectedUrl: url,
+      viewport: { width: 1440, height: 900 },
+      stateAssertion,
+      allowedOrigins: [],
+      readinessTimeoutMs: 15000,
+      settleMs: 250,
+      outputPath,
+      verificationPath,
+    });
+    const bytes = fs.readFileSync(outputPath);
+    const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
+    const decoded = inspectPngVisualBytes(bytes);
+    assert.equal(
+      decoded.pixelSha256,
+      inspectPngVisualBytes(fs.readFileSync(verificationPath)).pixelSha256
+    );
+    assert.equal(decoded.width, 1440);
+    assert.equal(decoded.height, 900);
+    assert.ok(decoded.meaningfulPixelRatio < 0.01);
+    const metrics = validateMeaningfulVisual(decoded, {
+      state: "empty",
+      assertion: stateAssertion,
+      visibility: probe.assertion_visibility,
+      bytes,
+    });
+    assert.equal(metrics.sparse_content.policy, "native-heading-and-caption-v1");
+    assert.equal(metrics.sparse_content.nodes.length, 2);
+    assert.ok(metrics.sparse_content.nodes.every((node) => node.contrast_pixel_support >= 32));
+  }
+);

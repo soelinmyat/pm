@@ -342,16 +342,109 @@ function loadingContentEvidence(inspected, { state, visibility, bytes } = {}) {
   return { policy: "native-heading-and-loading-content-v1", nodes: content };
 }
 
+function sparseContentEvidence(
+  inspected,
+  { state, assertion, visibility, bytes, inspectNativeRegion } = {}
+) {
+  if (!["empty", "primary", "success"].includes(state) || !assertion || !visibility || !bytes)
+    return null;
+  validateStateAssertion(assertion);
+  if (assertion.state !== state) return null;
+  validateAssertionVisibility(visibility, "sparse content visibility");
+  const marker = visibility.checks.find((check) => check.label === "state marker");
+  const named = (role) =>
+    assertion.all.flatMap((clause, index) => {
+      if (clause.expect.kind !== "visible" || clause.locator.by !== "role-name") return [];
+      const at = clause.locator.value.indexOf(":");
+      if (clause.locator.value.slice(0, at).trim().toLowerCase() !== role) return [];
+      const check = visibility.checks.find(
+        (c) => c.label === `state assertion clause ${index + 1}`
+      );
+      const name = clause.locator.value.slice(at + 1).trim();
+      return check?.native_role?.toLowerCase() === role &&
+        check.native_name_present &&
+        check.native_name_sha256 === digest(Buffer.from(name))
+        ? [check]
+        : [];
+    });
+  const heading = named("heading").find(
+    (check) =>
+      marker?.native_role === "heading" &&
+      marker.native_name_present &&
+      marker.asserted_backend_node_id === check.asserted_backend_node_id &&
+      marker.native_name_sha256 === check.native_name_sha256 &&
+      JSON.stringify(marker.visual_bounds) === JSON.stringify(check.visual_bounds)
+  );
+  if (!heading) return null;
+  // The producer decodes once. Offline inspection uses its existing bounded,
+  // hash-bound cache; resource failures must propagate rather than skip a node.
+  const inspectRegion = inspectNativeRegion || createPngRegionInspector(bytes);
+  const full = inspectRegion(null);
+  if (
+    full.pixelSha256 !== inspected.pixelSha256 ||
+    full.width !== inspected.width ||
+    full.height !== inspected.height
+  )
+    throw new Error("sparse content pixels do not match full PNG");
+  const nodeFor = (check) => {
+    const region = check.visual_bounds;
+    if (
+      !region ||
+      region.width < 32 ||
+      region.height < 8 ||
+      region.x + region.width > inspected.width ||
+      region.y + region.height > inspected.height
+    )
+      return null;
+    const regional = inspectRegion(region);
+    if (!Number.isFinite(regional.contrastPixelSupport) || regional.contrastPixelSupport < 32)
+      return null;
+    let visual_metrics;
+    try {
+      visual_metrics = validateMeaningfulVisual(regional);
+    } catch {
+      return null;
+    } // Only unchanged visual floors; decoding/cache errors are outside this catch.
+    return { region, visual_metrics, contrast_pixel_support: regional.contrastPixelSupport };
+  };
+  const headingNode = nodeFor(heading);
+  if (!headingNode) return null;
+  for (const caption of named("statictext")) {
+    if (
+      caption.asserted_backend_node_id === heading.asserted_backend_node_id ||
+      caption.native_name_sha256 === heading.native_name_sha256
+    )
+      continue;
+    const h = heading.visual_bounds,
+      c = caption.visual_bounds;
+    if (
+      !c ||
+      (Math.min(h.x + h.width, c.x + c.width) > Math.max(h.x, c.x) &&
+        Math.min(h.y + h.height, c.y + c.height) > Math.max(h.y, c.y))
+    )
+      continue;
+    const captionNode = nodeFor(caption);
+    if (captionNode)
+      return { policy: "native-heading-and-caption-v1", nodes: [headingNode, captionNode] };
+  }
+  return null;
+}
+
 function validateMeaningfulVisual(inspected, loading = null) {
   let loadingContent = null;
+  let sparseContent = null;
   if (
     inspected.meaningfulPixelRatio !== null &&
     inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
-  )
+  ) {
     loadingContent = loadingContentEvidence(inspected, loading || {});
+    if (!loadingContent) sparseContent = sparseContentEvidence(inspected, loading || {});
+  }
   if (
     inspected.meaningfulPixelRatio === null ||
-    (inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO && !loadingContent)
+    (inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO &&
+      !loadingContent &&
+      !sparseContent)
   )
     throw new Error(
       `product UI screenshot meaningful pixels must cover at least ${MIN_MEANINGFUL_PIXEL_RATIO * 100}%`
@@ -377,6 +470,7 @@ function validateMeaningfulVisual(inspected, loading = null) {
   return {
     ...captureVisualMetrics(inspected),
     ...(loadingContent ? { loading_content: loadingContent } : {}),
+    ...(sparseContent ? { sparse_content: sparseContent } : {}),
   };
 }
 
@@ -1245,20 +1339,37 @@ function manifestShape(manifest) {
       ...(Object.hasOwn(manifest.capture.visual_metrics || {}, "loading_content")
         ? ["loading_content"]
         : []),
+      ...(Object.hasOwn(manifest.capture.visual_metrics || {}, "sparse_content")
+        ? ["sparse_content"]
+        : []),
     ],
     "capture manifest.capture.visual_metrics"
   );
-  if (Object.hasOwn(manifest.capture.visual_metrics, "loading_content")) {
-    const content = manifest.capture.visual_metrics.loading_content;
+  for (const kind of ["loading_content", "sparse_content"]) {
+    if (!Object.hasOwn(manifest.capture.visual_metrics, kind)) continue;
+    const sparse = kind === "sparse_content";
+    const content = manifest.capture.visual_metrics[kind];
     exactObject(content, ["policy", "nodes"], "loading content");
     if (
-      content.policy !== "native-heading-and-loading-content-v1" ||
+      content.policy !==
+        (sparse ? "native-heading-and-caption-v1" : "native-heading-and-loading-content-v1") ||
       !Array.isArray(content.nodes) ||
       content.nodes.length !== 2
     )
       throw new Error("loading content requires one native heading and one indicator region");
     for (const node of content.nodes) {
-      exactObject(node, ["region", "visual_metrics"], "loading content node");
+      exactObject(
+        node,
+        ["region", "visual_metrics", ...(sparse ? ["contrast_pixel_support"] : [])],
+        `${kind} node`
+      );
+      if (
+        sparse &&
+        (!Number.isFinite(node.contrast_pixel_support) ||
+          node.contrast_pixel_support < 32 ||
+          node.contrast_pixel_support > node.region.width * node.region.height)
+      )
+        throw new Error("invalid sparse content contrast support");
       exactObject(node.region, ["x", "y", "width", "height"], "loading content region");
       for (const field of ["x", "y", "width", "height"])
         if (
@@ -1476,6 +1587,7 @@ function captureProductUi(options, runtime = {}) {
       throw new Error("product UI screenshot has no visible pixel variation");
     const visualMetrics = validateMeaningfulVisual(screenshot, {
       state: plan.coverage.state,
+      assertion: plan.assertion,
       visibility: probe.assertion_visibility,
       bytes: screenshotBytes,
     });

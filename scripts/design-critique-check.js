@@ -85,6 +85,10 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.29", new Set(["1.14.28"])],
   // 1.14.30 only extends offline regional comparison of existing native proof.
   ["1.14.30", new Set(["1.14.28", "1.14.29"])],
+  // 1.14.31 changes lifecycle guidance only. 1.14.32 adds optional sparse
+  // metrics; existing native collections, audits and integrity stay unchanged.
+  ["1.14.31", new Set(["1.14.28", "1.14.29", "1.14.30"])],
+  ["1.14.32", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1729,22 +1733,41 @@ function validateTrustedCaptureObservation(
     ? captureVisualMetrics(decoded)
     : manifest.capture.visual_metrics;
   const hasLoadingContent = Object.hasOwn(manifest.capture.visual_metrics, "loading_content");
-  if (hasLoadingContent) {
+  const hasSparseContent = Object.hasOwn(manifest.capture.visual_metrics, "sparse_content");
+  if (hasLoadingContent || hasSparseContent) {
     try {
       const screenshotFile = readBoundFile(root, capture.path, `${at}.capture.path`, issues);
       if (!decoded || !screenshotFile)
         throw new Error("loading content requires decoded bound full PNG bytes");
+      // No historical producer emitted sparse_content. Accept ordinary old
+      // evidence through compatibility, never a backdated new sparse claim.
+      if (hasSparseContent && manifest.observation.producer.version !== PLUGIN_VERSION)
+        throw new Error("sparse content requires the current native capture producer");
+      const assertionFile = hasSparseContent
+        ? readBoundFile(root, manifest.page.state_assertion.path, `${at}.state_assertion`, issues)
+        : null;
       expectedVisualMetrics = validateMeaningfulVisual(decoded, {
+        assertion: assertionFile ? JSON.parse(assertionFile.bytes.toString("utf8")) : null,
+        inspectNativeRegion: hasSparseContent
+          ? (region) =>
+              region ? activeReadCache.nativeRegions.inspect(screenshotFile, region) : decoded
+          : null,
         state: coverage?.state,
         visibility: manifest.page.state_assertion.visibility,
         bytes: screenshotFile.bytes,
       });
-      if (!expectedVisualMetrics.loading_content)
+      if (hasSparseContent && !expectedVisualMetrics.sparse_content)
+        throw new Error("sparse content requires a native visible heading and exact caption");
+      if (hasLoadingContent && !expectedVisualMetrics.loading_content)
         throw new Error(
           "loading content requires native visible heading and loading indicator on a sparse loading page"
         );
     } catch (error) {
-      add(issues, `${at}.capture.visual_metrics.loading_content`, error.message);
+      add(
+        issues,
+        `${at}.capture.visual_metrics.${hasSparseContent ? "sparse_content" : "loading_content"}`,
+        error.message
+      );
     }
   }
   const expectedCapture = {
@@ -1814,7 +1837,8 @@ function validateTrustedCaptureObservation(
     manifestFile: file,
     assertion: focusAssertion,
     verified: issues.length === initialIssues,
-    loadingContentVerified: hasLoadingContent && issues.length === initialIssues,
+    loadingContentVerified:
+      (hasLoadingContent || hasSparseContent) && issues.length === initialIssues,
   };
 }
 
