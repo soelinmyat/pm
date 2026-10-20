@@ -375,34 +375,9 @@ function sparseContentEvidence(
       marker.native_name_sha256 === check.native_name_sha256 &&
       JSON.stringify(marker.visual_bounds) === JSON.stringify(check.visual_bounds)
   );
-  const caption = named("statictext").find(
-    (check) =>
-      heading &&
-      check.asserted_backend_node_id !== heading.asserted_backend_node_id &&
-      check.native_name_sha256 !== heading.native_name_sha256
-  );
-  if (!heading || !caption) return null;
-  const regions = [heading.visual_bounds, caption.visual_bounds];
-  if (
-    regions.some(
-      (r) =>
-        !r ||
-        r.width < 32 ||
-        r.height < 8 ||
-        r.x + r.width > inspected.width ||
-        r.y + r.height > inspected.height
-    )
-  )
-    return null;
-  if (
-    Math.min(regions[0].x + regions[0].width, regions[1].x + regions[1].width) >
-      Math.max(regions[0].x, regions[1].x) &&
-    Math.min(regions[0].y + regions[0].height, regions[1].y + regions[1].height) >
-      Math.max(regions[0].y, regions[1].y)
-  )
-    return null;
-  // The offline verifier supplies its hash-bound, budgeted native-region cache;
-  // the producer decodes this one bounded screenshot once for both regions.
+  if (!heading) return null;
+  // The producer decodes once. Offline inspection uses its existing bounded,
+  // hash-bound cache; resource failures must propagate rather than skip a node.
   const inspectRegion = inspectNativeRegion || createPngRegionInspector(bytes);
   const full = inspectRegion(null);
   if (
@@ -411,14 +386,48 @@ function sparseContentEvidence(
     full.height !== inspected.height
   )
     throw new Error("sparse content pixels do not match full PNG");
-  const nodes = regions.map((region) => {
+  const nodeFor = (check) => {
+    const region = check.visual_bounds;
+    if (
+      !region ||
+      region.width < 32 ||
+      region.height < 8 ||
+      region.x + region.width > inspected.width ||
+      region.y + region.height > inspected.height
+    )
+      return null;
     const regional = inspectRegion(region);
-    const visual_metrics = validateMeaningfulVisual(regional);
     if (!Number.isFinite(regional.contrastPixelSupport) || regional.contrastPixelSupport < 32)
-      throw new Error("sparse content requires 32 full-contrast pixels per native text region");
+      return null;
+    let visual_metrics;
+    try {
+      visual_metrics = validateMeaningfulVisual(regional);
+    } catch {
+      return null;
+    } // Only unchanged visual floors; decoding/cache errors are outside this catch.
     return { region, visual_metrics, contrast_pixel_support: regional.contrastPixelSupport };
-  });
-  return { policy: "native-heading-and-caption-v1", nodes };
+  };
+  const headingNode = nodeFor(heading);
+  if (!headingNode) return null;
+  for (const caption of named("statictext")) {
+    if (
+      caption.asserted_backend_node_id === heading.asserted_backend_node_id ||
+      caption.native_name_sha256 === heading.native_name_sha256
+    )
+      continue;
+    const h = heading.visual_bounds,
+      c = caption.visual_bounds;
+    if (
+      !c ||
+      (Math.min(h.x + h.width, c.x + c.width) > Math.max(h.x, c.x) &&
+        Math.min(h.y + h.height, c.y + c.height) > Math.max(h.y, c.y))
+    )
+      continue;
+    const captionNode = nodeFor(caption);
+    if (captionNode)
+      return { policy: "native-heading-and-caption-v1", nodes: [headingNode, captionNode] };
+  }
+  return null;
 }
 
 function validateMeaningfulVisual(inspected, loading = null) {

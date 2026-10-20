@@ -573,3 +573,55 @@ test("decoded regional contrast support rejects tiny and translucent beacons", (
   ])
     assert.ok(inspectPngVisualBytes(bytes).contrastPixelSupport < 32);
 });
+
+for (const width of [28, 80]) {
+  test(`sparse caption selection ignores an earlier nonqualifying ${width}px text guard`, () => {
+    for (const earlier of [true, false]) {
+      const { inspected, options } = sparseStaticFixture();
+      const guard = {
+        locator: { by: "role-name", value: "StaticText:Back" },
+        expect: { kind: "visible" },
+      };
+      const check = {
+        ...options.visibility.checks[2],
+        asserted_backend_node_id: 3,
+        hit_backend_node_id: 3,
+        x: 905,
+        y: 365,
+        native_name_sha256: crypto.createHash("sha256").update("Back").digest("hex"),
+        visual_bounds: { x: 900, y: 360, width, height: 24 },
+      };
+      options.assertion.all.splice(earlier ? 1 : 2, 0, guard);
+      options.visibility.checks.splice(earlier ? 2 : 3, 0, check);
+      options.visibility.verified_nodes++;
+      options.visibility.checks.slice(1).forEach((node, index) => {
+        node.label = `state assertion clause ${index + 1}`;
+      });
+      const result = validateMeaningfulVisual(inspected, options);
+      assert.equal(result.sparse_content.nodes[1].region.x, 200);
+      if (earlier && width === 80) {
+        const inspect = createPngRegionInspector(options.bytes);
+        options.inspectNativeRegion = (region) => {
+          if (region?.x === 900) {
+            const error = new Error("native region work budget exceeded");
+            error.code = "PM_NATIVE_REGION_BUDGET";
+            throw error;
+          }
+          return inspect(region);
+        };
+        assert.throws(() => validateMeaningfulVisual(inspected, options), {
+          code: "PM_NATIVE_REGION_BUDGET",
+        });
+        delete options.inspectNativeRegion;
+      }
+      options.assertion.all = [options.assertion.all[0], guard];
+      options.visibility.checks = [
+        options.visibility.checks[0],
+        options.visibility.checks[1],
+        { ...check, label: "state assertion clause 2" },
+      ];
+      options.visibility.verified_nodes = 3;
+      assert.throws(() => validateMeaningfulVisual(inspected, options));
+    }
+  });
+}
