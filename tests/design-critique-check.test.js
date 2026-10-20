@@ -1007,6 +1007,13 @@ function attachTrustedCaptureObservation(
   }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading")
     assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
+  if (nativeStateProof === "sparse-static" && coverage.state === "empty")
+    assertion.all = ["heading:No records", "StaticText:Add your first record to get started."].map(
+      (value) => ({
+        locator: { by: "role-name", value },
+        expect: { kind: "visible" },
+      })
+    );
   const pendingButtonProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
   const namedTextProof =
@@ -1368,6 +1375,29 @@ function attachTrustedCaptureObservation(
       });
     }
   }
+  if (nativeStateProof === "sparse-static" && coverage.state === "empty") {
+    const regions = [
+      { x: 48, y: 24, width: 240, height: 40 },
+      { x: 400, y: 180, width: 400, height: 40 },
+    ];
+    const checks = assertion.all.map((clause, index) => {
+      const [role, name] = clause.locator.value.split(":");
+      const region = regions[index];
+      return {
+        label: `state assertion clause ${index + 1}`,
+        asserted_backend_node_id: index + 1,
+        hit_backend_node_id: index + 1,
+        x: region.x + 5,
+        y: region.y + 5,
+        visual_bounds: region,
+        native_role: role,
+        native_name_present: true,
+        native_name_sha256: digest(Buffer.from(name)),
+      };
+    });
+    assertionVisibility.checks = [{ ...checks[0], label: "state marker" }, ...checks];
+    assertionVisibility.verified_nodes = 3;
+  }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading") {
     Object.assign(assertionVisibility.checks[0], {
       x: 80,
@@ -1462,9 +1492,11 @@ function attachTrustedCaptureObservation(
   };
   const captureBytes = fs.readFileSync(path.join(root, capture.path));
   const visualMetrics =
-    nativeStateProof === "sparse-loading" && coverage.state === "loading"
+    (nativeStateProof === "sparse-loading" && coverage.state === "loading") ||
+    (nativeStateProof === "sparse-static" && coverage.state === "empty")
       ? validateMeaningfulVisual(inspectPngVisualBytes(captureBytes), {
           state: coverage.state,
+          assertion,
           visibility: assertionVisibility,
           bytes: captureBytes,
         })
@@ -7257,7 +7289,7 @@ test("state beacon fixtures contain genuinely different decoded pixels", () => {
   }
 });
 
-function sparseLoadingPixels() {
+function sparseLoadingPixels(staticContent = false) {
   const width = 1024,
     height = 600;
   const header = Buffer.alloc(13);
@@ -7270,8 +7302,13 @@ function sparseLoadingPixels() {
     for (let x = 0; x < width; x++) {
       const offset = y * (width * 4 + 1) + 1 + x * 4;
       const heading = x >= 50 && x < 280 && y >= 30 && y < 58 && (x - 50) % 16 < 8;
-      const indicator =
-        x >= 500 && x < 532 && y >= 196 && y < 228 && (x < 503 || x >= 529 || y < 199 || y >= 225);
+      const indicator = staticContent
+        ? x >= 400 && x < 800 && y >= 188 && y < 198 && (x - 400) % 12 < 6
+        : x >= 500 &&
+          x < 532 &&
+          y >= 196 &&
+          y < 228 &&
+          (x < 503 || x >= 529 || y < 199 || y >= 225);
       const color = heading || indicator ? 32 : 255;
       rows[offset] = rows[offset + 1] = rows[offset + 2] = color;
       rows[offset + 3] = 255;
@@ -8427,4 +8464,80 @@ test("DC runner regression: pre-report dependency does not invent a report prede
   assert.equal(anchor.outcome, "passed");
   assert.equal(accepted.evidence["design-critique"].commit, oldCommit);
   assert.equal(fixture.reviews.rounds[0].previous_report, undefined);
+});
+
+test("offline verifier recomputes sparse heading and caption proof without trusting authored metrics", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  fixture.nativeStateProof = "sparse-static";
+  const bytes = sparseLoadingPixels(true);
+  assert.ok(inspectPngVisualBytes(bytes).meaningfulPixelRatio < 0.01);
+  addRequiredStateCapture(fixture, "empty", bytes);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === "ui-empty");
+  const original = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  for (const mutate of [
+    (m) => {
+      m.capture.visual_metrics.sparse_content.nodes[1].region.width++;
+    },
+    (m) => {
+      m.capture.visual_metrics.sparse_content.nodes[0].contrast_pixel_support = 999999;
+    },
+    (m) => {
+      m.page.state_assertion.visibility.checks[2].native_name_sha256 = "a".repeat(64);
+    },
+    (m) => {
+      delete m.capture.visual_metrics.sparse_content;
+    },
+    (m) => {
+      m.capture.visual_metrics.sparse_content.policy = "caller-region";
+    },
+    (m) => {
+      m.observation.producer.version = "1.14.30";
+    },
+  ]) {
+    const changed = structuredClone(original);
+    mutate(changed);
+    capture.observation = write(fixture.root, capture.observation.path, JSON.stringify(changed));
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false, JSON.stringify(changed.capture.visual_metrics));
+    assert.match(JSON.stringify(result.issues), /sparse|meaningful|visual_metrics|producer/);
+  }
+});
+
+for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31"]) {
+  test(`sparse-content release preserves passing native ${version} evidence unchanged`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.32");
+    const files = [
+      fixture.capturesPath,
+      ...fixture.captures.captures.map((c) => c.observation.path),
+    ];
+    const before = files.map((file) => fs.readFileSync(path.join(fixture.root, file)));
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    files.forEach((file, index) =>
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), before[index])
+    );
+  });
+}
+
+test("sparse-content compatibility retains native audit failures and rejects unknown versions", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.30", "1.14.32");
+  rewriteNormalizedAudit(
+    fixture,
+    fixture.captures.evidence.find((row) => row.kind === "accessibility-tree"),
+    (raw) => {
+      raw.observations.landmarks = [];
+    }
+  );
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.27", "0.0.0", "1.14.33", "999.0.0"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.32");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
 });
