@@ -7697,6 +7697,102 @@ for (const outcome of ["passed", "failed", "blocked"]) {
   });
 }
 
+for (const encoding of ["identical", "different-bytes"]) {
+  test(`recovery retains historical duplicate image quality (${encoding})`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+      expectCurrent: false,
+      checkpointExpectedOK: false,
+      mutateCheckpoint(checkpoint) {
+        const primary = checkpoint.captures.captures.find(
+          (capture) => capture.id === "capture-ui-primary-after"
+        );
+        const bytes = fs.readFileSync(path.join(checkpoint.root, primary.path));
+        const duplicate =
+          encoding === "identical"
+            ? bytes
+            : Buffer.concat([
+                bytes.subarray(0, -12),
+                pngChunk("tEXt", Buffer.from("Capture\0independent sample")),
+                bytes.subarray(-12),
+              ]);
+        addRequiredStateCapture(checkpoint, "boundary", duplicate);
+        if (encoding === "different-bytes") checkpoint.report.outcome = "blocked";
+        checkpoint.report.reason = "The historical states have identical decoded pixels.";
+        checkpoint.report.top_issue = checkpoint.report.reason;
+      },
+    });
+    fixture.report.outcome = "passed";
+    fixture.report.reason = null;
+    fixture.report.top_issue = "No unresolved design issue.";
+    rewriteReviewsAndReport(fixture);
+    const retained = recoveryDCFiles(fixture.root);
+    const options = { verifyGit: true, baseRef: "origin/main", baseCommit: base };
+    const recovered = check(fixture, newCommit, options);
+    assert.equal(recovered.ok, true, JSON.stringify(recovered.issues));
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+
+    const prior = fixture.reviews.rounds[2].previous_report;
+    const report = JSON.parse(fs.readFileSync(path.join(fixture.root, prior.path)));
+    const captures = JSON.parse(fs.readFileSync(path.join(fixture.root, report.captures.path)));
+    const historical = captures.captures.find((capture) => capture.id === "capture-ui-boundary");
+    fs.appendFileSync(path.join(fixture.root, historical.path), "tampered");
+    assert.equal(check(fixture, newCommit, options).ok, false);
+  });
+}
+
+for (const outcome of ["passed", "failed", "blocked"]) {
+  test(`current ${outcome} reports cannot waive duplicate image quality with a caller history flag`, () => {
+    const fixture = makeFixture();
+    const primary = fixture.captures.captures.find((capture) => capture.active);
+    addRequiredStateCapture(
+      fixture,
+      "boundary",
+      fs.readFileSync(path.join(fixture.root, primary.path))
+    );
+    fixture.report.outcome = outcome;
+    fixture.report.reason = outcome === "passed" ? null : "Current states have identical pixels.";
+    fixture.report.top_issue = fixture.report.reason || "No unresolved design issue.";
+    rewriteReviewsAndReport(fixture);
+    const result = check(fixture, COMMIT, { frozenPredecessor: true });
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /distinct capture content hash/);
+    assert.match(JSON.stringify(result.issues), /distinct decoded-pixel hash/);
+  });
+}
+
+test("recovery rejects aliased historical duplicate capture paths", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    expectCurrent: false,
+    checkpointExpectedOK: false,
+    mutateCheckpoint(checkpoint) {
+      const primary = checkpoint.captures.captures.find(
+        (capture) => capture.id === "capture-ui-primary-after"
+      );
+      addRequiredStateCapture(
+        checkpoint,
+        "boundary",
+        fs.readFileSync(path.join(checkpoint.root, primary.path))
+      );
+      checkpoint.captures.captures.find((capture) => capture.id === "capture-ui-boundary").path =
+        primary.path;
+      checkpoint.report.reason = "Two historical captures alias one canonical screenshot path.";
+      checkpoint.report.top_issue = checkpoint.report.reason;
+    },
+  });
+  fixture.report.outcome = "passed";
+  fixture.report.reason = null;
+  fixture.report.top_issue = "No unresolved design issue.";
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture, newCommit, {
+    verifyGit: true,
+    baseRef: "origin/main",
+    baseCommit: base,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct canonical capture path/);
+});
+
 test("recovery retains failed historical native audits without passing current failures", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
     expectCurrent: false,
@@ -8524,6 +8620,40 @@ for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31"]) {
     );
   });
 }
+
+for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32"]) {
+  test(`duplicate-recovery release preserves passing native ${version} evidence unchanged`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.33");
+    const files = new Set([
+      fixture.capturesPath,
+      ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+      ...fixture.captures.evidence.map((entry) => entry.path),
+    ]);
+    const before = new Map(
+      [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    for (const [file, bytes] of before)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+
+test("duplicate-recovery compatibility retains current audit failures and rejects unknown versions", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.32", "1.14.33");
+  rewriteNormalizedAudit(
+    fixture,
+    fixture.captures.evidence.find((row) => row.kind === "accessibility-tree"),
+    (raw) => {
+      raw.observations.landmarks = [];
+    }
+  );
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.27", "0.0.0", "1.14.34", "999.0.0"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.33");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
+});
 
 test("sparse-content compatibility retains native audit failures and rejects unknown versions", () => {
   const { fixture, refresh, run } = recertificationReleaseFixture("1.14.30", "1.14.32");

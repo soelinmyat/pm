@@ -504,7 +504,8 @@ substitute for trusted product direction. Preserve the original report and rows
 through restoration or a separately approved product decision.
 
 An authenticated nonpassing predecessor may retain native audit checks whose
-original boolean value is false and cross-state visual-distance quality failures.
+original boolean value is false, cross-state visual-distance quality failures,
+and identical encoded or decoded images at independently bound capture paths.
 This records its failure; it does not convert the earlier evidence to a pass.
 Historical evidence must match the exact entry in
 that predecessor's bound capture manifest and retain its raw-probe hashes,
@@ -512,7 +513,10 @@ deterministic normalization, native observation bindings and reviewer history.
 Only recursive frozen validation applies this rule; a caller flag or a blocked
 label cannot exempt current evidence. Current captures and active audits still
 require every quality check to pass, including after recovery. Historical hash,
-decoded-pixel identity, provenance, state and review checks are never exempted.
+decoded-pixel identity, canonical capture paths, provenance, state and review
+checks are never exempted. Release 1.14.33 keeps the unchanged native contracts
+from 1.14.28 through 1.14.32 explicitly compatible; this never accepts failed
+current audits, unknown producers, or an invalid historical binding.
 
 Continue authorized scoped repair with a fresh Primary/Fresh Eyes pair and
 strict capture/manifest/receipt chronology. Preserve the aggregate 2,000-capture,

@@ -89,6 +89,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // metrics; existing native collections, audits and integrity stay unchanged.
   ["1.14.31", new Set(["1.14.28", "1.14.29", "1.14.30"])],
   ["1.14.32", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31"])],
+  // 1.14.33 retains failed historical duplicate-image quality only. Native
+  // collections, audits, pixel identity and current evidence are unchanged.
+  ["1.14.33", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -1020,7 +1023,14 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
-  validateDistinctActiveCaptures(root, acceptedCaptureRows, coverage, decodedByCapture, issues);
+  validateDistinctActiveCaptures(
+    root,
+    acceptedCaptureRows,
+    coverage,
+    decodedByCapture,
+    issues,
+    runtime.retainFailedAuditChecks
+  );
   validateCrossStateVisualDistance(
     root,
     acceptedCaptureRows,
@@ -1043,7 +1053,14 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
   return observationByCapture;
 }
 
-function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCapture, issues) {
+function validateDistinctActiveCaptures(
+  root,
+  captureRows,
+  coverage,
+  decodedByCapture,
+  issues,
+  retainFailedContentQuality = false
+) {
   const paths = new Map();
   const hashes = new Map();
   const pixelHashes = new Map();
@@ -1060,7 +1077,9 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
       );
     else paths.set(file.path, capture.coverage_id);
     const priorHash = hashes.get(file.sha256);
-    if (priorHash && priorHash !== capture.coverage_id)
+    // Only internally revalidated nonpassing history may retain this quality
+    // failure. Canonical paths and every individual byte/pixel binding remain checked.
+    if (priorHash && priorHash !== capture.coverage_id && !retainFailedContentQuality)
       add(
         issues,
         `captures.captures.${capture.id}`,
@@ -1069,7 +1088,12 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
     else hashes.set(file.sha256, capture.coverage_id);
     const pixelHash = decodedByCapture.get(capture.id)?.pixelSha256;
     const priorPixels = pixelHashes.get(pixelHash);
-    if (pixelHash && priorPixels && priorPixels !== capture.coverage_id)
+    if (
+      pixelHash &&
+      priorPixels &&
+      priorPixels !== capture.coverage_id &&
+      !retainFailedContentQuality
+    )
       add(
         issues,
         `captures.captures.${capture.id}`,
