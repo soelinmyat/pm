@@ -92,6 +92,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.33 retains failed historical duplicate-image quality only. Native
   // collections, audits, pixel identity and current evidence are unchanged.
   ["1.14.33", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32"])],
+  // 1.14.34 extends checker-side centered named-text comparison only.
+  // Native collections, audits, pixel thresholds and producer bytes are unchanged.
+  ["1.14.34", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32", "1.14.33"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -104,6 +107,7 @@ function currentNativeEvidenceVersion(version) {
 const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   ["1.14.32", new Set(["1.14.32"])],
   ["1.14.33", new Set(["1.14.32", "1.14.33"])],
+  ["1.14.34", new Set(["1.14.32", "1.14.33", "1.14.34"])],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1204,14 +1208,14 @@ function validateCrossStateVisualDistance(
 }
 
 // Native vertical origin and height remain fixed. Controls retain their exact
-// left edge or center with capped width growth; text retains its left edge.
+// left edge or center. Controls also retain capped width growth; native text
+// can change intrinsic width as its exact guarded localized content changes.
 // Only the measured union and unchanged pixel-support floor can qualify.
 function anchoredNativeRegion(left, right, kind = "control") {
   if (
     !left ||
     !right ||
-    (left.x !== right.x &&
-      (kind !== "control" || left.x * 2 + left.width !== right.x * 2 + right.width)) ||
+    (left.x !== right.x && left.x * 2 + left.width !== right.x * 2 + right.width) ||
     left.y !== right.y ||
     left.height !== right.height ||
     Math.min(left.width, right.width) < 32 ||
@@ -1336,9 +1340,14 @@ function nativeNamedTextGuards(observation) {
     )
       continue;
     const region = check.visual_bounds;
-    const key = `${role}:${region.x}:${region.y}:${region.height}`;
-    if (!rows.has(key)) rows.set(key, []);
-    rows.get(key).push({ role, name: check.native_name_sha256, literal: name, region });
+    const row = { role, name: check.native_name_sha256, literal: name, region };
+    // Index both exact supported anchors. Looking up only the left origin
+    // loses centered translations with different measured intrinsic widths.
+    for (const anchor of [`left:${region.x}`, `center:${region.x * 2 + region.width}`]) {
+      const key = `${role}:${anchor}:${region.y}:${region.height}`;
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(row);
+    }
   }
   activeReadCache.namedTextGuards.set(observation, rows);
   return rows;

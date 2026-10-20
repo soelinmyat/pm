@@ -39,6 +39,8 @@ Visible `status` and `alert` messages can use `role-text` with an exact native S
 
 Distinct error variants can prove a localized message change through those exact native captions inside their own visibly asserted alerts. Anchored geometry, meaningful regional pixels, material change and the existing pixel-support floor remain required; identical messages, unbound text and beacons stay rejected.
 
+Native named headings and captions may retain an exact horizontal center while their localized text changes intrinsic width. Exact vertical origin and height, visibly asserted native names, meaningful measured-region differences and the existing pixel-support floor remain required. Shifted centers, changed heights, identical content and tiny beacons do not qualify. This checker-only comparison preserves the supported native capture contracts and all pixel thresholds.
+
 A native busy button may grow around its exact horizontal center as well as a fixed left edge. Both states must visibly assert the same named control, with unchanged vertical origin and height, width change capped by that height, genuine busy semantics and the existing meaningful-pixel and support floors. Position drift and excessive growth remain failures.
 
 Native keyboard evidence tests popup exit/return before an outside focus probe can dismiss it. A sole already-active option may keep focus after an arrow when actual native Tab entry and the focused owner/member relationship are proved. Multi-option widgets still require observed traversal to every option; functional activation remains part of QA.
