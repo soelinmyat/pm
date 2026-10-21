@@ -2084,7 +2084,13 @@ function normalizedClassTokens(node) {
   ].sort();
 }
 
-function declaredComponentVariantIdentity(node, groupName, focused = false, currentDate = null) {
+function declaredComponentVariantIdentity(
+  node,
+  groupName,
+  focused = false,
+  currentDate = null,
+  calendarSelected = null
+) {
   const component = String(node.attributes["data-component"] || "").trim() || null;
   const variant = String(node.attributes["data-variant"] || "").trim() || null;
   const inputType =
@@ -2119,7 +2125,7 @@ function declaredComponentVariantIdentity(node, groupName, focused = false, curr
   const selected =
     selectionRoles.has(role) && ["true", "false"].includes(selectedValue)
       ? selectedValue === "true"
-      : null;
+      : calendarSelected;
   const checkedValue = String(node.attributes["aria-checked"] || "")
     .trim()
     .toLowerCase();
@@ -2260,6 +2266,17 @@ function domObservations(
         entry.cell.attributes["aria-current"] === "date" ||
         entry.button.attributes["aria-current"] === "date")
     );
+  };
+  const calendarSelection = (node) => {
+    const entry = calendarDates.get(node.backendNodeId);
+    if (!entry) return null;
+    // Day buttons inherit selection from their semantic gridcell. Date and
+    // ownership validation above prevents arbitrary data flags or ordinary
+    // button aria-selected attributes from splitting consistency peers.
+    const selected = String(entry.cell.attributes["aria-selected"] || "")
+      .trim()
+      .toLowerCase();
+    return ["true", "false"].includes(selected) ? selected === "true" : null;
   };
   const resolveRegion = (start) => {
     const trail = [];
@@ -2642,7 +2659,8 @@ function domObservations(
               node,
               group.name,
               focusedBackendNodeIds.has(node.backendNodeId),
-              currentCalendarDate(node)
+              currentCalendarDate(node),
+              calendarSelection(node)
             );
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
