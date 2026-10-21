@@ -108,6 +108,9 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   ["1.14.32", new Set(["1.14.32"])],
   ["1.14.33", new Set(["1.14.32", "1.14.33"])],
   ["1.14.34", new Set(["1.14.32", "1.14.33", "1.14.34"])],
+  // 1.14.35 changes paragraph hierarchy collection, not sparse pixel proof.
+  // Earlier producers are retained only through the historical identity gate.
+  ["1.14.35", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35"])],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -122,6 +125,15 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.19",
   "1.14.21",
   "1.14.22",
+  // The 1.14.35 hierarchy producer requires fresh active captures. Preserve
+  // these formerly compatible releases only as inactive/frozen history.
+  "1.14.28",
+  "1.14.29",
+  "1.14.30",
+  "1.14.31",
+  "1.14.32",
+  "1.14.33",
+  "1.14.34",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);

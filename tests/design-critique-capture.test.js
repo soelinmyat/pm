@@ -3630,6 +3630,111 @@ test("typography hierarchy is scoped to semantic regions while same-region defec
   );
 });
 
+test("paragraph typography follows its governing heading rather than a later subheading", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, nodeName, size, weight = 400) => ({
+    index,
+    parentIndex: index === 0 ? -1 : 0,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    layout: {
+      bounds: [0, index * 25, 200, 20],
+      styles: ["block", "visible", "1", `${size}px`, String(weight)],
+    },
+  });
+  const model = [
+    node(0, "main", 16),
+    node(1, "h2", 24, 600),
+    node(2, "p", 15, 500),
+    node(3, "h3", 13, 600),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  const observed = () => domObservations(model, metrics, styles).hierarchy;
+  assert.deepEqual(observed(), [], "introductory paragraph belongs to h2");
+  model.push(node(4, "p", 12));
+  model[4].layout.styles[3] = "14px";
+  assert.ok(observed().some((x) => x.code === "body-exceeds-heading" && x.locator === "h3"));
+  model[4].layout.styles[3] = "13px";
+  assert.deepEqual(observed(), [], "equal-size lighter body remains subordinate");
+  model[4].layout.styles[4] = "600";
+  assert.ok(observed().some((x) => x.code === "body-exceeds-heading"));
+  model[4].layout.styles[3] = "12px";
+  model[4].layout.styles[4] = "400";
+  // An introductory paragraph before all headings still has a conservative
+  // region-level owner, including when the region heading is header-wrapped.
+  model.splice(1, 2, node(5, "p", 15, 500), node(6, "h2", 24, 600));
+  assert.deepEqual(observed(), []);
+  model[1].layout.styles[3] = "25px";
+  assert.ok(observed().some((x) => x.code === "body-exceeds-heading" && x.locator === "h2"));
+});
+
+test("paragraph typography retains defects in individual sibling heading bodies", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const model = [
+    ["main", 16, 400],
+    ["h2", 24, 600],
+    ["p", 15, 400],
+    ["h3", 13, 600],
+    ["p", 12, 400],
+    ["h3", 13, 400],
+    ["p", 13, 400],
+  ].map(([nodeName, size, weight], index) => ({
+    index,
+    parentIndex: index === 0 ? -1 : 0,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    layout: {
+      bounds: [0, index * 25, 200, 20],
+      styles: ["block", "visible", "1", `${size}px`, String(weight)],
+    },
+  }));
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some(
+      (x) => x.code === "body-exceeds-heading" && x.locator === "h3"
+    )
+  );
+});
+
+test(
+  "native paragraph typography separates introductory text from later metric bodies",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture();
+    const html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const intro =
+      '<h2>Attendance</h2><p style="font-size:15px;font-weight:500">Did scheduled people show up?</p><h3 style="font-size:13px;font-weight:600">Check-in rate</h3>';
+    try {
+      for (const oversized of [false, true]) {
+        const content = oversized
+          ? `${intro}<p style="font-size:16px">Attendance summary</p>`
+          : intro;
+        fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(
+          html.replace('<h2 id="summary">Summary</h2>', content)
+        )}`;
+        const result = runBrowserCapture(fixture);
+        const bodyIssues = result.dom_observations.hierarchy.filter(
+          (x) => x.code === "body-exceeds-heading"
+        );
+        assert.equal(bodyIssues.length, oversized ? 1 : 0, JSON.stringify(bodyIssues));
+        if (oversized) assert.equal(bodyIssues[0].locator, "h3");
+      }
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
 test(
   "native modal captures retain accessible context and scoped typography",
   { skip: browserSkip },

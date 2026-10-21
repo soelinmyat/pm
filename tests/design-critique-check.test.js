@@ -8701,6 +8701,29 @@ test("sparse-proof compatibility preserves unchanged native 1.14.32 active evide
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
 
+for (const version of ["1.14.34", "1.14.36", "1.14.035", "999.0.0"]) {
+  test(`paragraph-ownership release rejects stale or unknown active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.35");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const result = run();
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture producer/);
+  });
+}
+
+test("paragraph-ownership release retains frozen native 1.14.34 evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    checkpointVersion: "1.14.34",
+  });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
 test("sparse-proof compatibility retains native 1.14.32 frozen nonpassing evidence", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
     checkpointVersion: "1.14.32",
