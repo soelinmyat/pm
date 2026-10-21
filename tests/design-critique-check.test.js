@@ -8645,6 +8645,12 @@ test("offline verifier recomputes sparse heading and caption proof without trust
     (m) => {
       m.observation.producer.version = "1.14.30";
     },
+    (m) => {
+      m.observation.producer.version = "1.14.37";
+    },
+    (m) => {
+      m.observation.producer.version = "1.14.036";
+    },
   ]) {
     const changed = structuredClone(original);
     mutate(changed);
@@ -8714,6 +8720,19 @@ for (const version of ["1.14.34", "1.14.36", "1.14.035", "999.0.0"]) {
 test("paragraph-ownership release retains frozen native 1.14.34 evidence unchanged", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
     checkpointVersion: "1.14.34",
+  });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
+test("calendar-selection release retains frozen native 1.14.35 evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    checkpointVersion: "1.14.35",
   });
   const retained = recoveryDCFiles(fixture.root);
   assert.deepEqual(
