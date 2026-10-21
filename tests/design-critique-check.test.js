@@ -1304,6 +1304,14 @@ function attachTrustedCaptureObservation(
       check.y = check.visual_bounds.y + 8;
     }
     delete check.focus_indicator_regions;
+    if (nativeStateProof.includes("centered-text")) {
+      const width = coverage.id.endsWith("alternate") ? 200 : 120;
+      check.visual_bounds = { x: 450 - width / 2, y: 324, width, height: 36 };
+      check.x = 450;
+      check.y = 342;
+      if (nativeStateProof.includes("vertical") && coverage.id.endsWith("alternate"))
+        check.visual_bounds.y++;
+    }
     if (nativeStateProof.includes("missing-hash")) delete check.native_name_sha256;
     if (nativeStateProof.includes("bad-hash")) check.native_name_sha256 = "a".repeat(64);
     if (nativeStateProof.includes("wrong-role")) {
@@ -2879,6 +2887,50 @@ function namedTextVariantFixture({
   rewriteReportAndHtml(fixture);
   return fixture;
 }
+
+for (const [state, role] of [
+  ["primary", "heading"],
+  ["primary", "statictext"],
+  ["keyboard", "heading"],
+  ["success", "statictext"],
+]) {
+  for (const reversed of [false, true]) {
+    test(`centered native text accepts intrinsic width changes: ${state}/${role}/${reversed}`, () => {
+      const fixture = namedTextVariantFixture({ state, role, proof: "-centered-text" });
+      if (reversed) {
+        fixture.captures.captures.reverse();
+        rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+        fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+        rewriteReportAndHtml(fixture);
+      }
+      assert.deepEqual(
+        check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+        []
+      );
+    });
+  }
+}
+
+for (const [proof, pixels] of [
+  ["-moved", "state-content"],
+  ["-vertical", "state-content"],
+  ["-height-drift", "state-content"],
+  ["-same-name", "state-content"],
+  ["-missing-hash", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["-wrong-role", "state-content"],
+  ["-unnamed", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+]) {
+  test(`centered native text rejects invalid proof: ${proof}/${pixels}`, () => {
+    const fixture = namedTextVariantFixture({ proof: "-centered-text" + proof, pixels });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
+}
+
 for (const [state, role] of [
   ["primary", "heading"],
   ["success", "statictext"],
@@ -8696,6 +8748,40 @@ for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32"]) {
       assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
   });
 }
+
+for (const version of ["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32", "1.14.33"]) {
+  test(`centered-text release preserves passing native ${version} evidence unchanged`, () => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.34");
+    const files = new Set([
+      fixture.capturesPath,
+      ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+      ...fixture.captures.evidence.map((entry) => entry.path),
+    ]);
+    const before = new Map(
+      [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    for (const [file, bytes] of before)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+
+test("centered-text compatibility retains audit failures and rejects unknown versions", () => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.33", "1.14.34");
+  rewriteNormalizedAudit(
+    fixture,
+    fixture.captures.evidence.find((row) => row.kind === "accessibility-tree"),
+    (raw) => {
+      raw.observations.landmarks = [];
+    }
+  );
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+  for (const version of ["1.14.27", "0.0.0", "1.14.35", "999.0.0"]) {
+    const { run: incompatible } = recertificationReleaseFixture(version, "1.14.34");
+    assert.match(JSON.stringify(incompatible().issues), /capture producer/);
+  }
+});
 
 test("duplicate-recovery compatibility retains current audit failures and rejects unknown versions", () => {
   const { fixture, refresh, run } = recertificationReleaseFixture("1.14.32", "1.14.33");
