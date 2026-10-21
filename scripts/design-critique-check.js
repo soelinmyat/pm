@@ -111,6 +111,8 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   // 1.14.35 changes paragraph hierarchy collection, not sparse pixel proof.
   // Earlier producers are retained only through the historical identity gate.
   ["1.14.35", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35"])],
+  // 1.14.36 changes calendar selection collection, not sparse pixel proof.
+  ["1.14.36", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36"])],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -134,6 +136,9 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.32",
   "1.14.33",
   "1.14.34",
+  // Calendar selection changes require fresh active captures; retain 35 only
+  // behind the existing immutable inactive/frozen-history checks.
+  "1.14.35",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
