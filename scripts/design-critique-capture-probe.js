@@ -2369,20 +2369,31 @@ function domObservations(
           "hierarchy"
         );
     }
-    const paragraphs = regionNodes.filter((node) => node.nodeName === "p");
-    if (paragraphs.length && levels.length) {
+    // The latest heading in this region owns the following paragraphs. A
+    // lead before a metric subheading belongs to the earlier region heading,
+    // not to the smallest heading found anywhere in the region. Paragraphs
+    // before all headings conservatively use the region's highest level.
+    const bodies = new Map();
+    let owner = headings.get(levels[0])?.[0];
+    for (const node of regionNodes) {
+      if (node.nodeName !== "p") owner = node;
+      else if (owner) {
+        if (!bodies.has(owner)) bodies.set(owner, []);
+        bodies.get(owner).push(node);
+      }
+    }
+    for (const [heading, paragraphs] of bodies) {
       const bodySize = majorityNumber(paragraphs, "font-size");
-      const smallest = levels.at(-1);
-      const headingSize = majorityNumber(headings.get(smallest), "font-size");
+      const headingSize = parsePixels(style(heading, "font-size"));
       const bodyWeight = majorityNumber(paragraphs, "font-weight");
-      const headingWeight = majorityNumber(headings.get(smallest), "font-weight");
+      const headingWeight = parsePixels(style(heading, "font-weight"));
       if (bodySize > headingSize || (bodySize === headingSize && bodyWeight >= headingWeight))
         addIssue(
           hierarchy,
           issue(
             "body-exceeds-heading",
-            smallest,
-            `Body text (${bodySize}px/${bodyWeight}) is not subordinate to ${smallest} (${headingSize}px/${headingWeight}).`
+            heading.nodeName,
+            `Body text (${bodySize}px/${bodyWeight}) is not subordinate to ${heading.nodeName} (${headingSize}px/${headingWeight}).`
           ),
           "hierarchy"
         );
