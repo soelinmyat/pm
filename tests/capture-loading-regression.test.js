@@ -17,7 +17,14 @@ const skip = process.env.PM_SKIP_BROWSER_TESTS || (!browser && "Chromium is unav
 
 async function fixture(
   t,
-  { state = "loading", method = "GET", type = "fetch", busy = true, external = false } = {}
+  {
+    state = "loading",
+    method = "GET",
+    type = "fetch",
+    busy = true,
+    external = false,
+    afterLoad = false,
+  } = {}
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loading-test-"));
   const server = spawn(
@@ -29,7 +36,7 @@ async function fixture(
     const server = http.createServer((req,res) => {
       if (req.url === '/slow') { /* Genuine pending response, closed during cleanup. */ return; }
       res.setHeader('content-type','text/html');
-      res.end(${JSON.stringify(`<!doctype html><html lang="en"><head><title>Loading test</title><link rel="icon" href="data:,"></head><body><main id="content" data-pm-state="${state}" aria-busy="${busy}"><h1>Saved checklists</h1><p>Loading saved submissions</p></main><script>${type === "image" ? 'const image=new Image(); image.src="/slow"; document.body.append(image);' : `fetch('${external ? "http://127.0.0.1:1/blocked" : "/slow"}', {method: '${method}'}).then(() => {const el=document.getElementById('content'); el.setAttribute('aria-busy','false'); el.setAttribute('data-pm-state','primary'); el.textContent='Loaded';});`}</script></body></html>`)});
+      res.end(${JSON.stringify(`<!doctype html><html lang="en"><head><title>Loading test</title><link rel="icon" href="data:,"></head><body><main id="content" data-pm-state="${state}" aria-busy="${busy}"><h1>Saved checklists</h1><p>Loading saved submissions</p></main><script>${type === "image" ? `${afterLoad ? "window.addEventListener('load',()=>setTimeout(()=>{" : ""}const image=new Image(); image.alt='Saved signature'; image.width=128; image.height=40; image.src='${external ? "http://127.0.0.1:1/blocked" : "/slow"}'; document.body.append(image);${afterLoad ? "},0));" : ""}` : `fetch('${external ? "http://127.0.0.1:1/blocked" : "/slow"}', {method: '${method}'}).then(() => {const el=document.getElementById('content'); el.setAttribute('aria-busy','false'); el.setAttribute('data-pm-state','primary'); el.textContent='Loaded';});`}</script></body></html>`)});
     }); server.listen(0, '127.0.0.1', () => console.log(server.address().port));
   `,
     ],
@@ -86,6 +93,16 @@ test(
     }
   }
 );
+test("captures a genuine pending image read after document load", { skip }, async (t) => {
+  const result = runCaptureProbe(await fixture(t, { type: "image", afterLoad: true }));
+  assert.equal(result.assertion_passed, true);
+  const pending = result.network.requests.filter((request) =>
+    result.network.pending_at_capture.includes(request.sequence)
+  );
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].method, "GET");
+  assert.equal(pending[0].resource_type, "Image");
+});
 for (const options of [{ state: "primary" }, { method: "POST" }, { type: "image" }]) {
   test(
     `rejects pending requests outside loading read-only fetch: ${JSON.stringify(options)}`,
@@ -107,6 +124,12 @@ test("loading readiness rejects unknown, write and document requests", () => {
     undefined,
     { method: "POST", resource_type: "Fetch" },
     { method: "GET", resource_type: "Document" },
+    { method: "GET", resource_type: "Script" },
+    { method: "GET", resource_type: "Stylesheet" },
+    { method: "GET", resource_type: "Font" },
+    { method: "GET", resource_type: "Media" },
+    { method: "GET", resource_type: "WebSocket" },
+    { method: "POST", resource_type: "Image" },
   ]) {
     assert.equal(pendingRequestsReady("loading", ids, new Map([["request", request]])), false);
   }
@@ -126,6 +149,28 @@ test("loading readiness rejects unknown, write and document requests", () => {
     ),
     false
   );
+});
+test("producer and retained evidence agree on read-only pending images", () => {
+  for (const method of ["GET", "HEAD"]) {
+    const request = { sequence: 1, method, resource_type: "Image" };
+    assert.equal(
+      pendingRequestsReady("loading", new Set(["image"]), new Map([["image", request]])),
+      true
+    );
+    assert.doesNotThrow(() => validatePendingAtCapture([1], [request], "loading"));
+    assert.equal(
+      pendingRequestsReady("primary", new Set(["image"]), new Map([["image", request]])),
+      false
+    );
+    assert.throws(
+      () => validatePendingAtCapture([1], [request], "primary"),
+      /only permitted for loading/
+    );
+    assert.throws(
+      () => validatePendingAtCapture([1], [{ ...request, method: "POST" }], "loading"),
+      /read-only/
+    );
+  }
 });
 test("pending capture evidence requires loading and exact read-only ledger references", () => {
   const records = [{ sequence: 1, method: "GET", resource_type: "Fetch" }];
@@ -153,6 +198,16 @@ for (const options of [{ busy: false }, { external: true }]) {
     async (t) => {
       const config = await fixture(t, options);
       assert.throws(() => runCaptureProbe(config), /assertion|network policy violation/);
+    }
+  );
+}
+for (const options of [{ busy: false }, { external: true }, { state: "primary" }]) {
+  test(
+    `pending images keep semantic, origin and state guards: ${JSON.stringify(options)}`,
+    { skip },
+    async (t) => {
+      const config = await fixture(t, { type: "image", afterLoad: true, ...options });
+      assert.throws(() => runCaptureProbe(config), /assertion|network policy violation|readiness/);
     }
   );
 }

@@ -462,13 +462,13 @@ Only `passed` invokes `dev-gate-check.js --require design-critique`. Every other
 ### Loading captures with outstanding reads
 
 For a routed `loading` state, the web capture helper permits outstanding GET/HEAD
-Fetch or XHR requests after document load and a quiet network interval. The same
+Fetch, XHR or Image requests after document load and a quiet network interval. The same
 request set must remain pending throughout capture and keyboard probing. Its
 request sequence IDs are retained as `pending_at_capture` in the hash-bound
 network ledger and capture manifest. The checker permits these references only
 for loading rows and verifies that each points to an observed read-only data
-request. Other states still require network idle; unfinished documents, images,
-scripts, writes, unknown requests, and open sockets do not qualify.
+request. Other states still require network idle; unfinished documents, scripts,
+stylesheets, fonts, writes, unknown requests, and open sockets do not qualify.
 
 The visible loading semantic guard, allowed origins, target isolation, native
 DOM/accessibility samples, identical screenshots, and protocol barriers remain
