@@ -108,6 +108,8 @@ Create the assertion at the canonical path for the coverage row:
 
 Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
 
+For translated modal-title variants, visibly assert both `dialog:<exact title>` and `heading:<exact title>` with `role-name` guards. The collector must observe the native heading inside the named dialog; a dialog-name guard alone does not supply a measured title region. The checker retains the existing anchored geometry, meaningful/material pixel and support floors. An unrelated heading or changed metadata cannot substitute for the title proof.
+
 For distinct error-message variants, visibly assert the exact StaticText caption
 and its matching `role-text` alert. Native measured bounds must place the caption
 inside that alert in both captures. The checker can compare the changed caption
