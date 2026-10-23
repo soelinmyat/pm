@@ -8757,7 +8757,9 @@ test("offline verifier recomputes sparse heading and caption proof without trust
       m.observation.producer.version = "1.14.30";
     },
     (m) => {
-      m.observation.producer.version = "1.14.38";
+      const parts = PLUGIN_VERSION.split(".").map(Number);
+      parts[2]++;
+      m.observation.producer.version = parts.join(".");
     },
     (m) => {
       m.observation.producer.version = "1.14.036";
