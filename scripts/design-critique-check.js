@@ -113,6 +113,9 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   ["1.14.35", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35"])],
   // 1.14.36 changes calendar selection collection, not sparse pixel proof.
   ["1.14.36", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36"])],
+  // 1.14.37 scopes accessible-name bounds to exported roles. Sparse pixel
+  // proof is unchanged; historical identities still require the frozen gate.
+  ["1.14.37", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36", "1.14.37"])],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -139,6 +142,9 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   // Calendar selection changes require fresh active captures; retain 35 only
   // behind the existing immutable inactive/frozen-history checks.
   "1.14.35",
+  // Long-text collection requires fresh active captures; preserve 36 only
+  // through the existing immutable inactive/frozen-history checks.
+  "1.14.36",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
