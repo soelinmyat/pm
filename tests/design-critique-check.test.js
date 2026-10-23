@@ -8646,7 +8646,7 @@ test("offline verifier recomputes sparse heading and caption proof without trust
       m.observation.producer.version = "1.14.30";
     },
     (m) => {
-      m.observation.producer.version = "1.14.37";
+      m.observation.producer.version = "1.14.38";
     },
     (m) => {
       m.observation.producer.version = "1.14.036";
@@ -8742,6 +8742,36 @@ test("calendar-selection release retains frozen native 1.14.35 evidence unchange
   for (const [file, bytes] of retained)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
+
+test("long-text release retains frozen native 1.14.36 sparse evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    checkpointVersion: "1.14.36",
+    mutateCheckpoint(checkpoint) {
+      checkpoint.nativeStateProof = "sparse-static";
+      addRequiredStateCapture(checkpoint, "empty", sparseLoadingPixels(true));
+      checkpoint.producerVersionByCapture = Object.fromEntries(
+        checkpoint.captures.captures.map((capture) => [capture.id, "1.14.36"])
+      );
+    },
+  });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
+for (const version of ["1.14.35", "1.14.36", "1.14.38", "1.14.037", "999.0.0"]) {
+  test(`long-text release rejects stale or unknown active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.37");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const result = run();
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture producer/);
+  });
+}
 
 test("sparse-proof compatibility retains native 1.14.32 frozen nonpassing evidence", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {

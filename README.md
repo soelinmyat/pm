@@ -16,6 +16,8 @@ Frozen Design Critique checkpoints retain supported capture-time producer and re
 
 Native web capture verifies calendar date buttons through Tab and arrow navigation, including month replacements matched by date, accessible name and calendar owner. It probes composites inside native named dialogs before background navigation can dismiss portaled widgets. Within that context, later controls are probed before earlier selections can change their enabled members, regardless of unrelated layout wrappers. It distinguishes verified current-date styling and selection inherited from dated semantic gridcells, localized focus labels and absolute/fixed overlay controls while retaining failures for keyboard traps, invalid evidence and ordinary layout drift.
 
+Native accessibility audits bound the names of exported controls, landmarks, dialogs and popups to 1,000 characters. Longer ordinary response text remains visible in screenshots without being exported as a control name; native state assertions and the existing network, source and evidence budgets still apply.
+
 For an already-focused named return region or heading outside the Tab order, a closed native Shift preparation can expose keyboard focus styling. It preserves DOM content, field values, focus and accessibility semantics through capture; it does not certify Tab reach or replace functional QA.
 
 Native sizing checks recognize legitimate textarea growth only when browser-computed CSS confirms both intrinsic height and `field-sizing: content`. Fixed heights, differing minimum/maximum constraints and other style differences remain checked; a caller attribute cannot exempt a control.
