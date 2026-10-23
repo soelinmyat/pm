@@ -358,14 +358,16 @@ Reviewer finding IDs use `drf-` plus the first 16 lowercase hex characters of SH
 
 ## Report
 
-Localized primary-state variants may prove a text difference through a native
+Localized primary- and empty-state variants may prove a text difference through a native
 heading or StaticText caption. Both captures must visibly assert the exact
 native names, retain matching role and anchored measured geometry, and show a
 material difference in that semantic region. This does not replace source,
 viewport, distinct-image, native-observation or other state checks. Focus and
 keyboard variants retain their heading and native focus requirements; a caption
-cannot substitute for that proof. The checker-only 1.14.25 update retains the
-unchanged 1.14.23/1.14.24 native observation and report contracts explicitly.
+cannot substitute for that proof. The checker-only 1.14.39 update also permits
+this proof for empty-state locale variants and explicitly retains the unchanged
+1.14.37/1.14.38 native observation, audit and report contracts. It changes no
+quality threshold or pixel-support floor.
 
 Distinct error scenarios may use the same native StaticText comparison only
 when each exact caption is paired with its own visible `role-text` alert guard.

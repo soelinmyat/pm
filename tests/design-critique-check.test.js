@@ -2915,6 +2915,45 @@ function namedTextVariantFixture({
   return fixture;
 }
 
+for (const role of ["heading", "statictext"]) {
+  for (const proof of ["", "-centered-text"]) {
+    for (const reversed of [false, true]) {
+      test(`localized empty variants accept native text: ${role}/${proof}/${reversed}`, () => {
+        const fixture = namedTextVariantFixture({ state: "empty", role, proof });
+        if (reversed) {
+          fixture.captures.captures.reverse();
+          rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+          fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+          rewriteReportAndHtml(fixture);
+        }
+        assert.deepEqual(
+          check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+          []
+        );
+      });
+    }
+  }
+  for (const [proof, pixels] of [
+    ["-same-name", "state-content"],
+    ["-missing-hash", "state-content"],
+    ["-bad-hash", "state-content"],
+    ["-wrong-role", "state-content"],
+    ["-unnamed", "state-content"],
+    ["-moved", "state-content"],
+    ["-centered-text-vertical", "state-content"],
+    ["-height-drift", "state-content"],
+    ["", "pending-idle"],
+    ["", "pending-beacon"],
+    ["", "pending-four-pixel"],
+    ["", "nearby-noise"],
+  ]) {
+    test(`localized empty variants reject invalid proof: ${role}/${proof}/${pixels}`, () => {
+      const fixture = namedTextVariantFixture({ state: "empty", role, proof, pixels });
+      assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+    });
+  }
+}
+
 for (const [state, role] of [
   ["primary", "heading"],
   ["primary", "statictext"],
@@ -5513,6 +5552,53 @@ function recertificationReleaseFixture(version, consumerVersion = "1.14.24") {
     });
   return { fixture, refresh, run };
 }
+
+for (const version of ["1.14.37", "1.14.38"]) {
+  for (const sparse of [false, true]) {
+    test(`empty-locale release preserves unchanged native evidence: ${version}/${sparse}`, (t) => {
+      const { fixture, refresh, run } = recertificationReleaseFixture(version, "1.14.39");
+      t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+      if (sparse) {
+        fixture.nativeStateProof = "sparse-static";
+        addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+        fixture.producerVersionByCapture = Object.fromEntries(
+          fixture.captures.captures.map((capture) => [capture.id, version])
+        );
+        refresh();
+      }
+      const files = new Set([
+        fixture.capturesPath,
+        fixture.reportPath,
+        ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+        ...fixture.captures.evidence.map((entry) => entry.path),
+      ]);
+      const before = new Map(
+        [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+      );
+      assert.deepEqual(run(), { ok: true, issues: [] });
+      for (const [file, bytes] of before)
+        assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+    });
+  }
+}
+for (const version of ["1.14.35", "1.14.36", "1.14.40", "1.14.038", "999.0.0"]) {
+  test(`empty-locale release rejects unsupported producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.39");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+test("empty-locale release keeps native audit failures", (t) => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.38", "1.14.39");
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  const evidence = fixture.captures.evidence.find((entry) => entry.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+});
 
 for (const sparse of [false, true]) {
   test(`modal-title release preserves unchanged native 1.14.37 evidence: ${sparse}`, (t) => {

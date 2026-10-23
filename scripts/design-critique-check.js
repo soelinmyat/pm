@@ -98,6 +98,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.38 extends offline modal-title comparison only. The native producer,
   // observations and pixel thresholds are unchanged from 1.14.37.
   ["1.14.38", new Set(["1.14.37"])],
+  // 1.14.39 extends offline empty-state text comparison only. The native
+  // producer, audits, report contract and all pixel thresholds are unchanged.
+  ["1.14.39", new Set(["1.14.37", "1.14.38"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -122,6 +125,19 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   [
     "1.14.38",
     new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36", "1.14.37", "1.14.38"]),
+  ],
+  [
+    "1.14.39",
+    new Set([
+      "1.14.32",
+      "1.14.33",
+      "1.14.34",
+      "1.14.35",
+      "1.14.36",
+      "1.14.37",
+      "1.14.38",
+      "1.14.39",
+    ]),
   ],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
@@ -1436,17 +1452,16 @@ function hasBoundNativeModalTitle(observation, caption) {
 }
 
 function hasNativeNamedTextChange(root, left, right, observations) {
-  // A primary locale variant can translate a caption while preserving an
+  // A primary or empty locale variant can translate a caption while preserving an
   // authored heading. Require the same native name/geometry/pixel proof for
   // that StaticText; keyboard variants still require their heading and focus.
-  const roles =
-    left.coverage.state === "primary"
-      ? ["heading", "statictext"]
-      : ["focus", "keyboard", "modal"].includes(left.coverage.state)
-        ? ["heading"]
-        : ["success", "error"].includes(left.coverage.state)
-          ? ["statictext"]
-          : [];
+  const roles = ["primary", "empty"].includes(left.coverage.state)
+    ? ["heading", "statictext"]
+    : ["focus", "keyboard", "modal"].includes(left.coverage.state)
+      ? ["heading"]
+      : ["success", "error"].includes(left.coverage.state)
+        ? ["statictext"]
+        : [];
   if (
     roles.length === 0 ||
     left.coverage.state !== right.coverage.state ||
