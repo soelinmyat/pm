@@ -1039,6 +1039,14 @@ function attachTrustedCaptureObservation(
         : whitespace;
     const name = whitespace ? `${baseName}${separator}message` : baseName;
     assertion.all[0].locator = { by: "role-name", value: `${role}:${name}` };
+    if (coverage.state === "modal" && !nativeStateProof.includes("missing-dialog"))
+      assertion.all.push({
+        locator: {
+          by: "role-name",
+          value: `dialog:${nativeStateProof.includes("foreign-title") ? "Other task" : name}`,
+        },
+        expect: { kind: "visible" },
+      });
     if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state))
       assertion.all.push({
         locator: { by: "role-name", value: "button:Save account" },
@@ -1382,6 +1390,25 @@ function attachTrustedCaptureObservation(
         visual_bounds: { x: 310, y: 300, width: 80, height: 20 },
       });
     }
+  }
+  if (
+    namedTextProof &&
+    coverage.state === "modal" &&
+    !nativeStateProof.includes("missing-dialog")
+  ) {
+    assertionVisibility.verified_nodes++;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: nativeStateProof.includes("outside-dialog") ? 850 : 350,
+      y: nativeStateProof.includes("outside-dialog") ? 750 : 350,
+      native_role: nativeStateProof.includes("wrong-dialog-role") ? "status" : "dialog",
+      native_name_present: !nativeStateProof.includes("unnamed-dialog"),
+      visual_bounds: nativeStateProof.includes("outside-dialog")
+        ? { x: 800, y: 700, width: 400, height: 200 }
+        : { x: 300, y: 300, width: 400, height: 200 },
+    });
   }
   if (nativeStateProof === "sparse-static" && coverage.state === "empty") {
     const regions = [
@@ -2909,6 +2936,42 @@ for (const [state, role] of [
       );
     });
   }
+}
+
+for (const reversed of [false, true]) {
+  test(`native modal title variants accept contained localized heading: ${reversed}`, () => {
+    const fixture = namedTextVariantFixture({ state: "modal", role: "heading" });
+    if (reversed) {
+      fixture.captures.captures.reverse();
+      rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+      fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+      rewriteReportAndHtml(fixture);
+    }
+    assert.deepEqual(
+      check(fixture).issues.filter((issue) => issue.path.startsWith("captures")),
+      []
+    );
+  });
+}
+
+for (const [proof, pixels] of [
+  ["-missing-dialog", "state-content"],
+  ["-outside-dialog", "state-content"],
+  ["-foreign-title", "state-content"],
+  ["-wrong-dialog-role", "state-content"],
+  ["-unnamed-dialog", "state-content"],
+  ["-same-name", "state-content"],
+  ["-moved", "state-content"],
+  ["-bad-hash", "state-content"],
+  ["", "pending-idle"],
+  ["", "pending-beacon"],
+  ["", "pending-four-pixel"],
+  ["", "nearby-noise"],
+]) {
+  test(`native modal title variants reject unbound or immaterial evidence: ${proof}/${pixels}`, () => {
+    const fixture = namedTextVariantFixture({ state: "modal", role: "heading", proof, pixels });
+    assert.ok(check(fixture).issues.some((issue) => issue.path.startsWith("captures")));
+  });
 }
 
 for (const [proof, pixels] of [
@@ -5450,6 +5513,54 @@ function recertificationReleaseFixture(version, consumerVersion = "1.14.24") {
     });
   return { fixture, refresh, run };
 }
+
+for (const sparse of [false, true]) {
+  test(`modal-title release preserves unchanged native 1.14.37 evidence: ${sparse}`, (t) => {
+    const { fixture, refresh, run } = recertificationReleaseFixture("1.14.37", "1.14.38");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    if (sparse) {
+      fixture.nativeStateProof = "sparse-static";
+      addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+      fixture.producerVersionByCapture = Object.fromEntries(
+        fixture.captures.captures.map((capture) => [capture.id, "1.14.37"])
+      );
+      refresh();
+    }
+    const files = new Set([
+      fixture.capturesPath,
+      fixture.reportPath,
+      ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+      ...fixture.captures.evidence.map((entry) => entry.path),
+    ]);
+    const before = new Map(
+      [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    for (const [file, bytes] of before)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+for (const version of ["1.14.35", "1.14.36", "1.14.39", "1.14.037", "999.0.0"]) {
+  test(`modal-title release rejects unsupported producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.38");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const result = run();
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture producer/);
+  });
+}
+
+test("modal-title release keeps native audit failures", (t) => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.37", "1.14.38");
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  const evidence = fixture.captures.evidence.find((entry) => entry.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+});
 
 test("recertification-only release preserves the unchanged published 1.14.23 evidence contract", () => {
   const { fixture, run } = recertificationReleaseFixture("1.14.23");

@@ -39,6 +39,7 @@ const {
   webSocketPolicyOrigins,
 } = require("../scripts/design-critique-capture-probe");
 const { normalizeRawAudit } = require("../scripts/design-critique-audit-normalize");
+const { hasBoundNativeModalTitle } = require("../scripts/design-critique-check");
 
 const EMPTY_DIFF_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
 let installedBrowser = null;
@@ -2329,6 +2330,58 @@ ${shadowFocus ? "button{outline:none}button:focus-visible{outline:none;box-shado
     verificationPath: path.join(root, "verification.png"),
     stateAssertion: assertion(),
   };
+}
+
+for (const variant of ["english", "spanish", "outside-dialog", "foreign-title"]) {
+  test(
+    `native modal title binding uses actual Chromium observations: ${variant}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture();
+      const dialogName = variant === "spanish" ? "Firma registrada" : "Recorded signature";
+      const captionName = variant === "foreign-title" ? "Other capture details" : dialogName;
+      const outside = variant === "outside-dialog";
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      const title = `<h2 style="margin:0">${outside ? "Inspection preview" : dialogName}</h2>`;
+      const foreign = variant === "foreign-title" ? `<h3>${captionName}</h3>` : "";
+      const dialog = `<div role="dialog" aria-label="${dialogName}" style="position:fixed;left:220px;top:150px;width:580px;height:300px;padding:32px;background:white;border:1px solid #172033">${title}${foreign}<p>Inspect the recorded mark and its capture context.</p><button id="modal-close">Close preview</button></div>`;
+      const outsideTitle = outside
+        ? `<h2 style="position:fixed;left:40px;top:500px;margin:0">${captionName}</h2>`
+        : "";
+      html = html.replace(
+        /(<main[^>]*>)[\s\S]*?<\/main>/,
+        `$1<h1>Inspection record</h1>${dialog}${outsideTitle}</main><script>document.getElementById('modal-close').focus()</script>`
+      );
+      html = html.replace('data-pm-state="primary"', 'data-pm-state="modal"');
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      fixture.stateAssertion = assertion("modal");
+      fixture.stateAssertion.all = ["dialog:" + dialogName, "heading:" + captionName].map(
+        (value) => ({ locator: { by: "role-name", value }, expect: { kind: "visible" } })
+      );
+      try {
+        const result = runBrowserCapture(fixture);
+        const check = result.assertion_visibility.checks.find(
+          (row) => row.label === "state assertion clause 2"
+        );
+        assert.equal(check.native_role.toLowerCase(), "heading");
+        assert.equal(
+          check.native_name_sha256,
+          crypto.createHash("sha256").update(captionName).digest("hex")
+        );
+        const caption = { role: "heading", literal: captionName, region: check.visual_bounds };
+        const observation = {
+          assertion: fixture.stateAssertion,
+          manifest: { page: { state_assertion: { visibility: result.assertion_visibility } } },
+        };
+        assert.equal(
+          hasBoundNativeModalTitle(observation, caption),
+          !outside && variant !== "foreign-title"
+        );
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
 }
 
 function runBrowserCapture(fixture, allowedOrigins = []) {

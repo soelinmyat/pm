@@ -95,6 +95,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.34 extends checker-side centered named-text comparison only.
   // Native collections, audits, pixel thresholds and producer bytes are unchanged.
   ["1.14.34", new Set(["1.14.28", "1.14.29", "1.14.30", "1.14.31", "1.14.32", "1.14.33"])],
+  // 1.14.38 extends offline modal-title comparison only. The native producer,
+  // observations and pixel thresholds are unchanged from 1.14.37.
+  ["1.14.38", new Set(["1.14.37"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -116,6 +119,10 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
   // 1.14.37 scopes accessible-name bounds to exported roles. Sparse pixel
   // proof is unchanged; historical identities still require the frozen gate.
   ["1.14.37", new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36", "1.14.37"])],
+  [
+    "1.14.38",
+    new Set(["1.14.32", "1.14.33", "1.14.34", "1.14.35", "1.14.36", "1.14.37", "1.14.38"]),
+  ],
 ]);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1403,6 +1410,31 @@ function hasBoundNativeAlertCaption(observation, caption) {
   });
 }
 
+function hasBoundNativeModalTitle(observation, caption) {
+  if (caption.role !== "heading" || observation.assertion?.state !== "modal") return false;
+  return observation.assertion.all.some((guard, index) => {
+    if (guard.expect.kind !== "visible" || guard.locator.by !== "role-name") return false;
+    const separator = guard.locator.value.indexOf(":");
+    const role = guard.locator.value.slice(0, separator).trim().toLowerCase();
+    const name = guard.locator.value.slice(separator + 1).trim();
+    if (role !== "dialog" || name !== caption.literal) return false;
+    const check = observation.manifest.page.state_assertion.visibility.checks.find(
+      (item) => item.label === `state assertion clause ${index + 1}`
+    );
+    const dialog = check?.visual_bounds;
+    const title = caption.region;
+    return (
+      String(check?.native_role).toLowerCase() === "dialog" &&
+      check.native_name_present === true &&
+      dialog &&
+      title.x >= dialog.x &&
+      title.y >= dialog.y &&
+      title.x + title.width <= dialog.x + dialog.width &&
+      title.y + title.height <= dialog.y + dialog.height
+    );
+  });
+}
+
 function hasNativeNamedTextChange(root, left, right, observations) {
   // A primary locale variant can translate a caption while preserving an
   // authored heading. Require the same native name/geometry/pixel proof for
@@ -1410,7 +1442,7 @@ function hasNativeNamedTextChange(root, left, right, observations) {
   const roles =
     left.coverage.state === "primary"
       ? ["heading", "statictext"]
-      : ["focus", "keyboard"].includes(left.coverage.state)
+      : ["focus", "keyboard", "modal"].includes(left.coverage.state)
         ? ["heading"]
         : ["success", "error"].includes(left.coverage.state)
           ? ["statictext"]
@@ -1444,6 +1476,11 @@ function hasNativeNamedTextChange(root, left, right, observations) {
       if (!roles.includes(a.role)) continue;
       for (const b of afterGuards.get(key) || []) {
         if (a.name === b.name) continue;
+        if (
+          left.coverage.state === "modal" &&
+          (!hasBoundNativeModalTitle(before, a) || !hasBoundNativeModalTitle(after, b))
+        )
+          continue;
         if (
           left.coverage.state === "error" &&
           (a.literal.replace(/\s+/g, " ") === b.literal.replace(/\s+/g, " ") ||
@@ -5718,4 +5755,10 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { checkDesignCritique, findingId, reconciliationId, reviewFindingId };
+module.exports = {
+  checkDesignCritique,
+  findingId,
+  hasBoundNativeModalTitle,
+  reconciliationId,
+  reviewFindingId,
+};
