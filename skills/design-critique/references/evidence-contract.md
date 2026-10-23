@@ -159,6 +159,8 @@ for focus/keyboard states. CSS viewport offsets may be nonzero but must be
 nonnegative integers within the document bounds. Native hit-tests use document
 coordinates while retained hit-test points remain viewport-relative.
 
+The web collector enforces its 1,000-character accessible-name bound on roles exported as controls, landmarks, dialogs or popups. Ordinary body `StaticText` is not exported as one of those audit rows and may be longer. Existing state-assertion limits, native observations, source/network bindings and total evidence budgets remain required.
+
 ### Native iOS accessibility observations
 
 Maestro iOS hierarchies do not expose browser landmarks or DOM tab indices. For mobile product UI only, retain a raw `accessibility-tree` with `schema_version: 2`, the same subject/commit/capture identity fields, and exactly these observations:

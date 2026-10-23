@@ -1117,6 +1117,14 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
     "combobox",
     "searchbox",
   ]);
+  const evidenceRoles = new Set([
+    ...landmarkRoles,
+    ...controlRoles,
+    "menu",
+    "listbox",
+    "dialog",
+    "alertdialog",
+  ]);
   const popupModalOwners = extendOwnedPopupFocus(
     axTree,
     byBackendId,
@@ -1127,7 +1135,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   for (const axNode of axTree.nodes || []) {
     if (axNode.ignored === true || !Number.isInteger(axNode.backendDOMNodeId)) continue;
     const role = String(valueOf(axNode.role) || "").toLowerCase();
-    if (!role) continue;
+    if (!evidenceRoles.has(role)) continue;
     const node = byBackendId.get(axNode.backendDOMNodeId);
     if (!node) continue;
     const name = String(valueOf(axNode.name) || "")
