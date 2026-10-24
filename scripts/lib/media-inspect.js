@@ -503,7 +503,7 @@ function inspectPdf(filePath) {
   return inspectPdfBytes(readRegularFile(filePath, "PDF"));
 }
 
-function inspectPdfBytes(bytes) {
+function inspectPdfBytes(bytes, options = {}) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -519,6 +519,8 @@ function inspectPdfBytes(bytes) {
     throw new Error("invalid PDF xref offset");
   const { entries, trailer } = parseXref(text, xrefOffset);
   const trailerDictionary = directDictionary(extractDictionary(trailer, 0, "trailer"), "trailer");
+  if (options.staticDocument === true && trailerDictionary.has("Encrypt"))
+    throw new Error("static PDF evidence rejects encrypted documents");
   const rootRef = referenceValue(trailerDictionary.get("Root"));
   if (!rootRef) throw new Error("PDF trailer Root is required");
   const objects = new Map();
@@ -529,6 +531,30 @@ function inspectPdfBytes(bytes) {
     const end = source.indexOf("endobj");
     if (end < 0) throw new Error(`PDF object ${entry.object} is unterminated`);
     objects.set(`${entry.object}:${entry.generation}`, source.slice(0, end + 6));
+  }
+  if (options.staticDocument === true) {
+    if (trailerDictionary.has("Prev") || trailerDictionary.has("XRefStm"))
+      throw new Error("static PDF evidence rejects incremental or hybrid cross-reference chains");
+    // Object terminator text inside a comment, string or stream must not hide
+    // active syntax later in the actual object. Xref offsets bound each scan.
+    const offsets = entries
+      .filter((entry) => entry.inUse)
+      .map((entry) => entry.offset)
+      .sort((a, b) => a - b);
+    if (
+      offsets.some(
+        (offset, index) =>
+          !Number.isSafeInteger(offset) ||
+          offset < 0 ||
+          offset >= xrefOffset ||
+          (index > 0 && offsets[index - 1] === offset)
+      )
+    )
+      throw new Error("static PDF object bounds are invalid");
+    require("./pdf-static-content").assertStaticPdfObjects([
+      trailer,
+      ...offsets.map((offset, index) => text.slice(offset, offsets[index + 1] ?? xrefOffset)),
+    ]);
   }
   const root = directDictionary(
     objectDictionary(resolveObject(objects, rootRef.object, rootRef.generation, "Root"), "Root"),

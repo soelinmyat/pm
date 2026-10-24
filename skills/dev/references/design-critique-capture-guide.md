@@ -1006,3 +1006,13 @@ Transient tab evidence rechecks live AX identity for exposed nodes and retains a
 Centered, unblurred inset focus shadows with positive spread may supply native focus-indicator bands. The producer includes measured border widths, caps inward depth at 16 pixels and excludes the control center. Offset, blurred, excessive or unmeasured inset geometry fails closed. Native Tab, changed focus styling and material pixel differences on at least two bands remain mandatory; unchanged decorative shadows and caller attributes do not supply regions. Historical 1.14.22 evidence remains readable only through the existing inactive/frozen predecessor policy; active captures require the current producer.
 
 Unsupported and fully transparent inset components do not contribute focus regions; independently supported outline and outer-shadow bands remain available. Focus fallback requires material changes on at least two native bands and at least 32 full-contrast pixel equivalents across qualifying disjoint bands. This reuses the existing absolute support floor while retaining distance, changed-tile, native provenance and resource thresholds; thin bands account for occupied grid cells. No-ring edge beacons do not qualify.
+
+
+## Direct product report PDFs
+
+For actual static report exports, use the explicit direct PDF document route and
+`design-critique-capture.js --pdf` with the normal immutable run/round paths.
+Follow `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pdf-document-evidence.md`
+for complete page evidence, the PDF normalizer, Poppler prerequisites, resource
+limits, and accessibility assurance disclosures. An export-button screenshot or
+HTML wrapper does not certify the PDF. Web/mobile and HTML contracts are unchanged.

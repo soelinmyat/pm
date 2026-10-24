@@ -375,7 +375,18 @@ function withPayloadHash(input) {
   return { ...input, payload_sha256: digest(Buffer.from(canonicalJson(input))) };
 }
 
-function makeReviews(root, route, captures, scores, rounds, routePath = "evidence/route.json") {
+function makeReviews(
+  root,
+  route,
+  captures,
+  scores,
+  rounds,
+  routePath = "evidence/route.json",
+  timeBase = null,
+  startRound = 1
+) {
+  const time = (minute, second = 0) => reviewFixtureTime(minute, second, timeBase);
+  const pdf = route.subjects[0].artifact?.format === "pdf";
   const routeBinding = binding(root, routePath);
   const evidenceDir = path.posix.dirname(routePath);
   const contextSource = {
@@ -385,11 +396,13 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
     route: routeBinding,
     brief: {
       page_description: route.subjects[0].title,
-      persona: "Account administrator",
-      job_to_be_done: "Understand status and take the next action.",
+      persona: pdf ? "Report reviewer" : "Account administrator",
+      job_to_be_done: pdf
+        ? "Inspect every submitted report page."
+        : "Understand status and take the next action.",
     },
     design_principles: ["Use the established product hierarchy."],
-    created_at: "2026-07-12T01:00:00Z",
+    created_at: time(0),
   };
   const contextBinding = write(
     root,
@@ -398,7 +411,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
   );
   const requiredCoverage = route.coverage.filter((item) => item.required);
   const reviewRounds = [];
-  for (let round = 1; round <= rounds; round += 1) {
+  for (let round = startRound; round <= rounds; round += 1) {
     const selected =
       round === rounds
         ? captures.captures.filter((item) => item.active)
@@ -420,7 +433,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
       commit: route.source.commit,
       route: routeBinding,
       capture_ids: activeCaptureIds,
-      created_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:00Z`,
+      created_at: time(minute),
     };
     const captureManifestBinding = write(
       root,
@@ -432,7 +445,11 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
       prompt_sha256: promptHash("primary"),
       context_source: contextBinding,
       capture_manifest: captureManifestBinding,
-      acceptance_criteria: ["The primary action remains visible at every required viewport."],
+      acceptance_criteria: [
+        pdf
+          ? "Every submitted PDF page is retained and readable."
+          : "The primary action remains visible at every required viewport.",
+      ],
       capture_ids: activeCaptureIds,
       evidence_ids: evidenceIds,
       prior_finding_refs: [],
@@ -449,7 +466,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         review_id: `dc-test-r${round}-primary`,
         perspective: "primary",
         input: primaryInput,
-        execution: reviewExecution(`primary-r${round}`, round),
+        execution: reviewExecution(`primary-r${round}`, round, timeBase),
         result: {
           summary: "The rendered interface is clear and supported by current evidence.",
           scores: JSON.parse(JSON.stringify(scores)),
@@ -460,7 +477,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         review_id: `dc-test-r${round}-fresh-eyes`,
         perspective: "fresh-eyes",
         input: freshInput,
-        execution: reviewExecution(`fresh-r${round}`, round),
+        execution: reviewExecution(`fresh-r${round}`, round, timeBase),
         result: {
           first_impression:
             "A dark account header sits above two summary cards, while the blue Save account button anchors the action hierarchy.",
@@ -494,8 +511,9 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
               coverage_id: coverage.id,
               state: coverage.state,
               viewport: coverage.viewport,
-              observation:
-                coverage.state === "loading"
+              observation: pdf
+                ? `The print state at the print viewport retains two numbered report pages, with large black submitted text near the upper left of each white page.`
+                : coverage.state === "loading"
                   ? `The loading state at the ${coverage.viewport} viewport shows a short dark heading at the upper left of a white page, with a separate small loading indicator centered below and no cards or action controls.`
                   : coverage.state === "empty"
                     ? `The empty state at the ${coverage.viewport} viewport places a short No records found heading below the page header, leaving the result area white without cards or rows.`
@@ -508,7 +526,27 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         },
       },
     ];
-    for (const review of pair) attachReviewReceipt(root, review, round);
+    if (pdf) {
+      pair[0].result.summary =
+        "The submitted report retains both white pages with readable black text and complete PDF evidence.";
+      pair[1].result.first_impression =
+        "The submitted report separates its black submitted text across two white pages. The page text is prominent near each upper-left margin.";
+      pair[1].result.answers = {
+        purpose: {
+          text: "The submitted report presents the original submitted text on both numbered pages.",
+          evidence_ids: activeCaptureIds,
+        },
+        visual_focus: {
+          text: "Large black submitted text at the upper left draws attention on each white report page.",
+          evidence_ids: activeCaptureIds,
+        },
+        inconsistencies: {
+          text: "Both pages use matching black report text aligned at equal left margins; no visual inconsistency is shown.",
+          evidence_ids: activeCaptureIds,
+        },
+      };
+    }
+    for (const review of pair) attachReviewReceipt(root, review, round, time(minute, 50));
     reviewRounds.push({ round, reviews: pair });
   }
   return {
@@ -520,7 +558,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
     captures: null,
     assurance: "workflow-attested-non-cryptographic",
     rounds: reviewRounds,
-    checked_at: "2026-07-12T01:50:00Z",
+    checked_at: time(50),
   };
 }
 
@@ -529,7 +567,7 @@ function reviewEvidenceIdsForCaptures(root, route, captures, captureIds) {
   return captures.evidence
     .filter((item) => {
       const evidence = JSON.parse(fs.readFileSync(path.join(root, item.path), "utf8"));
-      if (["accessibility-tree", "dom-audit"].includes(item.kind))
+      if (["accessibility-tree", "dom-audit", "pdf-document"].includes(item.kind))
         return (
           Array.isArray(evidence.capture_ids) &&
           evidence.capture_ids.length > 0 &&
@@ -542,7 +580,13 @@ function reviewEvidenceIdsForCaptures(root, route, captures, captureIds) {
         ...(evidence.captures || []).map((capture) => capture.full_page),
         evidence.print,
       ].filter(Boolean);
-      const selectedCaptures = captures.captures.filter((capture) => selected.has(capture.id));
+      const selectedCaptures = captures.captures.filter(
+        (capture) =>
+          selected.has(capture.id) &&
+          route.coverage.some(
+            (row) => row.id === capture.coverage_id && row.subject_id === item.subject_id
+          )
+      );
       return sameFileBindingSet(rendered, selectedCaptures);
     })
     .map((item) => item.id);
@@ -559,7 +603,13 @@ function sameFileBindingSet(left, right) {
   );
 }
 
-function reviewExecution(suffix, round) {
+function reviewFixtureTime(minute, second = 0, base = null) {
+  return base === null
+    ? `2026-07-12T01:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}Z`
+    : new Date(base + minute * 10 + second).toISOString();
+}
+
+function reviewExecution(suffix, round, timeBase = null) {
   const minute = 10 + round * 10;
   return {
     mode: "same-runtime-isolated",
@@ -568,8 +618,8 @@ function reviewExecution(suffix, round) {
     invocation_id: `invoke-${suffix}`,
     assurance: "workflow-attested-non-cryptographic",
     receipt: null,
-    started_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:10Z`,
-    completed_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:40Z`,
+    started_at: reviewFixtureTime(minute, 10, timeBase),
+    completed_at: reviewFixtureTime(minute, 40, timeBase),
   };
 }
 
@@ -612,11 +662,11 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
         return (audit.capture_ids || []).some((id) => activeIds.has(id));
       })
       .map((item) => item.id);
-  if (key === "accessibility") return idsOfKind("accessibility-tree");
+  if (key === "accessibility") return idsOfKind("accessibility-tree", "pdf-document");
   if (key === "consistency")
     return mode === "product-ui"
       ? idsOfKind("dom-audit")
-      : idsOfKind("artifact-structural", "artifact-render");
+      : idsOfKind("artifact-structural", "artifact-render", "pdf-document");
   if (key === "responsive")
     return [
       ...active
@@ -626,7 +676,9 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
           )
         )
         .map((item) => item.id),
-      ...(mode === "product-ui" ? idsOfKind("dom-audit") : idsOfKind("artifact-render")),
+      ...(mode === "product-ui"
+        ? idsOfKind("dom-audit")
+        : idsOfKind("artifact-render", "pdf-document")),
     ];
   if (key === "state-clarity") return active.map((item) => item.id);
   if (key === "print-navigation")
@@ -634,7 +686,7 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
       ...active
         .filter((item) => coverageById.get(item.coverage_id)?.viewport === "print")
         .map((item) => item.id),
-      ...idsOfKind("artifact-structural", "artifact-render"),
+      ...idsOfKind("artifact-structural", "artifact-render", "pdf-document"),
     ];
   return active.map((item) => item.id);
 }
@@ -9393,3 +9445,627 @@ test("native file-label baseline stays readable inside its managed atomic captur
     []
   );
 });
+
+function nativePdfDesignFixture(
+  t,
+  { supplied = null, previous = null, outcome = "passed", reason = null, finding = false } = {}
+) {
+  const { spawnSync } = require("node:child_process");
+  if (spawnSync("pdftoppm", ["-v"]).status !== 0) {
+    t.skip("Poppler is unavailable; direct PDF gate integration cannot be verified");
+    return;
+  }
+  const { pdfFixture } = require("./helpers/pdf-document-fixture");
+  const { loadPdfCapture, normalizePdfAudit } = require("../scripts/lib/design-critique-pdf");
+  const fixture = supplied || pdfFixture(t);
+  const output = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [path.resolve(__dirname, "../scripts/design-critique-capture.js"), ...fixture.args],
+      { cwd: fixture.root, encoding: "utf8" }
+    )
+  );
+  const loaded = loadPdfCapture(fixture.root, output.manifest.path);
+  const audit = normalizePdfAudit(loaded.manifest, loaded.raw);
+  const round = output.capture.round;
+  const directory = path.posix.dirname(fixture.routePath);
+  const capturesPath = `${directory}/captures.json`;
+  const reviewsPath = `${directory}/reviews.json`;
+  const reportPath = `${directory}/report.json`;
+  const humanPath = `${directory}/report.html`;
+  const capture = {
+    ...output.capture,
+    coverage_id: "report-print",
+    kind: "pdf",
+    active: true,
+    observation: output.manifest,
+  };
+  const evidence = {
+    id: `document-audit-r${round}`,
+    subject_id: "submitted-report",
+    kind: "pdf-document",
+    ...write(fixture.root, `${directory}/pdf-audit.json`, JSON.stringify(audit)),
+  };
+  const captures = {
+    schema_version: 1,
+    run_id: fixture.route.run_id,
+    mode: "pm-artifact",
+    commit: fixture.route.source.commit,
+    route: binding(fixture.root, fixture.routePath),
+    captures: [
+      ...(previous?.captures.captures || []).map((row) => ({ ...row, active: false })),
+      capture,
+    ],
+    evidence: [...(previous?.captures.evidence || []), evidence],
+    checked_at: new Date().toISOString(),
+  };
+  write(fixture.root, capturesPath, JSON.stringify(captures));
+  const scores = Object.fromEntries(
+    ["hierarchy", "density", "consistency", "accessibility", "responsive", "print-navigation"].map(
+      (key) => [
+        key,
+        {
+          value: 4,
+          rationale:
+            "Both submitted PDF pages and the bound document observations support this assessment.",
+          evidence_ids: scoreEvidenceIds(
+            fixture.root,
+            key,
+            "pm-artifact",
+            fixture.route.coverage,
+            [capture],
+            [evidence]
+          ),
+        },
+      ]
+    )
+  );
+  const timeBase = Date.now() + 1;
+  const reviews = makeReviews(
+    fixture.root,
+    fixture.route,
+    captures,
+    scores,
+    round,
+    fixture.routePath,
+    timeBase,
+    previous ? round : 1
+  );
+  if (previous) {
+    reviews.rounds.unshift(...structuredClone(previous.reviews.rounds));
+    reviews.recovery_policy = "scoped-diagnosis-v1";
+    reviews.rounds.at(-1).previous_report = binding(fixture.root, previous.reportPath);
+    reviews.rounds.at(-1).recovery = {
+      classification: "product-defect",
+      observed: "The report text needs its revised fixed-page presentation.",
+      cause: "The previous document retained the earlier report presentation.",
+      change: "Capture the corrected report and preserve every original document page.",
+      next_check: "Review every corrected PDF page with fresh bound observations.",
+      evidence_ids: [previous.capture.id],
+      scope_assessment: "within-approved-scope",
+    };
+  }
+  const findings = [],
+    reconciliation = [];
+  if (finding || previous?.report.findings.length) {
+    const primary = reviews.rounds.at(-1).reviews.find((row) => row.perspective === "primary");
+    const priorPrimary = previous?.reviews.rounds[0].reviews.find(
+      (row) => row.perspective === "primary"
+    );
+    const sourcePrimary = priorPrimary || primary;
+    const sourceFinding = priorPrimary?.result.findings[0] || {
+      subject_id: "submitted-report",
+      region: "report-page-background",
+      rule: "contrast",
+      coverage_ids: ["report-print"],
+      evidence_ids: [capture.id],
+      priority: "P1",
+      owner: "design-critique",
+      basis: "objective",
+      confidence: "high",
+      summary: "Report background contrast requires correction.",
+      impact: "The report background region does not have the required visible contrast.",
+      remediation: "Render the corrected report background.",
+    };
+    if (!priorPrimary) {
+      sourceFinding.id = reviewFindingId(primary.review_id, sourceFinding);
+      primary.result.findings.push(sourceFinding);
+    }
+    const ref = { review_id: sourcePrimary.review_id, finding_id: sourceFinding.id };
+    if (previous) {
+      primary.input.prior_finding_refs = [ref];
+      primary.input.prior_findings_source = write(
+        fixture.root,
+        `${directory}/prior-findings.json`,
+        JSON.stringify({
+          schema_version: 1,
+          run_id: fixture.route.run_id,
+          commit: fixture.route.source.commit,
+          for_round: round,
+          findings: [{ review_id: sourcePrimary.review_id, finding: sourceFinding }],
+          created_at: reviewFixtureTime(0, 0, timeBase),
+        })
+      );
+      const payload = { ...primary.input };
+      delete payload.payload_sha256;
+      primary.input = withPayloadHash(payload);
+    }
+    const finalFinding = {
+      subject_id: sourceFinding.subject_id,
+      region: sourceFinding.region,
+      rule: sourceFinding.rule,
+      evidence_ids: previous ? [previous.capture.id, capture.id] : [capture.id],
+      priority: "P1",
+      status: previous ? "resolved" : "open",
+      owner: "design-critique",
+      summary: sourceFinding.summary,
+      remediation: sourceFinding.remediation,
+      ...(previous ? { before_capture_id: previous.capture.id, after_capture_id: capture.id } : {}),
+    };
+    finalFinding.id = findingId(finalFinding);
+    findings.push(finalFinding);
+    const row = {
+      subject_id: finalFinding.subject_id,
+      region: finalFinding.region,
+      rule: finalFinding.rule,
+      coverage_ids: ["report-print"],
+      source_finding_refs: [ref],
+      agreement: "single-source",
+      disposition: "accepted",
+      final_finding_id: finalFinding.id,
+      decision_evidence_ids: previous ? [capture.id] : [],
+      rationale:
+        "The final report preserves the original finding and its exact before/after evidence.",
+    };
+    row.id = reconciliationId(row);
+    reconciliation.push(row);
+    attachReviewReceipt(
+      fixture.root,
+      primary,
+      round,
+      reviewFixtureTime(10 + round * 10, 50, timeBase)
+    );
+  }
+  reviews.route = binding(fixture.root, fixture.routePath);
+  reviews.captures = binding(fixture.root, capturesPath);
+  write(fixture.root, reviewsPath, JSON.stringify(reviews));
+  const report = {
+    schema_version: 2,
+    run_id: fixture.route.run_id,
+    mode: "pm-artifact",
+    commit: fixture.route.source.commit,
+    route: binding(fixture.root, fixture.routePath),
+    captures: binding(fixture.root, capturesPath),
+    reviews: binding(fixture.root, reviewsPath),
+    review_assurance: "workflow-attested-non-cryptographic",
+    outcome,
+    ...(reason ? { reason } : {}),
+    rounds: round,
+    coverage: { required: 1, captured: 1, percent: 100 },
+    scores,
+    findings,
+    reconciliation,
+    top_issue:
+      findings.find((row) => row.status === "open")?.summary ||
+      reason ||
+      "No unresolved design issue.",
+    next_action: "Proceed to QA.",
+    human_report: { path: humanPath },
+    checked_at: reviewFixtureTime(55, 0, timeBase),
+  };
+  write(fixture.root, reportPath, JSON.stringify(report));
+  const note = `<p data-dc-pdf-capture="${capture.id}" data-dc-pdf-observation-sha256="${loaded.manifest.observation.sha256}">${capture.pages} pages. ${audit.limitations.join(" ")}</p>`;
+  const html = htmlReport(
+    binding(fixture.root, reportPath),
+    binding(fixture.root, capturesPath),
+    binding(fixture.root, reviewsPath),
+    reviews,
+    report
+  );
+  write(fixture.root, humanPath, html.replace("</main>", `${note}</main>`));
+  const checker = process.env.PM_PDF_TEST_CHECKER
+    ? require(process.env.PM_PDF_TEST_CHECKER).checkDesignCritique
+    : checkDesignCritique;
+  const checkArguments = {
+    root: fixture.root,
+    routePath: fixture.routePath,
+    capturesPath,
+    reportPath,
+    commit: fixture.route.source.commit,
+    baseRef: "origin/main",
+    baseCommit: fixture.route.source.base_commit,
+    verifyGit: false,
+    verifyBrowser: false,
+  };
+  const rerun = (overrides = {}) => checker({ ...checkArguments, ...overrides });
+  return {
+    fixture,
+    capture,
+    captures,
+    evidence,
+    audit,
+    loaded,
+    report,
+    reviews,
+    reportPath,
+    capturesPath,
+    reviewsPath,
+    humanPath,
+    note,
+    rerun,
+  };
+}
+
+function refreshNativePdfReviewPackage(state) {
+  const { fixture, captures, capturesPath, reviews, reviewsPath, report, reportPath, humanPath } =
+    state;
+  write(fixture.root, capturesPath, JSON.stringify(captures));
+  reviews.route = binding(fixture.root, fixture.routePath);
+  reviews.captures = binding(fixture.root, capturesPath);
+  write(fixture.root, reviewsPath, JSON.stringify(reviews));
+  report.route = binding(fixture.root, fixture.routePath);
+  report.captures = binding(fixture.root, capturesPath);
+  report.reviews = binding(fixture.root, reviewsPath);
+  write(fixture.root, reportPath, JSON.stringify(report));
+  const html = htmlReport(
+    binding(fixture.root, reportPath),
+    binding(fixture.root, capturesPath),
+    binding(fixture.root, reviewsPath),
+    reviews,
+    report
+  );
+  write(fixture.root, humanPath, html.replace("</main>", `${state.note}</main>`));
+}
+
+test("mixed HTML and native PDF evidence certifies only complete subject-specific renders", (t) => {
+  const { pdfFixture } = require("./helpers/pdf-document-fixture");
+  const html = makeFixture({ mode: "pm-artifact" });
+  t.after(() => fs.rmSync(html.root, { recursive: true, force: true }));
+  const pdf = pdfFixture(t);
+  fs.cpSync(path.join(html.root, "evidence"), path.join(pdf.root, "evidence"), {
+    recursive: true,
+  });
+  pdf.route.created_at = html.route.created_at;
+  pdf.route.subjects.unshift(...html.route.subjects);
+  pdf.route.coverage.unshift(...html.route.coverage);
+  write(pdf.root, pdf.routePath, JSON.stringify(pdf.route));
+  for (const row of html.captures.evidence) {
+    if (row.kind === "accessibility-tree")
+      Object.assign(
+        row,
+        auditEvidenceFile(
+          pdf.root,
+          row.id,
+          row.kind,
+          html.captures.captures,
+          2,
+          row.subject_id,
+          pdf.route.source.commit
+        )
+      );
+    if (row.kind === "artifact-structural") {
+      const artifact = path.join(pdf.root, html.route.subjects[0].artifact.path);
+      Object.assign(
+        row,
+        write(
+          pdf.root,
+          row.path,
+          JSON.stringify(buildManifest(artifact, inspectHtmlArtifact(fs.readFileSync(artifact))))
+        )
+      );
+    }
+  }
+  const state = nativePdfDesignFixture(t, { supplied: pdf });
+  if (!state) return;
+  state.captures.captures.unshift(...html.captures.captures);
+  state.captures.evidence.unshift(...html.captures.evidence);
+  for (const [key, score] of Object.entries(state.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      pdf.root,
+      key,
+      "pm-artifact",
+      pdf.route.coverage,
+      state.captures.captures,
+      state.captures.evidence
+    );
+  const timeBase = Date.now() + 1;
+  state.reviews = makeReviews(
+    pdf.root,
+    pdf.route,
+    state.captures,
+    state.report.scores,
+    1,
+    pdf.routePath,
+    timeBase
+  );
+  const fresh = state.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  fresh.result.observations.find((row) => row.capture_id === state.capture.id).observation =
+    "The print state at the print viewport retains two numbered report pages, with large black submitted text near the upper left of each white page.";
+  attachReviewReceipt(pdf.root, fresh, 1, reviewFixtureTime(20, 50, timeBase));
+  state.report.coverage = { required: 5, captured: 5, percent: 100 };
+  state.report.checked_at = reviewFixtureTime(55, 0, timeBase);
+  refreshNativePdfReviewPackage(state);
+  const primary = state.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  assert.ok(primary.input.evidence_ids.includes("evidence-render"));
+  assert.ok(primary.input.evidence_ids.includes(state.evidence.id));
+  assert.deepEqual(state.rerun(), { ok: true, issues: [] });
+
+  const renderEvidence = state.captures.evidence.find((row) => row.kind === "artifact-render");
+  const render = JSON.parse(fs.readFileSync(path.join(pdf.root, renderEvidence.path), "utf8"));
+  for (const mutate of [
+    (value) => value.captures.pop(),
+    (value) => {
+      value.print = { ...value.print, path: state.capture.path, sha256: state.capture.sha256 };
+    },
+  ]) {
+    const invalid = structuredClone(render);
+    mutate(invalid);
+    Object.assign(renderEvidence, write(pdf.root, renderEvidence.path, JSON.stringify(invalid)));
+    refreshNativePdfReviewPackage(state);
+    const result = state.rerun();
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.issues.some(
+        (issue) => issue.path.endsWith("input.evidence_ids") && /bound/.test(issue.message)
+      ),
+      JSON.stringify(result.issues)
+    );
+  }
+});
+
+test("direct PDF Primary cannot use the pre-PDF prompt identity", (t) => {
+  const state = nativePdfDesignFixture(t);
+  if (!state) return;
+  const primary = state.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  const receipt = JSON.parse(
+    fs.readFileSync(path.join(state.fixture.root, primary.execution.receipt.path), "utf8")
+  );
+  const payload = { ...primary.input, prompt_sha256: PRE_PDF_PRIMARY_PROMPT };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(state.fixture.root, primary, 1, receipt.recorded_at);
+  refreshNativePdfReviewPackage(state);
+  assert.match(JSON.stringify(state.rerun().issues), /exact reviewer instruction bytes/);
+});
+
+test("direct PDF Design gate accepts complete native pages and explicit assurance limits", (t) => {
+  const state = nativePdfDesignFixture(t);
+  if (!state) return;
+  const { fixture, captures, capturesPath, evidence, audit, humanPath, note, rerun } = state;
+  const result = rerun();
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+  const retainedHtml = fs.readFileSync(path.join(fixture.root, humanPath), "utf8");
+  for (const replacement of [
+    "",
+    note.replace("2 pages", "1 pages"),
+    note.replace(audit.limitations[0], "Native accessibility certified."),
+  ]) {
+    write(fixture.root, humanPath, retainedHtml.replace(note, replacement));
+    assert.ok(rerun().issues.some((issue) => /visible PDF evidence/.test(issue.message)));
+  }
+  write(fixture.root, humanPath, retainedHtml);
+  const retainedAudit = fs.readFileSync(path.join(fixture.root, evidence.path));
+  const inventedAudit = {
+    ...audit,
+    limitations: [],
+    observations: { ...audit.observations, tagged: true },
+  };
+  write(fixture.root, evidence.path, JSON.stringify(inventedAudit));
+  assert.ok(
+    rerun().issues.some((issue) => /PDF audit differs from deterministic/.test(issue.message))
+  );
+  write(fixture.root, evidence.path, retainedAudit);
+  const retainedCaptures = fs.readFileSync(path.join(fixture.root, capturesPath));
+  write(fixture.root, capturesPath, JSON.stringify({ ...captures, evidence: [] }));
+  assert.ok(
+    rerun().issues.some((issue) =>
+      /PDF document audit must cover active capture/.test(issue.message)
+    )
+  );
+  write(fixture.root, capturesPath, retainedCaptures);
+});
+
+test("direct-PDF release preserves unchanged native 1.14.41 evidence and rejects unknown producers", () => {
+  const { fixture, run } = recertificationReleaseFixture("1.14.41", "1.14.42");
+  bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+  const files = new Set([
+    fixture.capturesPath,
+    fixture.reviewsPath,
+    ...fixture.reviews.rounds[0].reviews.map((review) => review.execution.receipt.path),
+    ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+    ...fixture.captures.evidence.map((entry) => entry.path),
+  ]);
+  const before = new Map(
+    [...files].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+  );
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  for (const [file, bytes] of before)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  const { run: unknown } = recertificationReleaseFixture("1.14.43", "1.14.42");
+  assert.match(JSON.stringify(unknown().issues), /capture producer/);
+});
+
+// Exact Primary instruction bytes shipped at v1.14.41, before PDF support.
+const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
+
+function bindFixturePrimaryPrompt(fixture, round, sha256) {
+  const primary = fixture.reviews.rounds[round - 1].reviews.find(
+    (review) => review.perspective === "primary"
+  );
+  const payload = { ...primary.input, prompt_sha256: sha256 };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(fixture.root, primary, round);
+  rewriteReviewsAndReport(fixture);
+}
+
+for (const mode of ["product-ui", "pm-artifact"]) {
+  test(`direct-PDF upgrade preserves actual pre-PDF Primary prompt receipts: ${mode}`, (t) => {
+    const fixture = makeFixture({ mode });
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+    const files = [fixture.reviewsPath, fixture.reportPath];
+    for (const review of fixture.reviews.rounds[0].reviews)
+      files.push(review.execution.receipt.path);
+    const original = new Map(
+      files.map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+    for (const [file, bytes] of original)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+    bindFixturePrimaryPrompt(fixture, 1, "0".repeat(64));
+    assert.match(JSON.stringify(check(fixture).issues), /exact reviewer instruction bytes/);
+  });
+}
+
+test("direct-PDF upgrade retains pre-PDF Primary history before a fresh corrected round", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  configureResolvedPrimaryFinding(fixture);
+  bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+  const first = structuredClone(fixture.reviews.rounds[0]);
+  const receipt = first.reviews.find((review) => review.perspective === "primary").execution.receipt
+    .path;
+  const original = fs.readFileSync(path.join(fixture.root, receipt));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  assert.deepEqual(fixture.reviews.rounds[0], first);
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, receipt)), original);
+});
+
+function nativePdfRecoveryFixture(t, { finding = false, correction = "text" } = {}) {
+  const { pdfFixture, submittedPdf } = require("./helpers/pdf-document-fixture");
+  const fixture = pdfFixture(t);
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: fixture.root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const remote = path.join(fixture.root, ".pm", "origin.git");
+  git("init", "--bare", "-b", "main", remote);
+  git("remote", "add", "origin", remote);
+  git("push", "origin", "main");
+  git("checkout", "-b", "codex/pdf-recovery");
+  const first = nativePdfDesignFixture(t, {
+    supplied: fixture,
+    finding,
+    outcome: "failed",
+    reason: "The report text requires the revised fixed-page presentation.",
+  });
+  if (!first) return;
+  assert.deepEqual(first.rerun({ verifyGit: true }), { ok: true, issues: [] });
+  const retained = new Map(
+    [
+      fixture.routePath,
+      first.capturesPath,
+      first.reviewsPath,
+      first.reportPath,
+      first.humanPath,
+      first.capture.path,
+      first.capture.observation.path,
+      ...first.loaded.manifest.pages.map((page) => page.path),
+      first.loaded.manifest.observation.path,
+      ...first.reviews.rounds.flatMap((row) =>
+        row.reviews.flatMap((review) => [
+          review.execution.receipt.path,
+          review.input.context_source.path,
+          review.input.capture_manifest.path,
+        ])
+      ),
+    ].map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+  );
+  fs.writeFileSync(path.join(fixture.root, "report-source.txt"), "Corrected report presentation\n");
+  git("add", "report-source.txt");
+  git("commit", "-m", "Fix report presentation");
+  const corrected =
+    correction === "text"
+      ? submittedPdf(["First corrected report page", "Second corrected report page"])
+      : submittedPdf(
+          ["First submitted page", "Second submitted page"],
+          correction === "metadata" ? " /Lang (en)" : "",
+          correction === "material" ? "0 0 0 rg 20 20 500 500 re f\n" : ""
+        );
+  const nextPath = ".pm/input/report-round2.pdf";
+  fs.writeFileSync(path.join(fixture.root, nextPath), corrected);
+  const route = structuredClone(fixture.route);
+  route.created_at = new Date().toISOString();
+  route.source.commit = git("rev-parse", "HEAD");
+  route.source.diff_sha256 = digest(
+    execFileSync(
+      "git",
+      ["diff", "--binary", `${route.source.base_commit}...${route.source.commit}`],
+      { cwd: fixture.root }
+    )
+  );
+  route.subjects[0].surface = nextPath;
+  route.subjects[0].artifact.path = nextPath;
+  route.subjects[0].artifact.sha256 = digest(corrected);
+  const routePath = fixture.routePath.replace("/round-1/", "/round-2/");
+  write(fixture.root, routePath, JSON.stringify(route));
+  const args = [...fixture.args];
+  for (const [flag, value] of [
+    ["--route", routePath],
+    ["--capture", "document-r2"],
+    ["--pdf", nextPath],
+    ["--out-dir", `${path.posix.dirname(routePath)}/round-2/document-r2`],
+  ])
+    args[args.indexOf(flag) + 1] = value;
+  const second = nativePdfDesignFixture(t, {
+    supplied: { ...fixture, route, routePath, args, pdf: corrected },
+    previous: first,
+  });
+  return { fixture, first, second, route, routePath, retained };
+}
+
+test("direct PDF recovery preserves frozen pages across corrected document and source rounds", (t) => {
+  const pair = nativePdfRecoveryFixture(t);
+  if (!pair) return;
+  const { fixture, first, second, route, routePath, retained } = pair;
+  assert.deepEqual(second.rerun({ verifyGit: true }), { ok: true, issues: [] });
+  assert.ok(
+    first.rerun().issues.some((issue) => /stale/.test(issue.message)),
+    "an old report cannot masquerade as current active evidence"
+  );
+  fs.unlinkSync(path.join(fixture.root, fixture.route.subjects[0].artifact.path));
+  assert.deepEqual(
+    second.rerun({ verifyGit: true }),
+    { ok: true, issues: [] },
+    "the retained original PDF is sufficient for frozen history"
+  );
+  const routeBytes = fs.readFileSync(path.join(fixture.root, routePath));
+  for (const mutate of [
+    (value) => {
+      value.subjects[0].title = "Different task";
+    },
+    (value) => {
+      value.coverage[0].reason = "Different required scope";
+    },
+  ]) {
+    const changed = structuredClone(route);
+    mutate(changed);
+    write(fixture.root, routePath, JSON.stringify(changed));
+    assert.ok(second.rerun().issues.some((issue) => /same frozen route scope/.test(issue.message)));
+    write(fixture.root, routePath, routeBytes);
+  }
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes, file);
+  fs.writeFileSync(path.join(fixture.root, first.capture.path), "changed predecessor PDF");
+  assert.equal(second.rerun().ok, false, "frozen history must still reject changed retained bytes");
+});
+
+for (const correction of ["material", "metadata"]) {
+  test(`direct PDF resolved P1 requires page pixels rather than only document bytes: ${correction}`, (t) => {
+    const pair = nativePdfRecoveryFixture(t, { finding: true, correction });
+    if (!pair) return;
+    const checked = pair.second.rerun({ verifyGit: true });
+    if (correction === "material") assert.deepEqual(checked, { ok: true, issues: [] });
+    else {
+      assert.equal(checked.ok, false);
+      assert.ok(
+        checked.issues.some((issue) => /resolved P0\/P1/.test(issue.message)),
+        JSON.stringify(checked.issues)
+      );
+    }
+  });
+}

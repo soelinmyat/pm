@@ -34,7 +34,9 @@ Subject mode is explicit and independent from execution context:
 | Mode | Subject | Required evidence |
 |---|---|---|
 | `product-ui` | Running web or mobile interface | State/viewport captures, accessibility evidence, and DOM audit for web |
-| `pm-artifact` | Proposal, RFC, report, or other rendered PM HTML | Structural manifest, desktop/tablet/narrow full renders, accessibility evidence, render manifest, and print PDF |
+| `pm-artifact` | Rendered PM HTML or an explicit static product report PDF | HTML retains structural, viewport, accessibility and print evidence; direct PDFs retain all native pages and a trusted PDF audit with accessibility assurance limits |
+
+For direct PDFs, read `references/pdf-document-evidence.md`; the PDF format must be explicit. Existing HTML and web/mobile evidence contracts remain unchanged.
 
 Report outcomes are `passed`, `failed`, `blocked`, or `deferred`. A deferred blocking decision maps to a blocked Dev gate; human authority can choose a direction but cannot turn unresolved P0/P1 evidence into a pass. `skipped` is a Dev routing result, not a critique report outcome.
 
