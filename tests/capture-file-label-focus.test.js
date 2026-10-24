@@ -126,11 +126,11 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
   <button type="button" id="before-upload">Before upload</button>
   ${variant === "external-caption" ? '<label for="upload-input">Evidence reference</label>' : ""}
   ${variant === "foreign-label" ? input : ""}
-  <label id="upload-zone" for="${variant === "wrong-for" ? "foreign-input" : "upload-input"}" data-pm-state="${["focus-driven-marker", "wrong-final-marker"].includes(variant) ? "primary" : "focus"}"><span>Supporting document</span><span>Choose a file up to ten megabytes</span>${variant === "foreign-label" ? "" : input}</label>
+  <label id="upload-zone" for="${variant === "wrong-for" ? "foreign-input" : "upload-input"}" data-pm-state="${["focus-driven-marker", "wrong-final-marker"].includes(variant) ? "primary" : "focus"}"><span>Supporting document</span><span>Choose a file up to ten megabytes</span>${variant === "foreign-label" || variant.startsWith("shadow-cross-root") ? "" : input}${variant.startsWith("shadow-cross-root") ? '<span id="upload-host"></span>' : ""}</label>
   ${variant === "duplicate-id" ? '<input id="upload-input" type="file">' : ""}
   <button type="button">After upload</button>
   ${variant === "covered" ? '<div style="position:fixed;inset:0;background:black;z-index:999">Actual covering overlay</div>' : ""}
-  </main><script>if(${JSON.stringify(variant)}==="focus-driven-marker")document.getElementById("upload-input").addEventListener("focus",()=>document.getElementById("upload-zone").setAttribute("data-pm-state","focus"));document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
+  </main><script>if(${JSON.stringify(variant)}==="shadow-cross-root"){const root=document.getElementById("upload-host").attachShadow({mode:${JSON.stringify(variant === "shadow-cross-root-closed" ? "closed" : "open")}});root.innerHTML=${JSON.stringify(input)};const control=root.getElementById("upload-input");control.style.cssText="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";if(document.getElementById("upload-zone").control!==null)throw Error("Test fixture must have no associated control");}if(${JSON.stringify(variant)}==="focus-driven-marker")document.getElementById("upload-input").addEventListener("focus",()=>document.getElementById("upload-zone").setAttribute("data-pm-state","focus"));document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
   const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   try {
     const assertion = fileLabelAssertion();
@@ -221,6 +221,8 @@ for (const variant of [
   "already-focused",
   "shifted-label",
   "wrong-final-marker",
+  "shadow-cross-root",
+  "shadow-cross-root-closed",
 ]) {
   test(`native file-label focus rejects invalid actual Chromium evidence: ${variant}`, () => {
     assert.throws(

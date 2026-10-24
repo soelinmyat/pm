@@ -4285,6 +4285,25 @@ function validateFocusModalityProof(model, axTree, snapshot, proof) {
     throw new Error("focus modality changed page identity, focus, value or semantics");
 }
 
+async function verifyNativeFileLabelTree(client, target) {
+  const { root } = await client.send("DOM.getDocument", { depth: -1, pierce: true });
+  const pending = [{ node: root, label: null }];
+  let visited = 0;
+  while (pending.length) {
+    const { node, label } = pending.pop();
+    if (++visited > 50_000) throw new Error("native file label tree exceeds node budget");
+    if (node.backendNodeId === target.input.backendNodeId) {
+      if (label?.backendNodeId !== target.label.backendNodeId)
+        throw new Error("native file label association crosses a native DOM tree boundary");
+      return;
+    }
+    const containingLabel = node.nodeName.toLowerCase() === "label" ? node : label;
+    for (const child of node.children || []) pending.push({ node: child, label: containingLabel });
+    for (const shadow of node.shadowRoots || []) pending.push({ node: shadow, label: null });
+  }
+  throw new Error("native file label control is absent from the native DOM tree");
+}
+
 async function nativeSample(
   client,
   targetId,
@@ -4333,6 +4352,7 @@ async function nativeSample(
         !fileLabelBaseline
       )
     : null;
+  if (fileLabelTarget) await verifyNativeFileLabelTree(client, fileLabelTarget);
   // Before Tab, prove the physical visible label and enabled unfocused input.
   // The routed state marker belongs to the complete post-Tab assertion only.
   const hitRequirements = fileLabelBaseline
