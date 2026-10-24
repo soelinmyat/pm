@@ -53,7 +53,8 @@ changed tools, forged text, missing pages or pixel drift cannot pass.
 
 Only static classic-xref PDF 1.0–1.7 reports supported by the parser qualify.
 Encrypted documents, forms, automatic/JavaScript/launch actions, embedded files
-and rich media are unsupported. PDF 2.0/object-stream inputs and incremental or
+and rich media (including legacy movie, sound, screen/rendition and 3D content)
+are unsupported. PDF 2.0/object-stream inputs and incremental or
 hybrid cross-reference chains remain blocked.
 Fixed budgets are 32 MiB input, 50 pages, a 1,600-pixel maximum raster edge,
 4 Mi pixels per page, 128 Mi aggregate pixels, 128 MiB bundle, 8 MiB raw text,

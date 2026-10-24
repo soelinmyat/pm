@@ -159,12 +159,40 @@ for (const rotation of [0, 90, 180, 270]) {
   });
 }
 
-for (const name of ["OpenAction", "Ope#6eAction", "AcroForm", "RichMedia", "Launch", "JS"]) {
+for (const name of [
+  "OpenAction",
+  "Ope#6eAction",
+  "AcroForm",
+  "RichMedia",
+  "Launch",
+  "JS",
+  "Movie",
+  "Sound",
+  "Screen",
+  "Rendition",
+  "3D",
+]) {
   test(`static PDF evidence rejects active object names: ${name}`, () => {
     const pdf = submittedPdf(["Static report"], ` /${name} << >>`);
     assert.throws(() => inspectPdfBytes(pdf, { staticDocument: true }), /active|static/i);
   });
 }
+
+test("static PDF capture rejects a valid legacy Movie annotation before publication", (t) => {
+  const { captureDocumentPdf } = require("../scripts/lib/design-critique-pdf");
+  const fixture = pdfFixture(t);
+  const pdf = submittedPdf(
+    ["Report with legacy media"],
+    "",
+    "",
+    " /Annots [<< /Type /Annot /Subtype /Movie /Rect [20 20 100 100] /Movie << /F (clip.mov) >> >>]"
+  );
+  fs.writeFileSync(path.join(fixture.root, ".pm/input/report.pdf"), pdf);
+  fixture.route.subjects[0].artifact.sha256 = hash(pdf);
+  fs.writeFileSync(path.join(fixture.root, fixture.routePath), JSON.stringify(fixture.route));
+  assert.throws(() => captureDocumentPdf(parseArgs(fixture.args)), /active|static/i);
+  assert.equal(fs.existsSync(path.join(fixture.root, BASE)), false);
+});
 
 test("static PDF checks preserve ordinary text mentioning action-like names", () => {
   assert.equal(
