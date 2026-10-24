@@ -4320,14 +4320,34 @@ async function nativeSample(
     (node) => ["button", "textarea"].includes(node.nodeName) && visibilityEvaluator(node)
   );
   await observeIntrinsicButtonHeights(client, sizedControls, frameTree.frameTree?.frame?.id);
-  const hitRequirements = evaluateStateAssertion(
-    stateAssertion,
-    model,
-    axTree,
-    computedStyles,
-    metrics,
-    visibilityEvaluator
-  );
+  const fileLabelAssertion =
+    fileLabelBaseline || (stateAssertion.focus_label ? stateAssertion : null);
+  const fileLabelTarget = fileLabelAssertion
+    ? nativeFileLabelTarget(
+        fileLabelAssertion,
+        model,
+        axTree,
+        style,
+        metrics,
+        visibilityEvaluator,
+        !fileLabelBaseline
+      )
+    : null;
+  // Before Tab, prove the physical visible label and enabled unfocused input.
+  // The routed state marker belongs to the complete post-Tab assertion only.
+  const hitRequirements = fileLabelBaseline
+    ? [
+        { label: "state marker", node: fileLabelTarget.label },
+        { label: "state assertion clause 1", node: fileLabelTarget.label },
+      ]
+    : evaluateStateAssertion(
+        stateAssertion,
+        model,
+        axTree,
+        computedStyles,
+        metrics,
+        visibilityEvaluator
+      );
   const assertionVisibility = await verifyAssertionHitTargets(
     client,
     hitRequirements,
@@ -4363,19 +4383,6 @@ async function nativeSample(
         check.native_name_sha256 = digest(Buffer.from(String(native.name.value).trim()));
     }
   }
-  const fileLabelAssertion =
-    fileLabelBaseline || (stateAssertion.focus_label ? stateAssertion : null);
-  const fileLabelTarget = fileLabelAssertion
-    ? nativeFileLabelTarget(
-        fileLabelAssertion,
-        model,
-        axTree,
-        style,
-        metrics,
-        visibilityEvaluator,
-        !fileLabelBaseline
-      )
-    : null;
   const fileLabel = fileLabelTarget?.proof;
   const fileLabelStyles = fileLabelTarget
     ? Object.fromEntries(FOCUS_STYLE_NAMES.map((key) => [key, style(fileLabelTarget.label, key)]))

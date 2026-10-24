@@ -126,11 +126,11 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
   <button type="button" id="before-upload">Before upload</button>
   ${variant === "external-caption" ? '<label for="upload-input">Evidence reference</label>' : ""}
   ${variant === "foreign-label" ? input : ""}
-  <label id="upload-zone" for="${variant === "wrong-for" ? "foreign-input" : "upload-input"}" data-pm-state="focus"><span>Supporting document</span><span>Choose a file up to ten megabytes</span>${variant === "foreign-label" ? "" : input}</label>
+  <label id="upload-zone" for="${variant === "wrong-for" ? "foreign-input" : "upload-input"}" data-pm-state="${["focus-driven-marker", "wrong-final-marker"].includes(variant) ? "primary" : "focus"}"><span>Supporting document</span><span>Choose a file up to ten megabytes</span>${variant === "foreign-label" ? "" : input}</label>
   ${variant === "duplicate-id" ? '<input id="upload-input" type="file">' : ""}
   <button type="button">After upload</button>
   ${variant === "covered" ? '<div style="position:fixed;inset:0;background:black;z-index:999">Actual covering overlay</div>' : ""}
-  </main><script>document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
+  </main><script>if(${JSON.stringify(variant)}==="focus-driven-marker")document.getElementById("upload-input").addEventListener("focus",()=>document.getElementById("upload-zone").setAttribute("data-pm-state","focus"));document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
   const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   try {
     const assertion = fileLabelAssertion();
@@ -185,7 +185,7 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
   }
 }
 
-for (const variant of ["working", "external-caption"]) {
+for (const variant of ["working", "external-caption", "focus-driven-marker"]) {
   test(`native file-label focus retains keyboard entry and measured focus bands: ${variant}`, () => {
     const { result, screenshotBytes, bandChange } = nativeFileLabelProbe(variant);
     const label = result.assertion_visibility.checks.find(
@@ -220,11 +220,12 @@ for (const variant of [
   "transparent-shadow",
   "already-focused",
   "shifted-label",
+  "wrong-final-marker",
 ]) {
   test(`native file-label focus rejects invalid actual Chromium evidence: ${variant}`, () => {
     assert.throws(
       () => nativeFileLabelProbe(variant),
-      /native file label|fully occluded|expected focus|state marker must be visibly rendered/
+      /native file label|fully occluded|expected focus|state marker must be visibly rendered|state marker does not establish the routed state/
     );
   });
 }
