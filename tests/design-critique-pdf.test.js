@@ -27,6 +27,27 @@ const PDF_ARGS = [
   BASE,
 ];
 
+test("Primary PDF reviewer instructions cover native pages, score evidence and assurance limits", () => {
+  const brief = fs.readFileSync(
+    path.join(__dirname, "../skills/dev/references/design-critique-reviewer.md"),
+    "utf8"
+  );
+  const pdfInstructions = brief.match(/\*\*PDF document audits:\*\* ([^\n]+)/)?.[1];
+  assert.ok(pdfInstructions, "Primary must receive explicit PDF audit instructions");
+  assert.match(pdfInstructions, /every retained page PNG/);
+  assert.match(pdfInstructions, /pdf-document/);
+  assert.match(pdfInstructions, /reading order|spoken assistive technology/);
+  const scoreInstructions = brief.match(/For PDF subjects, ([^\n]+)/)?.[1];
+  assert.ok(scoreInstructions, "Primary must know the required PDF score evidence");
+  for (const key of ["accessibility", "consistency", "responsive", "print-navigation"])
+    assert.match(scoreInstructions, new RegExp("`" + key + "`"));
+  assert.match(scoreInstructions, /all supplied active `pdf-document` audits/);
+  assert.match(scoreInstructions, /print captures/);
+  assert.match(scoreInstructions, /fixed paper geometry/);
+  assert.match(brief, /supplied artifact-structural and artifact-render evidence/);
+  assert.match(brief, /supplied DOM audits for product-UI `consistency`/);
+});
+
 test("capture CLI accepts a direct PDF document without inventing a web URL or viewport", () => {
   const options = parseArgs(PDF_ARGS);
   assert.equal(options.pdfPath, "exports/report.pdf");
