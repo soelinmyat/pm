@@ -269,6 +269,8 @@ const REVIEW_PROMPTS = Object.freeze({
     path: path.join(__dirname, "../skills/dev/references/design-critique-fresh-eyes.md"),
   }),
 });
+// Exact v1.14.41 Primary instructions; compatible only with non-PDF inputs.
+const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
@@ -3722,7 +3724,18 @@ function validateReviewInput(
     add(issues, `${label}.prompt_profile`, `must equal ${prompt?.profile || "a known profile"}`);
   else {
     const expectedHash = digest(fs.readFileSync(prompt.path));
-    if (input.prompt_sha256 !== expectedHash)
+    const containsPdf =
+      Array.isArray(input.capture_ids) &&
+      input.capture_ids.some((id) => {
+        const capture = captureById.get(id);
+        const coverage = route.coverage.find((row) => row.id === capture?.coverage_id);
+        return route.subjects.some(
+          (subject) => subject.id === coverage?.subject_id && subject.artifact?.format === "pdf"
+        );
+      });
+    const compatibleLegacy =
+      perspective === "primary" && input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT && !containsPdf;
+    if (input.prompt_sha256 !== expectedHash && !compatibleLegacy)
       add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");
   }
   const contextState = validateReviewContextSource(

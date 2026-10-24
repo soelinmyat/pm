@@ -9690,6 +9690,42 @@ function nativePdfDesignFixture(
   };
 }
 
+function refreshNativePdfReviewPackage(state) {
+  const { fixture, captures, capturesPath, reviews, reviewsPath, report, reportPath, humanPath } =
+    state;
+  write(fixture.root, capturesPath, JSON.stringify(captures));
+  reviews.route = binding(fixture.root, fixture.routePath);
+  reviews.captures = binding(fixture.root, capturesPath);
+  write(fixture.root, reviewsPath, JSON.stringify(reviews));
+  report.route = binding(fixture.root, fixture.routePath);
+  report.captures = binding(fixture.root, capturesPath);
+  report.reviews = binding(fixture.root, reviewsPath);
+  write(fixture.root, reportPath, JSON.stringify(report));
+  const html = htmlReport(
+    binding(fixture.root, reportPath),
+    binding(fixture.root, capturesPath),
+    binding(fixture.root, reviewsPath),
+    reviews,
+    report
+  );
+  write(fixture.root, humanPath, html.replace("</main>", `${state.note}</main>`));
+}
+
+test("direct PDF Primary cannot use the pre-PDF prompt identity", (t) => {
+  const state = nativePdfDesignFixture(t);
+  if (!state) return;
+  const primary = state.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  const receipt = JSON.parse(
+    fs.readFileSync(path.join(state.fixture.root, primary.execution.receipt.path), "utf8")
+  );
+  const payload = { ...primary.input, prompt_sha256: PRE_PDF_PRIMARY_PROMPT };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(state.fixture.root, primary, 1, receipt.recorded_at);
+  refreshNativePdfReviewPackage(state);
+  assert.match(JSON.stringify(state.rerun().issues), /exact reviewer instruction bytes/);
+});
+
 test("direct PDF Design gate accepts complete native pages and explicit assurance limits", (t) => {
   const state = nativePdfDesignFixture(t);
   if (!state) return;
@@ -9743,6 +9779,53 @@ test("direct-PDF release preserves unchanged native 1.14.41 evidence and rejects
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
   const { run: unknown } = recertificationReleaseFixture("1.14.43", "1.14.42");
   assert.match(JSON.stringify(unknown().issues), /capture producer/);
+});
+
+// Exact Primary instruction bytes shipped at v1.14.41, before PDF support.
+const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
+
+function bindFixturePrimaryPrompt(fixture, round, sha256) {
+  const primary = fixture.reviews.rounds[round - 1].reviews.find(
+    (review) => review.perspective === "primary"
+  );
+  const payload = { ...primary.input, prompt_sha256: sha256 };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(fixture.root, primary, round);
+  rewriteReviewsAndReport(fixture);
+}
+
+for (const mode of ["product-ui", "pm-artifact"]) {
+  test(`direct-PDF upgrade preserves actual pre-PDF Primary prompt receipts: ${mode}`, (t) => {
+    const fixture = makeFixture({ mode });
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+    const files = [fixture.reviewsPath, fixture.reportPath];
+    for (const review of fixture.reviews.rounds[0].reviews)
+      files.push(review.execution.receipt.path);
+    const original = new Map(
+      files.map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+    for (const [file, bytes] of original)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+    bindFixturePrimaryPrompt(fixture, 1, "0".repeat(64));
+    assert.match(JSON.stringify(check(fixture).issues), /exact reviewer instruction bytes/);
+  });
+}
+
+test("direct-PDF upgrade retains pre-PDF Primary history before a fresh corrected round", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  configureResolvedPrimaryFinding(fixture);
+  bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+  const first = structuredClone(fixture.reviews.rounds[0]);
+  const receipt = first.reviews.find((review) => review.perspective === "primary").execution.receipt
+    .path;
+  const original = fs.readFileSync(path.join(fixture.root, receipt));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  assert.deepEqual(fixture.reviews.rounds[0], first);
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, receipt)), original);
 });
 
 function nativePdfRecoveryFixture(t, { finding = false, correction = "text" } = {}) {
