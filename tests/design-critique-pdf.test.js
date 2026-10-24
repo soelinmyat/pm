@@ -283,3 +283,58 @@ test("PDF source binding rejects option-shaped and malformed identities before G
     assert.throws(() => preparePdfPlan(parseArgs(fixture.args)), /source\.|source identity/);
   }
 });
+
+test("PDF bundle validation reuses one verified inventory without losing member checks", (t) => {
+  if (spawnSync("pdftoppm", ["-v"]).status !== 0) {
+    t.skip("Poppler is unavailable; PDF bundle I/O cannot be verified");
+    return;
+  }
+  const { captureDocumentPdf, loadPdfCapture } = require("../scripts/lib/design-critique-pdf");
+  const fixture = pdfFixture(t);
+  const result = captureDocumentPdf(parseArgs(fixture.args));
+  const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, result.manifest.path)));
+  const sizes = new Map(
+    manifest.pages.map((page) => [
+      path.basename(page.path),
+      fs.statSync(path.join(fixture.root, page.path)).size,
+    ])
+  );
+  const descriptors = new Map(),
+    readBytes = new Map();
+  const original = { open: fs.openSync, read: fs.readSync, close: fs.closeSync };
+  try {
+    fs.openSync = function (file, ...args) {
+      const fd = original.open.call(fs, file, ...args);
+      const name = path.basename(String(file));
+      if (sizes.has(name)) descriptors.set(fd, name);
+      return fd;
+    };
+    fs.readSync = function (fd, ...args) {
+      const count = original.read.call(fs, fd, ...args);
+      const name = descriptors.get(fd);
+      if (name) readBytes.set(name, (readBytes.get(name) || 0) + count);
+      return count;
+    };
+    fs.closeSync = function (fd) {
+      descriptors.delete(fd);
+      return original.close.call(fs, fd);
+    };
+    loadPdfCapture(fixture.root, result.manifest.path);
+  } finally {
+    fs.openSync = original.open;
+    fs.readSync = original.read;
+    fs.closeSync = original.close;
+  }
+  for (const [name, size] of sizes) {
+    assert.ok(readBytes.get(name) > 0, `${name} must actually be observed`);
+    assert.ok(
+      readBytes.get(name) <= size * 2,
+      `${name} should be hashed once plus its requested-file read`
+    );
+  }
+  fs.writeFileSync(path.join(fixture.root, manifest.pages[0].path), "tampered page");
+  assert.throws(
+    () => loadPdfCapture(fixture.root, result.manifest.path),
+    /changed|inventory|bundle/
+  );
+});

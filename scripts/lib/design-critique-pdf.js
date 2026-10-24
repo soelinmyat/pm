@@ -5,7 +5,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { isDeepStrictEqual } = require("node:util");
-const { readProjectInput } = require("./project-file");
+const { createProjectInputVerificationContext, readProjectInput } = require("./project-file");
 const { writeProjectDirectoryAtomic } = require("./project-atomic-write");
 const { isManagedCaptureMemberPath } = require("./design-critique-capture-path");
 const {
@@ -35,9 +35,10 @@ const json = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 const binding = (file) => ({ path: file.relative, sha256: hash(file.bytes) });
 const slug = (value) => typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 
-function read(root, relative, maxBytes = MAX_PDF_TEXT_BYTES) {
+function read(root, relative, maxBytes = MAX_PDF_TEXT_BYTES, verificationContext) {
   return readProjectInput(root, relative, maxBytes, {
     allowManagedDirectoryPointers: isManagedCaptureMemberPath(relative),
+    managedDirectoryVerificationContext: verificationContext,
   });
 }
 
@@ -58,7 +59,7 @@ function same(left, right, label) {
 
 function preparePdfPlan(options) {
   const root = fs.realpathSync(path.resolve(options.root || "."));
-  const routeFile = read(root, options.routePath);
+  const routeFile = read(root, options.routePath, undefined, options.verificationContext);
   const route = JSON.parse(routeFile.bytes);
   const canonical =
     /^(\.pm\/dev-sessions\/[a-z0-9._-]+\/design-critique\/runs\/([a-z0-9][a-z0-9._-]*)\/round-([1-9][0-9]*))\/route\.json$/.exec(
@@ -123,7 +124,7 @@ function preparePdfPlan(options) {
     options.outputDir !== `${canonical[1]}/round-${round}/${options.captureId}`
   )
     throw new Error("PDF capture output must match its immutable route, round, and capture ID");
-  const document = read(root, options.pdfPath, MAX_PDF_BYTES);
+  const document = read(root, options.pdfPath, MAX_PDF_BYTES, options.verificationContext);
   if (hash(document.bytes) !== subject.artifact.sha256)
     throw new Error("PDF artifact bytes do not match the frozen route");
   return {
@@ -250,7 +251,8 @@ function pagePixelsHash(pages) {
 }
 
 function loadPdfCapture(root, manifestPath, options = {}) {
-  const file = read(root, manifestPath);
+  const verificationContext = createProjectInputVerificationContext();
+  const file = read(root, manifestPath, undefined, verificationContext);
   const manifest = JSON.parse(file.bytes);
   exact(
     manifest,
@@ -300,6 +302,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     captureId: manifest.capture.id,
     pdfPath: manifest.document.path,
     outputDir: base,
+    verificationContext,
   });
   same(binding(plan.routeFile), manifest.route, "PDF route binding");
   same(
@@ -314,7 +317,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     manifest.capture.sha256 !== manifest.document.sha256
   )
     throw new Error("PDF capture identity does not match its document and route");
-  const retainedPdf = read(root, manifest.capture.path, MAX_PDF_BYTES);
+  const retainedPdf = read(root, manifest.capture.path, MAX_PDF_BYTES, verificationContext);
   if (hash(retainedPdf.bytes) !== manifest.capture.sha256)
     throw new Error("PDF capture bytes changed");
   const count = inspectPdfBytes(retainedPdf.bytes, { staticDocument: true }).pages;
@@ -334,7 +337,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
       page.path !== `${base}/page-${String(index + 1).padStart(3, "0")}.png`
     )
       throw new Error("PDF page ordering or canonical path is invalid");
-    const png = read(root, page.path, MAX_PDF_BUNDLE_BYTES);
+    const png = read(root, page.path, MAX_PDF_BUNDLE_BYTES, verificationContext);
     const header = inspectPngHeaderBytes(png.bytes);
     if (header.width * header.height > MAX_PDF_PAGE_PIXELS)
       throw new Error("PDF page exceeds the pixel budget");
@@ -404,7 +407,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     manifest.capture.captured_at !== manifest.timestamps.captured_at
   )
     throw new Error("PDF capture chronology is invalid");
-  const rawFile = read(root, manifest.observation.path);
+  const rawFile = read(root, manifest.observation.path, undefined, verificationContext);
   if (totalBytes + file.bytes.length + rawFile.bytes.length > MAX_PDF_BUNDLE_BYTES)
     throw new Error("PDF observation bundle exceeds the aggregate byte budget");
   if (
