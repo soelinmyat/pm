@@ -110,6 +110,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // The optional native file-label binding is new; ordinary captures retain
   // their original native and audit contracts.
   ["1.14.41", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40"])],
+  // Direct PDF evidence is additive; native web collection and audit contracts
+  // are unchanged. Only these explicitly known releases remain compatible.
+  ["1.14.42", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40", "1.14.41"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -157,6 +160,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.41",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.40"), "1.14.41"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.42",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.41"), "1.14.42"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2183,8 +2190,11 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
       coverage_id: coverage?.id,
       state: coverage?.state,
     });
-    if (value.focus_label && manifest.observation.producer.version !== "1.14.41")
-      throw new Error("native file-label focus requires its supported 1.14.41 producer");
+    if (
+      value.focus_label &&
+      !new Set(["1.14.41", "1.14.42"]).has(manifest.observation.producer.version)
+    )
+      throw new Error("native file-label focus requires an explicitly supported producer");
     const expectedVisibleNodes =
       1 + value.all.filter((clause) => clause.expect.kind === "visible").length;
     validateAssertionVisibility(visibility, "capture manifest.page.state_assertion.visibility", [
