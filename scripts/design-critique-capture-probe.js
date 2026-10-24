@@ -1736,14 +1736,16 @@ const FOCUS_STYLE_NAMES = [
   "box-shadow",
 ];
 
-function focusIndicatorRegions(node, style, prior, metrics) {
+function focusIndicatorRegions(node, style, prior, metrics, requireVisibleColor = false) {
   if (!prior || !node.layout?.bounds) return [];
   const current = Object.fromEntries(FOCUS_STYLE_NAMES.map((key) => [key, style(node, key)]));
   let outer = 0;
   let inset = 0;
   if (
     FOCUS_STYLE_NAMES.slice(0, 4).some((key) => current[key] !== prior[key]) &&
-    !["", "none", "hidden"].includes(current["outline-style"])
+    !["", "none", "hidden"].includes(current["outline-style"]) &&
+    (!requireVisibleColor ||
+      (maskColorStop(current["outline-color"])?.alpha ?? 0) >= MIN_EFFECTIVE_OPACITY)
   ) {
     const width = Number.parseFloat(current["outline-width"]);
     const offset = Number.parseFloat(current["outline-offset"]);
@@ -1765,6 +1767,11 @@ function focusIndicatorRegions(node, style, prior, metrics) {
       }
       const isInset = /\binset\b/.test(shadow);
       const color = shadow.match(/(?:rgba?|hsla?|hwb|color|oklab|oklch|lab|lch)\([^)]*\)/);
+      if (
+        requireVisibleColor &&
+        (!color || (maskColorStop(color[0])?.alpha ?? 0) < MIN_EFFECTIVE_OPACITY)
+      )
+        continue;
       if (isInset && (!color || (maskColorStop(color[0])?.alpha ?? 0) <= 0)) continue;
       const lengths = shadow
         .replace(/(?:rgba?|hsla?|hwb|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")
@@ -1924,6 +1931,15 @@ async function verifyAssertionHitTargets(
       );
       if (right > x && bottom > y) visualBounds = { x, y, width: right - x, height: bottom - y };
     }
+    const focusRegions = focusIndicatorRegions(
+      requirement.node,
+      style,
+      baselineStyles?.get(requirement.node.backendNodeId),
+      metrics,
+      Boolean(requirement.focusLabel)
+    );
+    if (requirement.focusLabel && focusRegions.length < 2)
+      throw new Error("native file label requires changed native focus-indicator bands");
     checks.push({
       label: requirement.label,
       asserted_backend_node_id: requirement.node.backendNodeId,
@@ -1931,12 +1947,7 @@ async function verifyAssertionHitTargets(
       x: acceptedPoint.x,
       y: acceptedPoint.y,
       ...(visualBounds ? { visual_bounds: visualBounds } : {}),
-      focus_indicator_regions: focusIndicatorRegions(
-        requirement.node,
-        style,
-        baselineStyles?.get(requirement.node.backendNodeId),
-        metrics
-      ),
+      focus_indicator_regions: focusRegions,
     });
   }
   return {
@@ -2033,11 +2044,55 @@ function evaluateStateAssertion(
   if (stateMatches.length !== 1)
     throw new Error(`state marker expected exactly one match; observed ${stateMatches.length}`);
   const stateNode = stateMatches[0];
+  let focusLabel = null;
+  if (assertion.focus_label) {
+    if (
+      assertion.focus_label.policy !== "native-file-input-label-v1" ||
+      !["focus", "keyboard"].includes(assertion.state)
+    )
+      throw new Error("unsupported native file label focus policy");
+    const inputs = locate(assertion.focus_label.control);
+    const labels = locate(assertion.focus_label.label);
+    if (inputs.length !== 1 || labels.length !== 1)
+      throw new Error("native file label association requires unique control and label");
+    const input = inputs[0];
+    const label = labels[0];
+    let nearestLabel = model[input.parentIndex];
+    const visited = new Set();
+    while (nearestLabel && nearestLabel.nodeName !== "label" && !visited.has(nearestLabel.index)) {
+      visited.add(nearestLabel.index);
+      nearestLabel = model[nearestLabel.parentIndex];
+    }
+    const id = input.attributes.id;
+    const bounds = visibleIntersection(label, model, style, metrics, evaluateVisibility);
+    if (
+      input.nodeName !== "input" ||
+      input.attributes.type?.toLowerCase() !== "file" ||
+      Object.hasOwn(input.attributes, "disabled") ||
+      input.attributes["aria-disabled"] === "true" ||
+      !axByBackendId.has(input.backendNodeId) ||
+      axProperties(axByBackendId.get(input.backendNodeId)).get("disabled") === true ||
+      axProperties(axByBackendId.get(input.backendNodeId)).get("focused") !== true ||
+      !id ||
+      model.filter((node) => node.attributes.id === id).length !== 1 ||
+      label.nodeName !== "label" ||
+      label.attributes.for !== id ||
+      nearestLabel?.index !== label.index ||
+      stateNode.index !== label.index ||
+      !bounds ||
+      bounds.right - bounds.left < 32 ||
+      bounds.bottom - bounds.top < 20
+    )
+      throw new Error("native file label association or visible target geometry is invalid");
+    focusLabel = label;
+  }
   if (!visible(stateNode)) throw new Error("state marker must be visibly rendered in the viewport");
   if (stateNode.attributes[assertion.state_marker.attribute] !== assertion.state_marker.value)
     throw new Error("state marker does not establish the routed state");
 
-  const hitRequirements = [{ label: "state marker", node: stateNode }];
+  const hitRequirements = [
+    { label: "state marker", node: stateNode, focusLabel: stateNode === focusLabel },
+  ];
 
   for (const [index, clause] of assertion.all.entries()) {
     const matches = locate(clause.locator);
@@ -2055,7 +2110,11 @@ function evaluateStateAssertion(
     if (clause.expect.kind === "visible" && !visible(node))
       throw new Error(`state assertion clause ${index + 1} expected a visible node`);
     if (clause.expect.kind === "visible")
-      hitRequirements.push({ label: `state assertion clause ${index + 1}`, node });
+      hitRequirements.push({
+        label: `state assertion clause ${index + 1}`,
+        node,
+        focusLabel: node === focusLabel,
+      });
     if (
       clause.expect.kind === "attribute-equals" &&
       node.attributes[clause.expect.name] !== clause.expect.value

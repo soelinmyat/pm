@@ -108,6 +108,20 @@ Create the assertion at the canonical path for the coverage row:
 
 Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
 
+For a visually hidden native file input whose containing HTML label paints its focus indicator, a focus/keyboard assertion may add this closed binding:
+
+```json
+"focus_label": {
+  "policy": "native-file-input-label-v1",
+  "control": { "by": "test-id", "value": "review-file-input" },
+  "label": { "by": "test-id", "value": "review-state" }
+}
+```
+
+Keep a `focused` guard on that control, a `visible` guard on that label, and a native Tab action in `before_capture`. The label locator must also be the state marker. The producer verifies an enabled, genuinely focused `input[type=file]` with a unique native DOM ID, an exact matching `for` attribute, and that exact label as its nearest containing HTML label. An additional external field caption is allowed; a foreign or merely nearby label is not. The label needs at least 32×20 visible pixels, ordinary visibility/occlusion checks, and at least two changed native focus-indicator bands with visible color. The hidden input itself gains no visible-node claim.
+
+This binding requires the 1.14.41 producer. Offline comparison requires the existing material differences on at least two measured bands and the unchanged 32 full-contrast pixel support floor even if other page content also changes. Missing rings, transparent decoration, tiny targets, stale producers, arbitrary owner declarations and unrelated pixel changes cannot supply proof. Ordinary focus assertions retain the same-node rule. Retain older captures under their original assertions and producer identities.
+
 For translated modal-title variants, visibly assert both `dialog:<exact title>` and `heading:<exact title>` with `role-name` guards. The collector must observe the native heading inside the named dialog; a dialog-name guard alone does not supply a measured title region. The checker retains the existing anchored geometry, meaningful/material pixel and support floors. An unrelated heading or changed metadata cannot substitute for the title proof.
 
 For distinct error-message variants, visibly assert the exact StaticText caption

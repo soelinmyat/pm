@@ -485,6 +485,7 @@ function validateStateAssertion(assertion, expected = null) {
       "state_marker",
       "all",
       ...(Object.hasOwn(assertion || {}, "before_capture") ? ["before_capture"] : []),
+      ...(Object.hasOwn(assertion || {}, "focus_label") ? ["focus_label"] : []),
     ],
     "state assertion"
   );
@@ -594,9 +595,41 @@ function validateStateAssertion(assertion, expected = null) {
     )
       throw new Error(`state assertion.all[${index}].expect.value is invalid`);
   }
-  validateSemanticStateGuard(assertion);
   validateCaptureActions(assertion.before_capture);
+  if (assertion.focus_label !== undefined) validateFocusLabel(assertion);
+  validateSemanticStateGuard(assertion);
   return assertion;
+}
+
+function validateFocusLabel(assertion) {
+  const binding = assertion.focus_label;
+  exactObject(binding, ["policy", "control", "label"], "state assertion.focus_label");
+  if (
+    binding.policy !== "native-file-input-label-v1" ||
+    !["focus", "keyboard"].includes(assertion.state)
+  )
+    throw new Error("focus_label requires the native-file-input-label-v1 focus/keyboard policy");
+  for (const name of ["control", "label"]) {
+    exactObject(binding[name], ["by", "value"], `focus_label.${name}`);
+    if (!["id", "test-id"].includes(binding[name].by))
+      throw new Error("focus_label locators must use an exact id or test-id");
+    boundedText(binding[name].value, 500, `focus_label.${name}.value`);
+  }
+  const matches = (left, right) => left.by === right.by && left.value === right.value;
+  if (
+    matches(binding.control, binding.label) ||
+    !matches(binding.label, assertion.state_marker.locator) ||
+    !assertion.before_capture?.some((action) => action.kind === "tab" && action.count > 0) ||
+    !assertion.all.some(
+      (clause) => clause.expect.kind === "focused" && matches(clause.locator, binding.control)
+    ) ||
+    !assertion.all.some(
+      (clause) => clause.expect.kind === "visible" && matches(clause.locator, binding.label)
+    )
+  )
+    throw new Error(
+      "focus_label requires native Tab, focused control and visible marker label guards"
+    );
 }
 
 function validateCaptureActions(actions) {
@@ -659,7 +692,9 @@ function validateSemanticStateGuard(assertion) {
   let satisfied = true;
   let requirement = "";
   if (new Set(["focus", "keyboard"]).has(assertion.state)) {
-    satisfied = guards.some((clause) => clause.expect.kind === "focused" && visiblyGuarded(clause));
+    satisfied =
+      Boolean(assertion.focus_label) ||
+      guards.some((clause) => clause.expect.kind === "focused" && visiblyGuarded(clause));
     requirement = "focused and visible guards for the same node";
   } else if (assertion.state === "disabled") {
     satisfied = guards.some(

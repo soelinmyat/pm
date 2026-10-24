@@ -977,6 +977,15 @@ function attachTrustedCaptureObservation(
       locator: { by: "role-name", value: "button:Save account" },
       expect: { kind: "focused" },
     });
+    if (nativeFocusProof === "file-label") {
+      assertion.focus_label = {
+        policy: "native-file-input-label-v1",
+        control: { by: "id", value: "native-file-input" },
+        label: assertion.state_marker.locator,
+      };
+      assertion.all[0].locator = assertion.focus_label.label;
+      assertion.all[1].locator = assertion.focus_label.control;
+    }
   }
   if (
     nativeStateProof &&
@@ -6878,6 +6887,33 @@ test("accepts a thin native keyboard focus ring that coarse viewport tiles miss"
     false,
     JSON.stringify(result.issues)
   );
+});
+
+for (const [name, pixels, rejected] of [
+  ["visible-ring", validPng(1440, 1000, 0, 0, null, 1, true), false],
+  ["edge-beacons", validPng(1440, 1000, 0, 0, null, 1, "focus-edge-beacons"), true],
+  ["unchanged-pixels", validPng(1440, 1000), true],
+  ["unrelated-material-change", validPng(1440, 1000, 0, 0, 50, 1440 * 400), true],
+]) {
+  test(`native file-label pixel proof preserves focused-band support: ${name}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeFocusProof = "file-label";
+    addRequiredStateCapture(fixture, "keyboard", pixels);
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      rejected
+    );
+  });
+}
+
+test("a legacy producer cannot claim native file-label focus support", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  fixture.producerVersionByCapture = { "capture-ui-keyboard": "1.14.40" };
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  assert.ok(check(fixture).issues.some((issue) => /file-label focus requires/.test(issue.message)));
 });
 
 test("native keyboard focus accepts visible rings in two-pixel bands with empty grid cells", () => {

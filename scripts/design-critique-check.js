@@ -104,6 +104,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.40 adds loading-only pending image reads. Existing native records,
   // audits and pixel proof from these producers retain the same contract.
   ["1.14.40", new Set(["1.14.37", "1.14.38", "1.14.39"])],
+  // The optional native file-label binding is new; ordinary captures retain
+  // their original native and audit contracts.
+  ["1.14.41", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -147,6 +150,10 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.40",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.39"), "1.14.40"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.41",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.40"), "1.14.41"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1220,18 +1227,23 @@ function validateCrossStateVisualDistance(
           observationByCapture.has(right.capture.id) &&
           difference !== null &&
           difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO;
+        const requiresLabelFocusChange = Boolean(
+          observationByCapture.get(left.capture.id)?.assertion?.focus_label ||
+          observationByCapture.get(right.capture.id)?.assertion?.focus_label
+        );
         const nativeFocusChange =
-          !isMaterialVisualDifference(difference) &&
-          !localizedNativeChange &&
+          (requiresLabelFocusChange ||
+            (!isMaterialVisualDifference(difference) && !localizedNativeChange)) &&
           hasNativeFocusPixelChange(root, left, right, observationByCapture);
         if (
-          !isMaterialVisualDifference(difference) &&
-          !localizedNativeChange &&
-          !nativeFocusChange &&
-          !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
-          !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
-          !hasNativeStateContentChange(root, left, right, observationByCapture) &&
-          !hasNativeEmptyLoadingChange(root, left, right, observationByCapture)
+          (requiresLabelFocusChange && !nativeFocusChange) ||
+          (!isMaterialVisualDifference(difference) &&
+            !localizedNativeChange &&
+            !nativeFocusChange &&
+            !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
+            !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
+            !hasNativeStateContentChange(root, left, right, observationByCapture) &&
+            !hasNativeEmptyLoadingChange(root, left, right, observationByCapture))
         ) {
           // A failed frozen predecessor is evidence of a failed state, not a
           // candidate for certification. Its bytes and native state proof were
@@ -1765,8 +1777,12 @@ function nativeKeyboardFocusRegions(observation) {
     return [];
   const regions = [];
   for (const clause of assertion.all.filter((item) => item.expect.kind === "focused")) {
+    const locator =
+      assertion.focus_label && isDeepStrictEqual(clause.locator, assertion.focus_label.control)
+        ? assertion.focus_label.label
+        : clause.locator;
     const index = assertion.all.findIndex(
-      (item) => item.expect.kind === "visible" && isDeepStrictEqual(item.locator, clause.locator)
+      (item) => item.expect.kind === "visible" && isDeepStrictEqual(item.locator, locator)
     );
     if (index < 0) continue;
     const point = observation.manifest.page.state_assertion.visibility.checks.find(
@@ -2036,6 +2052,8 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
       coverage_id: coverage?.id,
       state: coverage?.state,
     });
+    if (value.focus_label && manifest.observation.producer.version !== "1.14.41")
+      throw new Error("native file-label focus requires its supported 1.14.41 producer");
     const expectedVisibleNodes =
       1 + value.all.filter((clause) => clause.expect.kind === "visible").length;
     validateAssertionVisibility(visibility, "capture manifest.page.state_assertion.visibility", [
