@@ -130,7 +130,7 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
   ${variant === "duplicate-id" ? '<input id="upload-input" type="file">' : ""}
   <button type="button">After upload</button>
   ${variant === "covered" ? '<div style="position:fixed;inset:0;background:black;z-index:999">Actual covering overlay</div>' : ""}
-  </main><script>if(${JSON.stringify(variant)}==="shadow-cross-root"){const root=document.getElementById("upload-host").attachShadow({mode:${JSON.stringify(variant === "shadow-cross-root-closed" ? "closed" : "open")}});root.innerHTML=${JSON.stringify(input)};const control=root.getElementById("upload-input");control.style.cssText="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";if(document.getElementById("upload-zone").control!==null)throw Error("Test fixture must have no associated control");}if(${JSON.stringify(variant)}==="focus-driven-marker")document.getElementById("upload-input").addEventListener("focus",()=>document.getElementById("upload-zone").setAttribute("data-pm-state","focus"));document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
+  </main><script>if(${JSON.stringify(variant)}.startsWith("shadow-cross-root")){const root=document.getElementById("upload-host").attachShadow({mode:${JSON.stringify(variant === "shadow-cross-root-closed" ? "closed" : "open")}});root.innerHTML=${JSON.stringify(input)};const control=root.getElementById("upload-input");control.style.cssText="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";if(document.getElementById("upload-zone").control!==null)throw Error("Test fixture must have no associated control");}if(${JSON.stringify(variant)}==="focus-driven-marker")document.getElementById("upload-input").addEventListener("focus",()=>document.getElementById("upload-zone").setAttribute("data-pm-state","focus"));document.getElementById("${variant === "already-focused" ? "upload-input" : "before-upload"}").focus()</script></body></html>`;
   const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   try {
     const assertion = fileLabelAssertion();
@@ -227,7 +227,9 @@ for (const variant of [
   test(`native file-label focus rejects invalid actual Chromium evidence: ${variant}`, () => {
     assert.throws(
       () => nativeFileLabelProbe(variant),
-      /native file label|fully occluded|expected focus|state marker must be visibly rendered|state marker does not establish the routed state/
+      variant.startsWith("shadow-cross-root")
+        ? /native file label association crosses a native DOM tree boundary/
+        : /native file label|fully occluded|expected focus|state marker must be visibly rendered|state marker does not establish the routed state/
     );
   });
 }
