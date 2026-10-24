@@ -580,7 +580,13 @@ function reviewEvidenceIdsForCaptures(root, route, captures, captureIds) {
         ...(evidence.captures || []).map((capture) => capture.full_page),
         evidence.print,
       ].filter(Boolean);
-      const selectedCaptures = captures.captures.filter((capture) => selected.has(capture.id));
+      const selectedCaptures = captures.captures.filter(
+        (capture) =>
+          selected.has(capture.id) &&
+          route.coverage.some(
+            (row) => row.id === capture.coverage_id && row.subject_id === item.subject_id
+          )
+      );
       return sameFileBindingSet(rendered, selectedCaptures);
     })
     .map((item) => item.id);
@@ -9711,6 +9717,102 @@ function refreshNativePdfReviewPackage(state) {
   write(fixture.root, humanPath, html.replace("</main>", `${state.note}</main>`));
 }
 
+test("mixed HTML and native PDF evidence certifies only complete subject-specific renders", (t) => {
+  const { pdfFixture } = require("./helpers/pdf-document-fixture");
+  const html = makeFixture({ mode: "pm-artifact" });
+  t.after(() => fs.rmSync(html.root, { recursive: true, force: true }));
+  const pdf = pdfFixture(t);
+  fs.cpSync(path.join(html.root, "evidence"), path.join(pdf.root, "evidence"), {
+    recursive: true,
+  });
+  pdf.route.created_at = html.route.created_at;
+  pdf.route.subjects.unshift(...html.route.subjects);
+  pdf.route.coverage.unshift(...html.route.coverage);
+  write(pdf.root, pdf.routePath, JSON.stringify(pdf.route));
+  for (const row of html.captures.evidence) {
+    if (row.kind === "accessibility-tree")
+      Object.assign(
+        row,
+        auditEvidenceFile(
+          pdf.root,
+          row.id,
+          row.kind,
+          html.captures.captures,
+          2,
+          row.subject_id,
+          pdf.route.source.commit
+        )
+      );
+    if (row.kind === "artifact-structural") {
+      const artifact = path.join(pdf.root, html.route.subjects[0].artifact.path);
+      Object.assign(
+        row,
+        write(
+          pdf.root,
+          row.path,
+          JSON.stringify(buildManifest(artifact, inspectHtmlArtifact(fs.readFileSync(artifact))))
+        )
+      );
+    }
+  }
+  const state = nativePdfDesignFixture(t, { supplied: pdf });
+  if (!state) return;
+  state.captures.captures.unshift(...html.captures.captures);
+  state.captures.evidence.unshift(...html.captures.evidence);
+  for (const [key, score] of Object.entries(state.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      pdf.root,
+      key,
+      "pm-artifact",
+      pdf.route.coverage,
+      state.captures.captures,
+      state.captures.evidence
+    );
+  const timeBase = Date.now() + 1;
+  state.reviews = makeReviews(
+    pdf.root,
+    pdf.route,
+    state.captures,
+    state.report.scores,
+    1,
+    pdf.routePath,
+    timeBase
+  );
+  const fresh = state.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  fresh.result.observations.find((row) => row.capture_id === state.capture.id).observation =
+    "The print state at the print viewport retains two numbered report pages, with large black submitted text near the upper left of each white page.";
+  attachReviewReceipt(pdf.root, fresh, 1, reviewFixtureTime(20, 50, timeBase));
+  state.report.coverage = { required: 5, captured: 5, percent: 100 };
+  state.report.checked_at = reviewFixtureTime(55, 0, timeBase);
+  refreshNativePdfReviewPackage(state);
+  const primary = state.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  assert.ok(primary.input.evidence_ids.includes("evidence-render"));
+  assert.ok(primary.input.evidence_ids.includes(state.evidence.id));
+  assert.deepEqual(state.rerun(), { ok: true, issues: [] });
+
+  const renderEvidence = state.captures.evidence.find((row) => row.kind === "artifact-render");
+  const render = JSON.parse(fs.readFileSync(path.join(pdf.root, renderEvidence.path), "utf8"));
+  for (const mutate of [
+    (value) => value.captures.pop(),
+    (value) => {
+      value.print = { ...value.print, path: state.capture.path, sha256: state.capture.sha256 };
+    },
+  ]) {
+    const invalid = structuredClone(render);
+    mutate(invalid);
+    Object.assign(renderEvidence, write(pdf.root, renderEvidence.path, JSON.stringify(invalid)));
+    refreshNativePdfReviewPackage(state);
+    const result = state.rerun();
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.issues.some(
+        (issue) => issue.path.endsWith("input.evidence_ids") && /bound/.test(issue.message)
+      ),
+      JSON.stringify(result.issues)
+    );
+  }
+});
+
 test("direct PDF Primary cannot use the pre-PDF prompt identity", (t) => {
   const state = nativePdfDesignFixture(t);
   if (!state) return;
@@ -9766,8 +9868,11 @@ test("direct PDF Design gate accepts complete native pages and explicit assuranc
 
 test("direct-PDF release preserves unchanged native 1.14.41 evidence and rejects unknown producers", () => {
   const { fixture, run } = recertificationReleaseFixture("1.14.41", "1.14.42");
+  bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
   const files = new Set([
     fixture.capturesPath,
+    fixture.reviewsPath,
+    ...fixture.reviews.rounds[0].reviews.map((review) => review.execution.receipt.path),
     ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
     ...fixture.captures.evidence.map((entry) => entry.path),
   ]);

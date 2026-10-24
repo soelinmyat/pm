@@ -4027,6 +4027,7 @@ function validateReviewCaptureManifest(
 
 function requiredReviewEvidenceIds(root, route, captures, captureIds) {
   const selected = new Set(captureIds);
+  const coverageById = new Map((route.coverage || []).map((row) => [row.id, row]));
   return (captures.evidence || [])
     .filter((item) => {
       if (["accessibility-tree", "dom-audit", "pdf-document"].includes(item.kind)) {
@@ -4048,7 +4049,11 @@ function requiredReviewEvidenceIds(root, route, captures, captureIds) {
       ].filter(Boolean);
       const renderedIdentities = renderedFiles.map(fileBindingIdentity);
       const selectedIdentities = (captures.captures || [])
-        .filter((capture) => selected.has(capture.id))
+        .filter(
+          (capture) =>
+            selected.has(capture.id) &&
+            coverageById.get(capture.coverage_id)?.subject_id === item.subject_id
+        )
         .map(fileBindingIdentity);
       return sameStringSet(renderedIdentities, selectedIdentities);
     })
