@@ -1836,6 +1836,73 @@ function focusIndicatorRegions(node, style, prior, metrics, requireVisibleColor 
     .filter((region) => region.width > 0 && region.height > 0);
 }
 
+// The focused target and its pre-Tab reference must identify the same native
+// enabled file input and its physical label; caller locators never supply geometry.
+function nativeFileLabelTarget(
+  assertion,
+  model,
+  axTree,
+  style,
+  metrics,
+  evaluateVisibility,
+  focused
+) {
+  const locate = (locator) =>
+    model.filter(
+      (node) => node.attributes[locator.by === "id" ? "id" : "data-testid"] === locator.value
+    );
+  const inputs = locate(assertion.focus_label.control);
+  const labels = locate(assertion.focus_label.label);
+  if (inputs.length !== 1 || labels.length !== 1)
+    throw new Error("native file label association requires unique control and label");
+  const input = inputs[0];
+  const label = labels[0];
+  const ax = axTree.nodes.find(
+    (node) => !node.ignored && node.backendDOMNodeId === input.backendNodeId
+  );
+  let nearestLabel = model[input.parentIndex];
+  const visited = new Set();
+  while (nearestLabel && nearestLabel.nodeName !== "label" && !visited.has(nearestLabel.index)) {
+    visited.add(nearestLabel.index);
+    nearestLabel = model[nearestLabel.parentIndex];
+  }
+  const id = input.attributes.id;
+  const bounds = visibleIntersection(label, model, style, metrics, evaluateVisibility);
+  if (
+    input.nodeName !== "input" ||
+    input.attributes.type?.toLowerCase() !== "file" ||
+    Object.hasOwn(input.attributes, "disabled") ||
+    input.attributes["aria-disabled"] === "true" ||
+    !ax ||
+    axProperties(ax).get("disabled") === true ||
+    (axProperties(ax).get("focused") === true) !== focused ||
+    !id ||
+    model.filter((node) => node.attributes.id === id).length !== 1 ||
+    label.nodeName !== "label" ||
+    label.attributes.for !== id ||
+    nearestLabel?.index !== label.index ||
+    !bounds ||
+    bounds.right - bounds.left < 32 ||
+    bounds.bottom - bounds.top < 20
+  )
+    throw new Error("native file label association, focus or visible target geometry is invalid");
+  return {
+    input,
+    label,
+    proof: {
+      control_backend_node_id: input.backendNodeId,
+      label_backend_node_id: label.backendNodeId,
+      control_focused: focused,
+      label_bounds: {
+        x: Math.floor(bounds.left - metrics.cssVisualViewport.pageX),
+        y: Math.floor(bounds.top - metrics.cssVisualViewport.pageY),
+        width: Math.floor(bounds.right - bounds.left),
+        height: Math.floor(bounds.bottom - bounds.top),
+      },
+    },
+  };
+}
+
 async function verifyAssertionHitTargets(
   client,
   requirements,
@@ -2051,40 +2118,17 @@ function evaluateStateAssertion(
       !["focus", "keyboard"].includes(assertion.state)
     )
       throw new Error("unsupported native file label focus policy");
-    const inputs = locate(assertion.focus_label.control);
-    const labels = locate(assertion.focus_label.label);
-    if (inputs.length !== 1 || labels.length !== 1)
-      throw new Error("native file label association requires unique control and label");
-    const input = inputs[0];
-    const label = labels[0];
-    let nearestLabel = model[input.parentIndex];
-    const visited = new Set();
-    while (nearestLabel && nearestLabel.nodeName !== "label" && !visited.has(nearestLabel.index)) {
-      visited.add(nearestLabel.index);
-      nearestLabel = model[nearestLabel.parentIndex];
-    }
-    const id = input.attributes.id;
-    const bounds = visibleIntersection(label, model, style, metrics, evaluateVisibility);
-    if (
-      input.nodeName !== "input" ||
-      input.attributes.type?.toLowerCase() !== "file" ||
-      Object.hasOwn(input.attributes, "disabled") ||
-      input.attributes["aria-disabled"] === "true" ||
-      !axByBackendId.has(input.backendNodeId) ||
-      axProperties(axByBackendId.get(input.backendNodeId)).get("disabled") === true ||
-      axProperties(axByBackendId.get(input.backendNodeId)).get("focused") !== true ||
-      !id ||
-      model.filter((node) => node.attributes.id === id).length !== 1 ||
-      label.nodeName !== "label" ||
-      label.attributes.for !== id ||
-      nearestLabel?.index !== label.index ||
-      stateNode.index !== label.index ||
-      !bounds ||
-      bounds.right - bounds.left < 32 ||
-      bounds.bottom - bounds.top < 20
-    )
-      throw new Error("native file label association or visible target geometry is invalid");
-    focusLabel = label;
+    focusLabel = nativeFileLabelTarget(
+      assertion,
+      model,
+      axTree,
+      style,
+      metrics,
+      evaluateVisibility,
+      true
+    ).label;
+    if (stateNode.index !== focusLabel.index)
+      throw new Error("native file label must be the actual state marker");
   }
   if (!visible(stateNode)) throw new Error("state marker must be visibly rendered in the viewport");
   if (stateNode.attributes[assertion.state_marker.attribute] !== assertion.state_marker.value)
@@ -4247,7 +4291,8 @@ async function nativeSample(
   stateAssertion,
   baselineStyles = null,
   caretValueProofs = [],
-  focusModalityProof = null
+  focusModalityProof = null,
+  fileLabelBaseline = null
 ) {
   const [frameTree, metrics, snapshot, axTree] = await Promise.all([
     client.send("Page.getFrameTree"),
@@ -4317,8 +4362,26 @@ async function nativeSample(
         check.native_name_sha256 = digest(Buffer.from(String(native.name.value).trim()));
     }
   }
+  const fileLabelAssertion =
+    fileLabelBaseline || (stateAssertion.focus_label ? stateAssertion : null);
+  const fileLabelTarget = fileLabelAssertion
+    ? nativeFileLabelTarget(
+        fileLabelAssertion,
+        model,
+        axTree,
+        style,
+        metrics,
+        visibilityEvaluator,
+        !fileLabelBaseline
+      )
+    : null;
+  const fileLabel = fileLabelTarget?.proof;
+  const fileLabelStyles = fileLabelTarget
+    ? Object.fromEntries(FOCUS_STYLE_NAMES.map((key) => [key, style(fileLabelTarget.label, key)]))
+    : null;
   return {
     identity,
+    ...(fileLabel ? { fileLabel, fileLabelStyles } : {}),
     controlSizing: sizedControls.map((node) => [node.backendNodeId, node.intrinsicHeight]),
     assertionVisibility,
     accessibility: accessibility.observations,
@@ -4956,6 +5019,7 @@ async function main() {
       "-webkit-mask-box-image-source",
     ];
     let baselineStyles = null;
+    let focusBaseline = null;
     // Private native field values certify caret preparation through settlement
     // and frozen samples; they are never emitted in raw evidence or logs.
     const caretValueProofs = [];
@@ -4977,8 +5041,65 @@ async function main() {
       );
       // Only native navigation is allowed; the assertion file hash binds these actions.
       // Never click, submit, execute caller code, or manufacture a state marker.
-      for (const action of config.stateAssertion.before_capture || []) {
+      const actions = config.stateAssertion.before_capture || [];
+      const lastTab = actions.findLastIndex((action) => action.kind === "tab");
+      for (const [actionIndex, action] of actions.entries()) {
         assertNetworkHealthy();
+        if (config.stateAssertion.focus_label && actionIndex === lastTab) {
+          const baselineAssertion = {
+            ...config.stateAssertion,
+            all: [
+              { locator: config.stateAssertion.focus_label.label, expect: { kind: "visible" } },
+            ],
+          };
+          delete baselineAssertion.focus_label;
+          const before = await nativeSample(
+            client,
+            target.id,
+            computedStyles,
+            baselineAssertion,
+            null,
+            [],
+            null,
+            config.stateAssertion
+          );
+          const image = await client.send("Page.captureScreenshot", {
+            format: "png",
+            fromSurface: true,
+            captureBeyondViewport: false,
+          });
+          if (!image.data) throw new Error("native file label baseline screenshot is missing");
+          const screenshot = writeExclusiveFile(
+            config.focusBaselinePath,
+            image.data,
+            "focus baseline screenshot"
+          );
+          const after = await nativeSample(
+            client,
+            target.id,
+            computedStyles,
+            baselineAssertion,
+            null,
+            [],
+            null,
+            config.stateAssertion
+          );
+          if (canonicalSample(before) !== canonicalSample(after))
+            throw new Error("native file label baseline changed during capture");
+          assertNetworkHealthy();
+          focusBaseline = {
+            screenshot,
+            page: { ...before.identity, final_url: redactedUrlIdentity(before.identity.final_url) },
+            target: before.fileLabel,
+            visibility: before.assertionVisibility,
+            captured_at: new Date().toISOString(),
+          };
+          // Bands must change relative to this exact pre-Tab sample, even when
+          // earlier native preparation scrolled the control into view.
+          baselineStyles = new Map([
+            [before.fileLabel.label_backend_node_id, before.fileLabelStyles],
+          ]);
+        }
         if (action.kind === "tab") {
           for (const proof of caretValueProofs) proof.retainsFocus = false;
           const budget = { remaining: action.count };
@@ -5222,6 +5343,16 @@ async function main() {
     if (JSON.stringify(observedFinalUrl) !== JSON.stringify(expectedFinalUrl))
       throw new Error("navigation drift: observed final URL does not match expected URL identity");
     const publicPageIdentity = { ...middle.identity, final_url: observedFinalUrl };
+    if (config.stateAssertion.focus_label) {
+      if (
+        !focusBaseline ||
+        canonicalSample(focusBaseline.page) !== canonicalSample(publicPageIdentity) ||
+        canonicalSample({ ...focusBaseline.target, control_focused: true }) !==
+          canonicalSample(middle.fileLabel)
+      )
+        throw new Error("native file label baseline target, page or geometry drifted");
+      focusBaseline.focused_target = middle.fileLabel;
+    }
     criticalWindow = false;
 
     // Exercise widget handlers only after the retained screenshot and DOM/AX samples are frozen.
@@ -5293,6 +5424,7 @@ async function main() {
       dom_observations: middle.dom,
       screenshot: firstAttestation,
       verification_screenshot: secondAttestation,
+      ...(focusBaseline ? { focus_baseline: focusBaseline } : {}),
       network: {
         policy: "explicit-origin-allowlist",
         allowed_origins: [...allowedOrigins].sort(),
