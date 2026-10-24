@@ -101,6 +101,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.39 extends offline empty-state text comparison only. The native
   // producer, audits, report contract and all pixel thresholds are unchanged.
   ["1.14.39", new Set(["1.14.37", "1.14.38"])],
+  // 1.14.40 adds loading-only pending image reads. Existing native records,
+  // audits and pixel proof from these producers retain the same contract.
+  ["1.14.40", new Set(["1.14.37", "1.14.38", "1.14.39"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -140,6 +143,11 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
     ]),
   ],
 ]);
+// Image-loading eligibility does not change the sparse heading/caption proof.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.40",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.39"), "1.14.40"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
