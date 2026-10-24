@@ -25,6 +25,7 @@ const {
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const { validateScenarios, coverageIdentity } = require("./lib/design-critique-scenarios");
+const { hasNativeFocusBandChange } = require("./lib/native-focus-pixels");
 const { createNativeRegionCache } = require("./lib/native-region-cache");
 const {
   REVIEW_ASSURANCE,
@@ -55,6 +56,7 @@ const {
   validateMeaningfulVisual,
   manifestShape: validateCaptureManifestShape,
   validateAssertionVisibility,
+  validateFileLabelBaseline,
   validateStateAssertion,
   validateSurfacePattern,
   validateUrlIdentity,
@@ -104,6 +106,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.40 adds loading-only pending image reads. Existing native records,
   // audits and pixel proof from these producers retain the same contract.
   ["1.14.40", new Set(["1.14.37", "1.14.38", "1.14.39"])],
+  // The optional native file-label binding is new; ordinary captures retain
+  // their original native and audit contracts.
+  ["1.14.41", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -147,6 +152,10 @@ const SPARSE_CONTENT_PRODUCER_VERSIONS = new Map([
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.40",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.39"), "1.14.40"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.41",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.40"), "1.14.41"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1765,8 +1774,12 @@ function nativeKeyboardFocusRegions(observation) {
     return [];
   const regions = [];
   for (const clause of assertion.all.filter((item) => item.expect.kind === "focused")) {
+    const locator =
+      assertion.focus_label && isDeepStrictEqual(clause.locator, assertion.focus_label.control)
+        ? assertion.focus_label.label
+        : clause.locator;
     const index = assertion.all.findIndex(
-      (item) => item.expect.kind === "visible" && isDeepStrictEqual(item.locator, clause.locator)
+      (item) => item.expect.kind === "visible" && isDeepStrictEqual(item.locator, locator)
     );
     if (index < 0) continue;
     const point = observation.manifest.page.state_assertion.visibility.checks.find(
@@ -1813,20 +1826,14 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
           after.sha256 !== right.capture.sha256
         )
           continue;
-        let qualifying = 0;
-        let pixelSupport = 0;
-        for (const region of regions) {
-          const beforeRegion = activeReadCache.nativeRegions.inspect(before, region);
-          const difference = visualDifference(
-            beforeRegion,
-            activeReadCache.nativeRegions.inspect(after, region)
-          );
-          if (isMaterialVisualDifference(difference)) {
-            qualifying++;
-            pixelSupport += nativeRegionPixelSupport(difference, beforeRegion, region);
-          }
-          if (qualifying >= 2 && pixelSupport >= 32) return true;
-        }
+        if (
+          hasNativeFocusBandChange(
+            (region) => activeReadCache.nativeRegions.inspect(before, region),
+            (region) => activeReadCache.nativeRegions.inspect(after, region),
+            regions
+          )
+        )
+          return true;
       } catch {
         // Invalid or unavailable local evidence cannot grant an exception.
       }
@@ -1992,6 +1999,16 @@ function validateTrustedCaptureObservation(
   } catch {
     // The assertion validator already reports malformed JSON.
   }
+  validateNativeFileLabelBaseline(
+    root,
+    capture,
+    file,
+    manifest,
+    focusAssertion,
+    at,
+    issues,
+    runtime.retainFailedAuditChecks
+  );
   return {
     manifest,
     manifestFile: file,
@@ -2000,6 +2017,85 @@ function validateTrustedCaptureObservation(
     loadingContentVerified:
       (hasLoadingContent || hasSparseContent) && issues.length === initialIssues,
   };
+}
+
+// Every claimed native file-label focus has its own unfocused reference. This
+// proof cannot depend on route grouping or compare two already-focused variants.
+function validateNativeFileLabelBaseline(
+  root,
+  capture,
+  manifestFile,
+  manifest,
+  assertion,
+  label,
+  issues,
+  retainFailedQuality = false
+) {
+  const baseline = manifest.page.state_assertion.focus_baseline;
+  if (!assertion?.focus_label) {
+    if (baseline !== undefined)
+      add(issues, label, "native file label baseline requires its assertion policy");
+    return;
+  }
+  try {
+    const page = Object.fromEntries(
+      ["target_id", "main_frame_id", "loader_id", "final_url", "css_viewport"].map((key) => [
+        key,
+        manifest.page[key],
+      ])
+    );
+    validateFileLabelBaseline(baseline, page, true);
+    if (
+      baseline.screenshot.path !== `${path.posix.dirname(manifestFile.relative)}/focus-baseline.png`
+    )
+      throw new Error("native file label baseline must use its canonical capture bundle path");
+    if (
+      compareRfc3339DateTimes(baseline.captured_at, manifest.timestamps.started_at) < 0 ||
+      compareRfc3339DateTimes(baseline.captured_at, manifest.timestamps.page_ready_at) > 0
+    )
+      throw new Error("native file label baseline timestamp must precede post-Tab readiness");
+    const before = readBoundFile(root, baseline.screenshot.path, `${label}.focus_baseline`, issues);
+    const after = readBoundFile(root, capture.path, `${label}.capture`, issues);
+    if (
+      !before ||
+      !after ||
+      before.sha256 !== baseline.screenshot.sha256 ||
+      after.sha256 !== capture.sha256
+    )
+      throw new Error("native file label baseline screenshot bytes do not match their binding");
+    const decoded = inspectMediaOnce(before, "png", inspectPngVisualBytes);
+    if (
+      decoded.pixelSha256 !== baseline.screenshot.pixel_sha256 ||
+      decoded.width !== capture.width ||
+      decoded.height !== capture.height ||
+      baseline.screenshot.width !== capture.width ||
+      baseline.screenshot.height !== capture.height
+    )
+      throw new Error(
+        "native file label baseline decoded pixels or dimensions differ from their binding"
+      );
+    const marker = manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === "state marker"
+    );
+    if (marker?.asserted_backend_node_id !== baseline.target.label_backend_node_id)
+      throw new Error("native file label baseline must identify the focused physical label");
+    const regions = nativeKeyboardFocusRegions({ assertion, manifest });
+    if (
+      !regions.some((bands) =>
+        hasNativeFocusBandChange(
+          (region) => activeReadCache.nativeRegions.inspect(before, region),
+          (region) => activeReadCache.nativeRegions.inspect(after, region),
+          bands
+        )
+      ) &&
+      !retainFailedQuality
+    )
+      throw new Error(
+        "native file label baseline requires materially different decoded pixels in its focus bands"
+      );
+  } catch (error) {
+    add(issues, `${label}.focus_baseline`, `native file label baseline: ${error.message}`);
+  }
 }
 
 function validateTrustedStateAssertion(root, manifest, routeFile, coverage, label, issues) {
@@ -2036,6 +2132,8 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
       coverage_id: coverage?.id,
       state: coverage?.state,
     });
+    if (value.focus_label && manifest.observation.producer.version !== "1.14.41")
+      throw new Error("native file-label focus requires its supported 1.14.41 producer");
     const expectedVisibleNodes =
       1 + value.all.filter((clause) => clause.expect.kind === "visible").length;
     validateAssertionVisibility(visibility, "capture manifest.page.state_assertion.visibility", [

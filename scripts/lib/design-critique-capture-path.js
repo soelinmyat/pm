@@ -4,6 +4,7 @@ const { MAX_RECOVERY_ROUNDS } = require("./scoped-recovery");
 
 const MANAGED_CAPTURE_MEMBERS = new Set([
   "capture.png",
+  "focus-baseline.png",
   "accessibility-tree-raw.json",
   "dom-audit-raw.json",
   "network-ledger.json",

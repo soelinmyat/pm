@@ -922,7 +922,8 @@ function refreshTrustedCaptureObservations(fixture) {
       {},
       fixture.nativeFocusProof ?? true,
       fixture.nativeStateProofByCapture?.[capture.id] ?? fixture.nativeStateProof,
-      fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION
+      fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION,
+      fixture.fileLabelBaselineByCapture?.[capture.id] ?? fixture.fileLabelBaseline ?? true
     );
 }
 
@@ -936,7 +937,8 @@ function attachTrustedCaptureObservation(
   viewportOverrides = {},
   nativeFocusProof = true,
   nativeStateProof = null,
-  producerVersion = PLUGIN_VERSION
+  producerVersion = PLUGIN_VERSION,
+  fileLabelBaseline = true
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -977,6 +979,15 @@ function attachTrustedCaptureObservation(
       locator: { by: "role-name", value: "button:Save account" },
       expect: { kind: "focused" },
     });
+    if (nativeFocusProof === "file-label") {
+      assertion.focus_label = {
+        policy: "native-file-input-label-v1",
+        control: { by: "id", value: "native-file-input" },
+        label: assertion.state_marker.locator,
+      };
+      assertion.all[0].locator = assertion.focus_label.label;
+      assertion.all[1].locator = assertion.focus_label.control;
+    }
   }
   if (
     nativeStateProof &&
@@ -1231,6 +1242,10 @@ function attachTrustedCaptureObservation(
       },
     ],
   };
+  if (assertion.focus_label) {
+    assertionVisibility.checks[0].asserted_backend_node_id = 2;
+    assertionVisibility.checks[0].hit_backend_node_id = 2;
+  }
   if (pendingButtonProof && ["boundary", "loading"].includes(coverage.state)) {
     const check = assertionVisibility.checks[1];
     Object.assign(check, {
@@ -1693,11 +1708,39 @@ function attachTrustedCaptureObservation(
     },
     timestamps,
   };
-  capture.observation = write(
-    root,
-    `evidence/files/${capture.id}-capture.json`,
-    `${JSON.stringify(manifest, null, 2)}\n`
-  );
+  const manifestPath = assertion.focus_label
+    ? `evidence/files/${capture.id}/capture.json`
+    : `evidence/files/${capture.id}-capture.json`;
+  if (assertion.focus_label && fileLabelBaseline !== "missing") {
+    const bytes =
+      fileLabelBaseline === "same-pixels"
+        ? captureBytes
+        : validPng(capture.width, capture.height, coverage.id.endsWith("alternate") ? 40 : 0);
+    const image = inspectPngVisualBytes(bytes);
+    const target = {
+      control_backend_node_id: 3,
+      label_backend_node_id: 2,
+      control_focused: false,
+      label_bounds: { x: 8, y: 8, width: 64, height: 29 },
+    };
+    const visibility = structuredClone(assertionVisibility);
+    for (const point of visibility.checks) point.focus_indicator_regions = [];
+    manifest.page.state_assertion.focus_baseline = {
+      screenshot: {
+        ...write(root, `${path.posix.dirname(manifestPath)}/focus-baseline.png`, bytes),
+        pixel_sha256: image.pixelSha256,
+        width: image.width,
+        height: image.height,
+      },
+      page: pageIdentity,
+      target,
+      focused_target: { ...structuredClone(target), control_focused: true },
+      visibility,
+      stability: { samples: 2, decoded_pixels_sha256: image.pixelSha256 },
+      captured_at: capture.captured_at,
+    };
+  }
+  capture.observation = write(root, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 function publishManagedCaptureBundle(fixture, capture) {
@@ -1720,6 +1763,14 @@ function publishManagedCaptureBundle(fixture, capture) {
       fs.readFileSync(path.join(fixture.root, manifest.raw_evidence.network_ledger.path)),
     ],
   ]);
+  const focusBaseline = manifest.page.state_assertion.focus_baseline;
+  if (focusBaseline) {
+    payloads.set(
+      "focus-baseline.png",
+      fs.readFileSync(path.join(fixture.root, focusBaseline.screenshot.path))
+    );
+    focusBaseline.screenshot.path = `${base}/focus-baseline.png`;
+  }
   capture.path = `${base}/capture.png`;
   manifest.capture.path = capture.path;
   manifest.raw_evidence.accessibility_tree.path = `${base}/accessibility-tree-raw.json`;
@@ -6880,6 +6931,102 @@ test("accepts a thin native keyboard focus ring that coarse viewport tiles miss"
   );
 });
 
+for (const [name, pixels, rejected] of [
+  ["visible-ring", validPng(1440, 1000, 0, 0, null, 1, true), false],
+  ["edge-beacons", validPng(1440, 1000, 0, 0, null, 1, "focus-edge-beacons"), true],
+  ["unchanged-pixels", validPng(1440, 1000), true],
+  ["unrelated-material-change", validPng(1440, 1000, 0, 0, 50, 1440 * 400), true],
+]) {
+  test(`native file-label pixel proof preserves focused-band support: ${name}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeFocusProof = "file-label";
+    addRequiredStateCapture(fixture, "keyboard", pixels);
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      rejected
+    );
+  });
+}
+
+test("a legacy producer cannot claim native file-label focus support", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  fixture.producerVersionByCapture = { "capture-ui-keyboard": "1.14.40" };
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  assert.ok(check(fixture).issues.some((issue) => /file-label focus requires/.test(issue.message)));
+});
+
+test("native file-label focus rejects a singleton tablet capture without its own baseline", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  fixture.fileLabelBaseline = "missing";
+  fixture.route.coverage.find((row) => row.id === "ui-keyboard").viewport = "tablet";
+  addRequiredStateCapture(fixture, "keyboard", validPng(768, 1024));
+  assert.ok(
+    check(fixture).issues.some((issue) => /native file label.*baseline/.test(issue.message))
+  );
+});
+
+test("native file-label focused scenarios may share their valid indicator pixels", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  fixture.route.scenarios = [
+    {
+      id: "alternate",
+      subject_id: "account-detail",
+      description: "Another populated data variant",
+    },
+  ];
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((row) => row.id === "ui-keyboard"),
+    id: "ui-keyboard-alternate",
+    scenario_id: "alternate",
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const bytes = validPng(1440, 1000, 40, 0, null, 1, true);
+  const capture = {
+    ...fixture.captures.captures.find((row) => row.coverage_id === "ui-keyboard"),
+    id: "capture-ui-keyboard-alternate",
+    coverage_id: "ui-keyboard-alternate",
+    ...write(fixture.root, "evidence/files/keyboard-alternate.png", bytes),
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+  };
+  fixture.captures.captures.push(capture);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, "alternate-a11y", "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, "alternate-dom", "dom-audit", [capture], 2)
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.coverage = { required: 4, captured: 4, percent: 100 };
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      fixture.root,
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  rewriteReportAndHtml(fixture);
+  const fresh = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  fresh.result.observations.find((row) => row.capture_id === "capture-ui-keyboard").observation =
+    "The keyboard state at the desktop viewport shows a thin mint rectangle around the upload control at the upper left of the dark blue header; the wide white card remains centered below.";
+  fresh.result.observations.find(
+    (row) => row.capture_id === "capture-ui-keyboard-alternate"
+  ).observation =
+    "The keyboard state at the desktop viewport has a purple header that changes the populated variant's background while the mint upload outline keeps its size and placement; the white card and pale sidebar retain their alignment.";
+  attachReviewReceipt(fixture.root, fresh, 1);
+  rewriteReviewsAndReport(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
 test("native keyboard focus accepts visible rings in two-pixel bands with empty grid cells", () => {
   const fixture = makeFixture();
   fixture.nativeFocusProof = "thin-bands";
@@ -9184,4 +9331,65 @@ test("sparse-content compatibility retains native audit failures and rejects unk
     const { run: incompatible } = recertificationReleaseFixture(version, "1.14.32");
     assert.match(JSON.stringify(incompatible().issues), /capture producer/);
   }
+});
+
+test("native file-label focus accepts a singleton tablet with its own native reference", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  fixture.route.coverage.find((row) => row.id === "ui-keyboard").viewport = "tablet";
+  addRequiredStateCapture(fixture, "keyboard", validPng(768, 1024, 0, 0, null, 1, true));
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures.")),
+    []
+  );
+});
+
+for (const defect of [
+  "missing",
+  "same-pixels",
+  "focused-before",
+  "foreign-target",
+  "moved-label",
+  "different-page",
+  "future-time",
+  "corrupt-pixels",
+  "single-sample",
+]) {
+  test(`native file-label baseline rejects mismatched bound evidence: ${defect}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeFocusProof = "file-label";
+    fixture.fileLabelBaseline = ["missing", "same-pixels"].includes(defect) ? defect : true;
+    addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+    const capture = fixture.captures.captures.find((row) => row.coverage_id === "ui-keyboard");
+    const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, capture.observation.path)));
+    const baseline = manifest.page.state_assertion.focus_baseline;
+    if (defect === "focused-before") baseline.target.control_focused = true;
+    if (defect === "foreign-target") baseline.target.control_backend_node_id++;
+    if (defect === "moved-label") baseline.focused_target.label_bounds.x++;
+    if (defect === "different-page") baseline.page.target_id += "-other";
+    if (defect === "future-time") baseline.captured_at = "2026-07-12T00:05:00Z";
+    if (defect === "corrupt-pixels") baseline.screenshot.pixel_sha256 = "0".repeat(64);
+    if (defect === "single-sample") baseline.stability.samples = 1;
+    rewrite(fixture.root, capture.observation.path, manifest);
+    capture.observation = binding(fixture.root, capture.observation.path);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    assert.ok(
+      check(fixture).issues.some((issue) => /native file label.*baseline/.test(issue.message)),
+      defect
+    );
+  });
+}
+
+test("native file-label baseline stays readable inside its managed atomic capture bundle", () => {
+  const fixture = makeFixture();
+  fixture.nativeFocusProof = "file-label";
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  const capture = fixture.captures.captures.find((row) => row.coverage_id === "ui-keyboard");
+  publishManagedCaptureBundle(fixture, capture);
+  assert.deepEqual(
+    check(fixture).issues.filter((issue) => issue.path.startsWith("captures.")),
+    []
+  );
 });

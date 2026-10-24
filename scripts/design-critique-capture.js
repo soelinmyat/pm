@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { validatePendingAtCapture } = require("./lib/capture-loading-readiness");
+const { hasNativeFocusBandChange } = require("./lib/native-focus-pixels");
+const { isDeepStrictEqual } = require("node:util");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
@@ -485,6 +487,7 @@ function validateStateAssertion(assertion, expected = null) {
       "state_marker",
       "all",
       ...(Object.hasOwn(assertion || {}, "before_capture") ? ["before_capture"] : []),
+      ...(Object.hasOwn(assertion || {}, "focus_label") ? ["focus_label"] : []),
     ],
     "state assertion"
   );
@@ -594,9 +597,41 @@ function validateStateAssertion(assertion, expected = null) {
     )
       throw new Error(`state assertion.all[${index}].expect.value is invalid`);
   }
-  validateSemanticStateGuard(assertion);
   validateCaptureActions(assertion.before_capture);
+  if (assertion.focus_label !== undefined) validateFocusLabel(assertion);
+  validateSemanticStateGuard(assertion);
   return assertion;
+}
+
+function validateFocusLabel(assertion) {
+  const binding = assertion.focus_label;
+  exactObject(binding, ["policy", "control", "label"], "state assertion.focus_label");
+  if (
+    binding.policy !== "native-file-input-label-v1" ||
+    !["focus", "keyboard"].includes(assertion.state)
+  )
+    throw new Error("focus_label requires the native-file-input-label-v1 focus/keyboard policy");
+  for (const name of ["control", "label"]) {
+    exactObject(binding[name], ["by", "value"], `focus_label.${name}`);
+    if (!["id", "test-id"].includes(binding[name].by))
+      throw new Error("focus_label locators must use an exact id or test-id");
+    boundedText(binding[name].value, 500, `focus_label.${name}.value`);
+  }
+  const matches = (left, right) => left.by === right.by && left.value === right.value;
+  if (
+    matches(binding.control, binding.label) ||
+    !matches(binding.label, assertion.state_marker.locator) ||
+    !assertion.before_capture?.some((action) => action.kind === "tab" && action.count > 0) ||
+    !assertion.all.some(
+      (clause) => clause.expect.kind === "focused" && matches(clause.locator, binding.control)
+    ) ||
+    !assertion.all.some(
+      (clause) => clause.expect.kind === "visible" && matches(clause.locator, binding.label)
+    )
+  )
+    throw new Error(
+      "focus_label requires native Tab, focused control and visible marker label guards"
+    );
 }
 
 function validateCaptureActions(actions) {
@@ -659,7 +694,9 @@ function validateSemanticStateGuard(assertion) {
   let satisfied = true;
   let requirement = "";
   if (new Set(["focus", "keyboard"]).has(assertion.state)) {
-    satisfied = guards.some((clause) => clause.expect.kind === "focused" && visiblyGuarded(clause));
+    satisfied =
+      Boolean(assertion.focus_label) ||
+      guards.some((clause) => clause.expect.kind === "focused" && visiblyGuarded(clause));
     requirement = "focused and visible guards for the same node";
   } else if (assertion.state === "disabled") {
     satisfied = guards.some(
@@ -952,7 +989,14 @@ function runCaptureProbe(configuration, runtime = {}) {
   let result;
   const probePath = runtime.probePath || CAPTURE_PROBE;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    for (const filePath of [configuration.outputPath, configuration.verificationPath])
+    for (const filePath of [
+      configuration.outputPath,
+      configuration.verificationPath,
+      ...(configuration.focusBaselinePath ? [configuration.focusBaselinePath] : []),
+      ...(configuration.focusBaselineVerificationPath
+        ? [configuration.focusBaselineVerificationPath]
+        : []),
+    ])
       fs.rmSync(filePath, { force: true });
     const controlToken = crypto.randomBytes(24).toString("hex");
     result = spawnSync(
@@ -993,7 +1037,14 @@ function runCaptureProbe(configuration, runtime = {}) {
     ].some((message) => detail.includes(message));
     if (!retryable || attempt === 3) break;
   }
-  for (const filePath of [configuration.outputPath, configuration.verificationPath])
+  for (const filePath of [
+    configuration.outputPath,
+    configuration.verificationPath,
+    ...(configuration.focusBaselinePath ? [configuration.focusBaselinePath] : []),
+    ...(configuration.focusBaselineVerificationPath
+      ? [configuration.focusBaselineVerificationPath]
+      : []),
+  ])
     fs.rmSync(filePath, { force: true });
   if (result?.error) throw new Error(`trusted capture failed: ${result.error.message}`);
   throw new Error(
@@ -1132,6 +1183,107 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
   return value;
 }
 
+function validateFileLabelBaseline(baseline, page, published = false) {
+  exactObject(
+    baseline,
+    [
+      "screenshot",
+      "page",
+      "target",
+      "focused_target",
+      "visibility",
+      "captured_at",
+      "stability",
+      ...(!published ? ["verification_screenshot"] : []),
+    ],
+    "native file label baseline"
+  );
+  exactObject(
+    baseline.screenshot,
+    published
+      ? ["path", "sha256", "pixel_sha256", "width", "height"]
+      : ["dev", "ino", "size", "mtime_ns", "ctime_ns", "sha256"],
+    "native file label baseline.screenshot"
+  );
+  if (published) {
+    boundedText(baseline.screenshot.path, 4096, "native file label baseline.screenshot.path");
+    for (const key of ["sha256", "pixel_sha256"])
+      if (!/^[a-f0-9]{64}$/.test(baseline.screenshot[key] || ""))
+        throw new Error("native file label baseline screenshot requires exact hashes");
+    for (const key of ["width", "height"])
+      if (!Number.isSafeInteger(baseline.screenshot[key]) || baseline.screenshot[key] < 1)
+        throw new Error("native file label baseline screenshot dimensions are invalid");
+  } else {
+    validateAttestation(baseline.screenshot, "native file label baseline.screenshot");
+    validateAttestation(
+      baseline.verification_screenshot,
+      "native file label baseline.verification_screenshot"
+    );
+  }
+  exactObject(
+    baseline.stability,
+    ["samples", "decoded_pixels_sha256"],
+    "native file label baseline.stability"
+  );
+  if (
+    baseline.stability.samples !== 2 ||
+    !/^[a-f0-9]{64}$/.test(baseline.stability.decoded_pixels_sha256 || "") ||
+    (published && baseline.stability.decoded_pixels_sha256 !== baseline.screenshot.pixel_sha256)
+  )
+    throw new Error("native file label baseline requires two stable decoded pixel samples");
+  if (!isDeepStrictEqual(baseline.page, page))
+    throw new Error("native file label baseline must retain the same page and viewport");
+  for (const [key, focused] of [
+    ["target", false],
+    ["focused_target", true],
+  ]) {
+    const target = baseline[key];
+    exactObject(
+      target,
+      ["control_backend_node_id", "label_backend_node_id", "control_focused", "label_bounds"],
+      `native file label baseline.${key}`
+    );
+    for (const field of ["control_backend_node_id", "label_backend_node_id"])
+      if (!Number.isSafeInteger(target[field]) || target[field] < 1)
+        throw new Error("native file label baseline requires native node identities");
+    if (
+      target.control_backend_node_id === target.label_backend_node_id ||
+      target.control_focused !== focused
+    )
+      throw new Error("native file label baseline requires a separate unfocused native control");
+    exactObject(
+      target.label_bounds,
+      ["x", "y", "width", "height"],
+      "native file label baseline.label_bounds"
+    );
+    const bounds = target.label_bounds;
+    for (const field of ["x", "y", "width", "height"])
+      if (!Number.isSafeInteger(bounds[field]) || bounds[field] < 0)
+        throw new Error("native file label baseline geometry is invalid");
+    if (
+      bounds.width < 32 ||
+      bounds.height < 20 ||
+      bounds.x + bounds.width > page.css_viewport.client_width ||
+      bounds.y + bounds.height > page.css_viewport.client_height
+    )
+      throw new Error("native file label baseline geometry is outside the viewport");
+  }
+  if (!isDeepStrictEqual({ ...baseline.target, control_focused: true }, baseline.focused_target))
+    throw new Error("native file label baseline native target or geometry drifted");
+  validateAssertionVisibility(baseline.visibility, "native file label baseline.visibility", [
+    "state marker",
+    "state assertion clause 1",
+  ]);
+  if (
+    baseline.visibility.checks.some(
+      (check) => check.asserted_backend_node_id !== baseline.target.label_backend_node_id
+    )
+  )
+    throw new Error("native file label baseline visibility must identify its physical label");
+  if (!isRfc3339DateTime(baseline.captured_at))
+    throw new Error("native file label baseline timestamp must be RFC 3339");
+}
+
 function validateProbeResult(result, plan) {
   exactObject(
     result,
@@ -1144,6 +1296,7 @@ function validateProbeResult(result, plan) {
       "dom_observations",
       "screenshot",
       "verification_screenshot",
+      ...(plan.assertion.focus_label ? ["focus_baseline"] : []),
       "network",
       "timestamps",
     ],
@@ -1219,6 +1372,7 @@ function validateProbeResult(result, plan) {
   if (result.assertion_passed !== true) throw new Error("capture probe did not pass its assertion");
   validateAttestation(result.screenshot, "capture probe.screenshot");
   validateAttestation(result.verification_screenshot, "capture probe.verification_screenshot");
+  if (plan.assertion.focus_label) validateFileLabelBaseline(result.focus_baseline, result.page);
   exactObjectWithOptional(
     result.network,
     ["policy", "allowed_origins", "observed_origins", "requests", "violations"],
@@ -1416,7 +1570,15 @@ function manifestShape(manifest) {
     validateUrlIdentity(manifest.page[field], `capture manifest.page.${field}`);
   exactObject(
     manifest.page.state_assertion,
-    ["path", "sha256", "passed", "visibility"],
+    [
+      "path",
+      "sha256",
+      "passed",
+      "visibility",
+      ...(Object.hasOwn(manifest.page.state_assertion || {}, "focus_baseline")
+        ? ["focus_baseline"]
+        : []),
+    ],
     "capture manifest.page.state_assertion"
   );
   exactObject(
@@ -1552,6 +1714,8 @@ function captureProductUi(options, runtime = {}) {
   try {
     const screenshotPath = path.join(staging, "capture.png");
     const verificationPath = path.join(staging, "verification.png");
+    const focusBaselinePath = path.join(staging, "focus-baseline.png");
+    const focusBaselineVerificationPath = path.join(staging, "focus-baseline-verification.png");
     const probe = (runtime.runProbe || runCaptureProbe)({
       browserPath: browserBefore.public.path,
       url: plan.requestedUrl,
@@ -1563,10 +1727,33 @@ function captureProductUi(options, runtime = {}) {
       settleMs: plan.settleMs,
       outputPath: screenshotPath,
       verificationPath,
+      ...(plan.assertion.focus_label ? { focusBaselinePath, focusBaselineVerificationPath } : {}),
     });
     validateProbeResult(probe, plan);
     const screenshotBytes = readPinnedCapture(screenshotPath, probe.screenshot);
     const verificationBytes = readPinnedCapture(verificationPath, probe.verification_screenshot);
+    const focusBaselineBytes = plan.assertion.focus_label
+      ? readPinnedCapture(focusBaselinePath, probe.focus_baseline.screenshot)
+      : null;
+    const focusBaselineImage = focusBaselineBytes
+      ? inspectPngVisualBytes(focusBaselineBytes)
+      : null;
+    const focusBaselineVerificationImage = focusBaselineBytes
+      ? inspectPngVisualBytes(
+          readPinnedCapture(
+            focusBaselineVerificationPath,
+            probe.focus_baseline.verification_screenshot
+          )
+        )
+      : null;
+    if (
+      focusBaselineBytes &&
+      (focusBaselineImage.pixelSha256 !== focusBaselineVerificationImage.pixelSha256 ||
+        focusBaselineImage.width !== focusBaselineVerificationImage.width ||
+        focusBaselineImage.height !== focusBaselineVerificationImage.height ||
+        focusBaselineImage.pixelSha256 !== probe.focus_baseline.stability.decoded_pixels_sha256)
+    )
+      throw new Error("native file label baseline decoded pixels changed during atomic capture");
     const screenshot = inspectPngVisualBytes(screenshotBytes);
     const verification = inspectPngVisualBytes(verificationBytes);
     if (
@@ -1592,6 +1779,28 @@ function captureProductUi(options, runtime = {}) {
       bytes: screenshotBytes,
     });
 
+    if (plan.assertion.focus_label) {
+      if (
+        focusBaselineImage.width !== screenshot.width ||
+        focusBaselineImage.height !== screenshot.height ||
+        !focusBaselineImage.pixelSha256
+      )
+        throw new Error("native file label baseline screenshot dimensions or pixels are invalid");
+      const marker = probe.assertion_visibility.checks.find(
+        (check) => check.label === "state marker"
+      );
+      if (
+        marker?.asserted_backend_node_id !== probe.focus_baseline.target.label_backend_node_id ||
+        !hasNativeFocusBandChange(
+          createPngRegionInspector(focusBaselineBytes),
+          createPngRegionInspector(screenshotBytes),
+          marker.focus_indicator_regions || []
+        )
+      )
+        throw new Error(
+          "native file label baseline requires materially different decoded pixels in its focus bands"
+        );
+    }
     const base = `${plan.outputDir}/`;
     const screenshotRelative = `${base}capture.png`;
     const a11yRelative = `${base}accessibility-tree-raw.json`;
@@ -1666,6 +1875,8 @@ function captureProductUi(options, runtime = {}) {
         })
       )
     );
+    const publishedFocusBaseline = focusBaselineBytes ? { ...probe.focus_baseline } : null;
+    if (publishedFocusBaseline) delete publishedFocusBaseline.verification_screenshot;
     const manifest = manifestShape({
       schema_version: 2,
       kind: "product-ui-capture",
@@ -1706,6 +1917,20 @@ function captureProductUi(options, runtime = {}) {
           sha256: assertionSha256,
           passed: true,
           visibility: probe.assertion_visibility,
+          ...(focusBaselineBytes
+            ? {
+                focus_baseline: {
+                  ...publishedFocusBaseline,
+                  screenshot: {
+                    path: `${base}focus-baseline.png`,
+                    sha256: digest(focusBaselineBytes),
+                    pixel_sha256: focusBaselineImage.pixelSha256,
+                    width: focusBaselineImage.width,
+                    height: focusBaselineImage.height,
+                  },
+                },
+              }
+            : {}),
         },
       },
       observation: {
@@ -1753,6 +1978,7 @@ function captureProductUi(options, runtime = {}) {
       plan.outputDir,
       [
         ["capture.png", screenshotBytes],
+        ...(focusBaselineBytes ? [["focus-baseline.png", focusBaselineBytes]] : []),
         ["accessibility-tree-raw.json", a11yBytes],
         ["dom-audit-raw.json", domBytes],
         ["network-ledger.json", networkBytes],
@@ -1873,6 +2099,7 @@ module.exports = {
   runCaptureProbe,
   sourceIdentity,
   validateProbeResult,
+  validateFileLabelBaseline,
   validateAssertionVisibility,
   validateMeaningfulVisual,
   validateRoute,
