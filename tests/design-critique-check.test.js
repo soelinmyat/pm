@@ -375,7 +375,17 @@ function withPayloadHash(input) {
   return { ...input, payload_sha256: digest(Buffer.from(canonicalJson(input))) };
 }
 
-function makeReviews(root, route, captures, scores, rounds, routePath = "evidence/route.json") {
+function makeReviews(
+  root,
+  route,
+  captures,
+  scores,
+  rounds,
+  routePath = "evidence/route.json",
+  timeBase = null
+) {
+  const time = (minute, second = 0) => reviewFixtureTime(minute, second, timeBase);
+  const pdf = route.subjects[0].artifact?.format === "pdf";
   const routeBinding = binding(root, routePath);
   const evidenceDir = path.posix.dirname(routePath);
   const contextSource = {
@@ -385,11 +395,13 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
     route: routeBinding,
     brief: {
       page_description: route.subjects[0].title,
-      persona: "Account administrator",
-      job_to_be_done: "Understand status and take the next action.",
+      persona: pdf ? "Report reviewer" : "Account administrator",
+      job_to_be_done: pdf
+        ? "Inspect every submitted report page."
+        : "Understand status and take the next action.",
     },
     design_principles: ["Use the established product hierarchy."],
-    created_at: "2026-07-12T01:00:00Z",
+    created_at: time(0),
   };
   const contextBinding = write(
     root,
@@ -420,7 +432,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
       commit: route.source.commit,
       route: routeBinding,
       capture_ids: activeCaptureIds,
-      created_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:00Z`,
+      created_at: time(minute),
     };
     const captureManifestBinding = write(
       root,
@@ -432,7 +444,11 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
       prompt_sha256: promptHash("primary"),
       context_source: contextBinding,
       capture_manifest: captureManifestBinding,
-      acceptance_criteria: ["The primary action remains visible at every required viewport."],
+      acceptance_criteria: [
+        pdf
+          ? "Every submitted PDF page is retained and readable."
+          : "The primary action remains visible at every required viewport.",
+      ],
       capture_ids: activeCaptureIds,
       evidence_ids: evidenceIds,
       prior_finding_refs: [],
@@ -449,7 +465,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         review_id: `dc-test-r${round}-primary`,
         perspective: "primary",
         input: primaryInput,
-        execution: reviewExecution(`primary-r${round}`, round),
+        execution: reviewExecution(`primary-r${round}`, round, timeBase),
         result: {
           summary: "The rendered interface is clear and supported by current evidence.",
           scores: JSON.parse(JSON.stringify(scores)),
@@ -460,7 +476,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         review_id: `dc-test-r${round}-fresh-eyes`,
         perspective: "fresh-eyes",
         input: freshInput,
-        execution: reviewExecution(`fresh-r${round}`, round),
+        execution: reviewExecution(`fresh-r${round}`, round, timeBase),
         result: {
           first_impression:
             "A dark account header sits above two summary cards, while the blue Save account button anchors the action hierarchy.",
@@ -494,8 +510,9 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
               coverage_id: coverage.id,
               state: coverage.state,
               viewport: coverage.viewport,
-              observation:
-                coverage.state === "loading"
+              observation: pdf
+                ? `The print state at the print viewport retains two numbered report pages, with large black submitted text near the upper left of each white page.`
+                : coverage.state === "loading"
                   ? `The loading state at the ${coverage.viewport} viewport shows a short dark heading at the upper left of a white page, with a separate small loading indicator centered below and no cards or action controls.`
                   : coverage.state === "empty"
                     ? `The empty state at the ${coverage.viewport} viewport places a short No records found heading below the page header, leaving the result area white without cards or rows.`
@@ -508,7 +525,27 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
         },
       },
     ];
-    for (const review of pair) attachReviewReceipt(root, review, round);
+    if (pdf) {
+      pair[0].result.summary =
+        "The submitted report retains both white pages with readable black text and complete PDF evidence.";
+      pair[1].result.first_impression =
+        "The submitted report separates its black submitted text across two white pages. The page text is prominent near each upper-left margin.";
+      pair[1].result.answers = {
+        purpose: {
+          text: "The submitted report presents the original submitted text on both numbered pages.",
+          evidence_ids: activeCaptureIds,
+        },
+        visual_focus: {
+          text: "Large black submitted text at the upper left draws attention on each white report page.",
+          evidence_ids: activeCaptureIds,
+        },
+        inconsistencies: {
+          text: "Both pages use matching black report text aligned at equal left margins; no visual inconsistency is shown.",
+          evidence_ids: activeCaptureIds,
+        },
+      };
+    }
+    for (const review of pair) attachReviewReceipt(root, review, round, time(minute, 50));
     reviewRounds.push({ round, reviews: pair });
   }
   return {
@@ -520,7 +557,7 @@ function makeReviews(root, route, captures, scores, rounds, routePath = "evidenc
     captures: null,
     assurance: "workflow-attested-non-cryptographic",
     rounds: reviewRounds,
-    checked_at: "2026-07-12T01:50:00Z",
+    checked_at: time(50),
   };
 }
 
@@ -529,7 +566,7 @@ function reviewEvidenceIdsForCaptures(root, route, captures, captureIds) {
   return captures.evidence
     .filter((item) => {
       const evidence = JSON.parse(fs.readFileSync(path.join(root, item.path), "utf8"));
-      if (["accessibility-tree", "dom-audit"].includes(item.kind))
+      if (["accessibility-tree", "dom-audit", "pdf-document"].includes(item.kind))
         return (
           Array.isArray(evidence.capture_ids) &&
           evidence.capture_ids.length > 0 &&
@@ -559,7 +596,13 @@ function sameFileBindingSet(left, right) {
   );
 }
 
-function reviewExecution(suffix, round) {
+function reviewFixtureTime(minute, second = 0, base = null) {
+  return base === null
+    ? `2026-07-12T01:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}Z`
+    : new Date(base + (minute * 60 + second) * 1000).toISOString();
+}
+
+function reviewExecution(suffix, round, timeBase = null) {
   const minute = 10 + round * 10;
   return {
     mode: "same-runtime-isolated",
@@ -568,8 +611,8 @@ function reviewExecution(suffix, round) {
     invocation_id: `invoke-${suffix}`,
     assurance: "workflow-attested-non-cryptographic",
     receipt: null,
-    started_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:10Z`,
-    completed_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:40Z`,
+    started_at: reviewFixtureTime(minute, 10, timeBase),
+    completed_at: reviewFixtureTime(minute, 40, timeBase),
   };
 }
 
@@ -612,11 +655,11 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
         return (audit.capture_ids || []).some((id) => activeIds.has(id));
       })
       .map((item) => item.id);
-  if (key === "accessibility") return idsOfKind("accessibility-tree");
+  if (key === "accessibility") return idsOfKind("accessibility-tree", "pdf-document");
   if (key === "consistency")
     return mode === "product-ui"
       ? idsOfKind("dom-audit")
-      : idsOfKind("artifact-structural", "artifact-render");
+      : idsOfKind("artifact-structural", "artifact-render", "pdf-document");
   if (key === "responsive")
     return [
       ...active
@@ -626,7 +669,9 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
           )
         )
         .map((item) => item.id),
-      ...(mode === "product-ui" ? idsOfKind("dom-audit") : idsOfKind("artifact-render")),
+      ...(mode === "product-ui"
+        ? idsOfKind("dom-audit")
+        : idsOfKind("artifact-render", "pdf-document")),
     ];
   if (key === "state-clarity") return active.map((item) => item.id);
   if (key === "print-navigation")
@@ -634,7 +679,7 @@ function scoreEvidenceIds(root, key, mode, coverage, captures, evidence) {
       ...active
         .filter((item) => coverageById.get(item.coverage_id)?.viewport === "print")
         .map((item) => item.id),
-      ...idsOfKind("artifact-structural", "artifact-render"),
+      ...idsOfKind("artifact-structural", "artifact-render", "pdf-document"),
     ];
   return active.map((item) => item.id);
 }
@@ -9392,4 +9437,173 @@ test("native file-label baseline stays readable inside its managed atomic captur
     check(fixture).issues.filter((issue) => issue.path.startsWith("captures.")),
     []
   );
+});
+
+test("direct PDF Design gate accepts complete native pages and explicit assurance limits", (t) => {
+  const { spawnSync } = require("node:child_process");
+  if (spawnSync("pdftoppm", ["-v"]).status !== 0) {
+    t.skip("Poppler is unavailable; direct PDF gate integration cannot be verified");
+    return;
+  }
+  const { pdfFixture } = require("./helpers/pdf-document-fixture");
+  const { loadPdfCapture, normalizePdfAudit } = require("../scripts/lib/design-critique-pdf");
+  const fixture = pdfFixture(t);
+  const output = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [path.resolve(__dirname, "../scripts/design-critique-capture.js"), ...fixture.args],
+      { cwd: fixture.root, encoding: "utf8" }
+    )
+  );
+  const loaded = loadPdfCapture(fixture.root, output.manifest.path);
+  const audit = normalizePdfAudit(loaded.manifest, loaded.raw);
+  const directory = path.posix.dirname(fixture.routePath);
+  const capturesPath = `${directory}/captures.json`;
+  const reviewsPath = `${directory}/reviews.json`;
+  const reportPath = `${directory}/report.json`;
+  const humanPath = `${directory}/report.html`;
+  const capture = {
+    ...output.capture,
+    coverage_id: "report-print",
+    kind: "pdf",
+    active: true,
+    observation: output.manifest,
+  };
+  const evidence = {
+    id: "document-audit",
+    subject_id: "submitted-report",
+    kind: "pdf-document",
+    ...write(fixture.root, `${directory}/pdf-audit.json`, JSON.stringify(audit)),
+  };
+  const captures = {
+    schema_version: 1,
+    run_id: fixture.route.run_id,
+    mode: "pm-artifact",
+    commit: fixture.route.source.commit,
+    route: binding(fixture.root, fixture.routePath),
+    captures: [capture],
+    evidence: [evidence],
+    checked_at: new Date().toISOString(),
+  };
+  write(fixture.root, capturesPath, JSON.stringify(captures));
+  const scores = Object.fromEntries(
+    ["hierarchy", "density", "consistency", "accessibility", "responsive", "print-navigation"].map(
+      (key) => [
+        key,
+        {
+          value: 4,
+          rationale:
+            "Both submitted PDF pages and the bound document observations support this assessment.",
+          evidence_ids: scoreEvidenceIds(
+            fixture.root,
+            key,
+            "pm-artifact",
+            fixture.route.coverage,
+            captures.captures,
+            captures.evidence
+          ),
+        },
+      ]
+    )
+  );
+  const timeBase = Date.now() + 1000;
+  const reviews = makeReviews(
+    fixture.root,
+    fixture.route,
+    captures,
+    scores,
+    1,
+    fixture.routePath,
+    timeBase
+  );
+  reviews.route = binding(fixture.root, fixture.routePath);
+  reviews.captures = binding(fixture.root, capturesPath);
+  write(fixture.root, reviewsPath, JSON.stringify(reviews));
+  const report = {
+    schema_version: 2,
+    run_id: fixture.route.run_id,
+    mode: "pm-artifact",
+    commit: fixture.route.source.commit,
+    route: binding(fixture.root, fixture.routePath),
+    captures: binding(fixture.root, capturesPath),
+    reviews: binding(fixture.root, reviewsPath),
+    review_assurance: "workflow-attested-non-cryptographic",
+    outcome: "passed",
+    rounds: 1,
+    coverage: { required: 1, captured: 1, percent: 100 },
+    scores,
+    findings: [],
+    reconciliation: [],
+    top_issue: "No unresolved design issue.",
+    next_action: "Proceed to QA.",
+    human_report: { path: humanPath },
+    checked_at: reviewFixtureTime(55, 0, timeBase),
+  };
+  write(fixture.root, reportPath, JSON.stringify(report));
+  const note = `<p data-dc-pdf-capture="${capture.id}" data-dc-pdf-observation-sha256="${loaded.manifest.observation.sha256}">${capture.pages} pages. ${audit.limitations.join(" ")}</p>`;
+  const html = htmlReport(
+    binding(fixture.root, reportPath),
+    binding(fixture.root, capturesPath),
+    binding(fixture.root, reviewsPath),
+    reviews,
+    report
+  );
+  write(fixture.root, humanPath, html.replace("</main>", `${note}</main>`));
+  const checker = process.env.PM_PDF_TEST_CHECKER
+    ? require(process.env.PM_PDF_TEST_CHECKER).checkDesignCritique
+    : checkDesignCritique;
+  const result = checker({
+    root: fixture.root,
+    routePath: fixture.routePath,
+    capturesPath,
+    reportPath,
+    commit: fixture.route.source.commit,
+    baseRef: "origin/main",
+    baseCommit: fixture.route.source.base_commit,
+    verifyGit: false,
+    verifyBrowser: false,
+  });
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+  const rerun = () =>
+    checker({
+      root: fixture.root,
+      routePath: fixture.routePath,
+      capturesPath,
+      reportPath,
+      commit: fixture.route.source.commit,
+      baseRef: "origin/main",
+      baseCommit: fixture.route.source.base_commit,
+      verifyGit: false,
+      verifyBrowser: false,
+    });
+  const retainedHtml = fs.readFileSync(path.join(fixture.root, humanPath), "utf8");
+  for (const replacement of [
+    "",
+    note.replace("2 pages", "1 pages"),
+    note.replace(audit.limitations[0], "Native accessibility certified."),
+  ]) {
+    write(fixture.root, humanPath, retainedHtml.replace(note, replacement));
+    assert.ok(rerun().issues.some((issue) => /visible PDF evidence/.test(issue.message)));
+  }
+  write(fixture.root, humanPath, retainedHtml);
+  const retainedAudit = fs.readFileSync(path.join(fixture.root, evidence.path));
+  const inventedAudit = {
+    ...audit,
+    limitations: [],
+    observations: { ...audit.observations, tagged: true },
+  };
+  write(fixture.root, evidence.path, JSON.stringify(inventedAudit));
+  assert.ok(
+    rerun().issues.some((issue) => /PDF audit differs from deterministic/.test(issue.message))
+  );
+  write(fixture.root, evidence.path, retainedAudit);
+  const retainedCaptures = fs.readFileSync(path.join(fixture.root, capturesPath));
+  write(fixture.root, capturesPath, JSON.stringify({ ...captures, evidence: [] }));
+  assert.ok(
+    rerun().issues.some((issue) =>
+      /PDF document audit must cover active capture/.test(issue.message)
+    )
+  );
+  write(fixture.root, capturesPath, retainedCaptures);
 });

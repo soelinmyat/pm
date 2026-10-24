@@ -65,6 +65,7 @@ const {
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { loadPdfCapture, normalizePdfAudit } = require("./lib/design-critique-pdf");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
 // capture-time identities. Active evidence must use this release or an
@@ -201,6 +202,8 @@ const FRESH_INTERFACE_TERM = new RegExp(
   String.raw`\b(?:badge|banner|breadcrumb|button|card|chart|column|dialog|field|footer|form|header|heading|icon|image|input|label|link|list|menu|message|modal|navigation|panel|row|sidebar|tab|table|title)s?\b`,
   "i"
 );
+const FRESH_PDF_ELEMENT_TERM =
+  /\b(?:paragraphs?|page (?:text|numbers?|margins?)|submitted text|report text|signature(?: image)?s?)\b/i;
 const FRESH_VISUAL_DETAIL_TERM = new RegExp(
   String.raw`\b(?:above|adjacent|after|aligned|alignment|background|before|below|beneath|beside|between|blue|bold|border|bottom|bright|centered|column|contrast|cropped|dark|dense|disabled|evenly|first|focused|gray|green|grey|grid|grouped|hidden|hierarchy|inside|larger|left|light|margin|misaligned|muted|narrow|near|next to|order|overlap|overflow|padding|placement|position|prominent|red|right|scale|second|separated|short|smaller|spacing|stacked|subordinate|tall|top|truncated|weight|whitespace|wide|wrapped)\b`,
   "i"
@@ -609,7 +612,24 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
     }
     closed(subject, ["id", "title", "surface", "platform", "artifact"], at, issues);
     if (object(subject.artifact))
-      closed(subject.artifact, ["path", "sha256", "kind"], `${at}.artifact`, issues);
+      closed(subject.artifact, ["path", "sha256", "kind", "format"], `${at}.artifact`, issues);
+    if (
+      subject.artifact?.format !== undefined &&
+      !["html", "pdf"].includes(subject.artifact.format)
+    )
+      add(issues, `${at}.artifact.format`, "must be html or pdf");
+    if (
+      subject.artifact?.format === "pdf" &&
+      (route.mode !== "pm-artifact" ||
+        subject.platform !== "document" ||
+        subject.artifact.kind !== "report" ||
+        subject.surface !== subject.artifact.path)
+    )
+      add(
+        issues,
+        `${at}.artifact`,
+        "direct PDF evidence requires a document report artifact and its exact source surface"
+      );
     if (!slug(subject.id) || subjectIds.has(subject.id))
       add(issues, `${at}.id`, "must be unique kebab-case");
     subjectIds.add(subject.id);
@@ -902,6 +922,16 @@ function validateCoverage(route, subjects, subjectIds, issues) {
         add(issues, `route.coverage.${subject.id}`, "web primary narrow capture is required");
       if (!required("primary", "device") && subject.platform === "mobile")
         add(issues, `route.coverage.${subject.id}`, "mobile primary device capture is required");
+    } else if (subject.artifact?.format === "pdf") {
+      if (
+        !required("print", "print") ||
+        rows.some((item) => item.state !== "print" || item.viewport !== "print")
+      )
+        add(
+          issues,
+          `route.coverage.${subject.id}`,
+          "a fixed-page PDF requires complete print coverage without invented HTML viewports"
+        );
     } else {
       for (const viewport of ARTIFACT_VIEWPORT_NAMES)
         if (!rows.some((item) => item.viewport === viewport && item.required))
@@ -1032,6 +1062,27 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
         : null;
     const decoded = validateCaptureBytes(root, item, at, issues, { webViewport });
     if (decoded) decodedByCapture.set(item.id, decoded);
+    if (
+      route.mode === "pm-artifact" &&
+      subjects.get(routeCoverage?.subject_id)?.artifact?.format === "pdf"
+    ) {
+      try {
+        if (item.kind !== "pdf" || !object(item.observation))
+          throw new Error("direct PDF capture requires its trusted document observation");
+        closed(item.observation, ["path", "sha256"], `${at}.observation`, issues);
+        const ownerRouteFile = historical?.routeFile || routeFile;
+        const loaded = loadPdfCapture(root, item.observation.path, {
+          active: !historical,
+          capture: item,
+          routeBinding: { path: ownerRouteFile.relative, sha256: ownerRouteFile.sha256 },
+        });
+        if (!isDeepStrictEqual(loaded.manifestBinding, item.observation))
+          throw new Error("PDF observation hash does not match its producer bundle");
+        observationByCapture.set(item.id, { verified: true, pdf: loaded, active: item.active });
+      } catch (error) {
+        add(issues, `${at}.observation`, error.message);
+      }
+    }
     let loadingContentVerified = false;
     if (
       route.schema_version === 2 &&
@@ -2737,9 +2788,13 @@ function validateEvidence(
     if (!(route.subjects || []).some((subject) => subject.id === item?.subject_id))
       add(issues, `${at}.subject_id`, "must reference a subject");
     if (
-      !["accessibility-tree", "dom-audit", "artifact-structural", "artifact-render"].includes(
-        item?.kind
-      )
+      ![
+        "accessibility-tree",
+        "dom-audit",
+        "artifact-structural",
+        "artifact-render",
+        "pdf-document",
+      ].includes(item?.kind)
     )
       add(issues, `${at}.kind`, "is invalid");
     validateFileBinding(root, item, at, issues);
@@ -2775,6 +2830,24 @@ function validateEvidence(
     const kinds = new Set(
       evidence.filter((item) => item.subject_id === subject.id).map((item) => item.kind)
     );
+    if (subject.artifact?.format === "pdf") {
+      validatePdfSubjectEvidence(
+        root,
+        subject,
+        evidence,
+        captureRows,
+        observationByCapture,
+        route,
+        issues
+      );
+      continue;
+    }
+    if (kinds.has("pdf-document"))
+      add(
+        issues,
+        `captures.evidence.${subject.id}`,
+        "PDF observations cannot replace web, mobile, or HTML evidence"
+      );
     if (!kinds.has("accessibility-tree"))
       add(issues, `captures.evidence.${subject.id}`, "requires accessibility-tree evidence");
     if (route.mode === "product-ui" && subject.platform === "web" && !kinds.has("dom-audit"))
@@ -2813,6 +2886,57 @@ function validateEvidence(
       validateArtifactSubject(root, subject, evidence, route, captureRows, issues);
     }
   }
+}
+
+function validatePdfSubjectEvidence(
+  root,
+  subject,
+  evidence,
+  captures,
+  observations,
+  route,
+  issues
+) {
+  const counts = new Map();
+  const rows = evidence.filter((entry) => entry.subject_id === subject.id);
+  for (const entry of rows) {
+    if (entry.kind !== "pdf-document") {
+      add(
+        issues,
+        `captures.evidence.${entry.id}`,
+        "direct PDF subjects require PDF document evidence, not HTML or browser audits"
+      );
+      continue;
+    }
+    const audit = readEvidenceJson(root, entry, `captures.evidence.${entry.id}`, issues);
+    try {
+      if (!Array.isArray(audit?.capture_ids) || audit.capture_ids.length !== 1)
+        throw new Error("PDF audit must bind exactly one complete document capture");
+      const id = audit.capture_ids[0];
+      const loaded = observations.get(id)?.pdf;
+      if (!loaded || loaded.manifest.subject_id !== subject.id)
+        throw new Error("PDF audit has no verified capture for its subject");
+      if (!isDeepStrictEqual(audit, normalizePdfAudit(loaded.manifest, loaded.raw)))
+        throw new Error(
+          "PDF audit differs from deterministic normalization of its verified original document"
+        );
+      counts.set(id, (counts.get(id) || 0) + 1);
+    } catch (error) {
+      add(issues, `captures.evidence.${entry.id}`, error.message);
+    }
+  }
+  const coverageIds = new Set(
+    route.coverage.filter((row) => row.subject_id === subject.id).map((row) => row.id)
+  );
+  for (const capture of captures.filter(
+    (row) => row.active === true && coverageIds.has(row.coverage_id)
+  ))
+    if (counts.get(capture.id) !== 1)
+      add(
+        issues,
+        `captures.evidence.${subject.id}`,
+        `PDF document audit must cover active capture ${capture.id} exactly once`
+      );
 }
 
 function validateArtifactSubject(root, subject, evidence, route, captureRows, issues) {
@@ -3862,7 +3986,7 @@ function requiredReviewEvidenceIds(root, route, captures, captureIds) {
   const selected = new Set(captureIds);
   return (captures.evidence || [])
     .filter((item) => {
-      if (["accessibility-tree", "dom-audit"].includes(item.kind)) {
+      if (["accessibility-tree", "dom-audit", "pdf-document"].includes(item.kind)) {
         const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
         return (
           Array.isArray(audit?.capture_ids) &&
@@ -4062,6 +4186,17 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
   const label = `${at}.result`;
   const result = review.result;
   const state = { findings: [] };
+  const pdfDocument =
+    inputState.captureIds.length > 0 &&
+    inputState.captureIds.every((id) => {
+      const capture = captureById.get(id);
+      return (route.subjects || []).some(
+        (subject) =>
+          subject.id ===
+            (route.coverage || []).find((row) => row.id === capture?.coverage_id)?.subject_id &&
+          subject.artifact?.format === "pdf"
+      );
+    });
   if (!object(result)) {
     add(issues, label, "must be an object");
     return state;
@@ -4078,8 +4213,9 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
       validateFreshVisualProse(result.first_impression, `${label}.first_impression`, issues, {
         minimumBytes: 60,
         requireVisualDetail: false,
+        pdfDocument,
       });
-    validateFreshAnswers(result.answers, inputState, label, issues);
+    validateFreshAnswers(result.answers, inputState, label, issues, pdfDocument);
     validateFreshObservations(result.observations, inputState, route, captureById, label, issues);
   }
   const limit = review.perspective === "fresh-eyes" ? 5 : 50;
@@ -4189,6 +4325,12 @@ function validateFreshObservations(observations, inputState, route, captureById,
       validateFreshVisualProse(normalized, `${rowAt}.observation`, issues, {
         minimumBytes: 40,
         requireVisualDetail: true,
+        pdfDocument: (route.subjects || []).some(
+          (subject) =>
+            subject.id ===
+              (route.coverage || []).find((row) => row.id === capture?.coverage_id)?.subject_id &&
+            subject.artifact?.format === "pdf"
+        ),
       });
       if (
         coverage &&
@@ -4219,14 +4361,22 @@ function validateFreshObservations(observations, inputState, route, captureById,
     );
 }
 
-function validateFreshVisualProse(value, label, issues, { minimumBytes, requireVisualDetail }) {
+function validateFreshVisualProse(
+  value,
+  label,
+  issues,
+  { minimumBytes, requireVisualDetail, pdfDocument = false }
+) {
   const normalized = normalizeVisible(value);
   const words = normalized.match(/[\p{L}\p{N}]+/gu) || [];
   if (Buffer.byteLength(normalized, "utf8") < minimumBytes || words.length < 8)
     add(issues, label, "must contain substantive visual reasoning, not a short conclusion");
   if (
     FRESH_PLACEHOLDER_PROSE.test(normalized) ||
-    !FRESH_INTERFACE_TERM.test(normalized) ||
+    !(
+      FRESH_INTERFACE_TERM.test(normalized) ||
+      (pdfDocument && FRESH_PDF_ELEMENT_TERM.test(normalized))
+    ) ||
     (requireVisualDetail && !FRESH_VISUAL_DETAIL_TERM.test(normalized))
   )
     add(
@@ -4292,7 +4442,7 @@ function validatePerspectiveScores(scores, mode, inputState, label, issues) {
   }
 }
 
-function validateFreshAnswers(answers, inputState, label, issues) {
+function validateFreshAnswers(answers, inputState, label, issues, pdfDocument = false) {
   const at = `${label}.answers`;
   if (!object(answers)) return add(issues, at, "must be an object");
   const keys = ["purpose", "visual_focus", "inconsistencies"];
@@ -4310,6 +4460,7 @@ function validateFreshAnswers(answers, inputState, label, issues) {
       validateFreshVisualProse(answer.text, `${at}.${key}.text`, issues, {
         minimumBytes: 50,
         requireVisualDetail: key !== "purpose",
+        pdfDocument,
       });
     if (
       !uniqueTextArray(answer.evidence_ids, 200) ||
@@ -4863,11 +5014,11 @@ function requiredScoreEvidence(root, key, route, captures) {
         return audit?.capture_ids?.some((id) => activeCaptureIds.has(id));
       })
       .map((item) => item.id);
-  if (key === "accessibility") return idsOfKind("accessibility-tree");
+  if (key === "accessibility") return idsOfKind("accessibility-tree", "pdf-document");
   if (key === "consistency")
     return route.mode === "product-ui"
       ? idsOfKind("dom-audit")
-      : idsOfKind("artifact-structural", "artifact-render");
+      : idsOfKind("artifact-structural", "artifact-render", "pdf-document");
   if (key === "responsive") {
     const rendered = activeCaptures
       .filter((item) =>
@@ -4878,7 +5029,9 @@ function requiredScoreEvidence(root, key, route, captures) {
       .map((item) => item.id);
     return [
       ...rendered,
-      ...(route.mode === "product-ui" ? idsOfKind("dom-audit") : idsOfKind("artifact-render")),
+      ...(route.mode === "product-ui"
+        ? idsOfKind("dom-audit")
+        : idsOfKind("artifact-render", "pdf-document")),
     ];
   }
   if (key === "state-clarity") return activeCaptures.map((item) => item.id);
@@ -4887,7 +5040,7 @@ function requiredScoreEvidence(root, key, route, captures) {
       ...activeCaptures
         .filter((item) => coverageById.get(item.coverage_id)?.viewport === "print")
         .map((item) => item.id),
-      ...idsOfKind("artifact-structural", "artifact-render"),
+      ...idsOfKind("artifact-structural", "artifact-render", "pdf-document"),
     ];
   }
   return activeCaptures.map((item) => item.id);
@@ -4974,6 +5127,9 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
         requiresPixelIdentity && before && after
           ? visualDifferenceForCaptures(root, before, after)
           : null;
+      const requiresPdfPixels = (route.subjects || []).some(
+        (subject) => subject.id === finding.subject_id && subject.artifact?.format === "pdf"
+      );
       const subjectCoverage = new Set(
         (route.coverage || [])
           .filter((item) => item.subject_id === finding.subject_id)
@@ -4983,6 +5139,7 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
         !before ||
         !after ||
         before.sha256 === after.sha256 ||
+        (requiresPdfPixels && !hasPdfVisualRemediation(root, before, after, nativeObservations)) ||
         (requiresPixelIdentity &&
           (!sha256(before.pixel_sha256) ||
             !sha256(after.pixel_sha256) ||
@@ -5047,6 +5204,48 @@ function visualDifferenceForCaptures(root, before, after) {
   } catch {
     return null;
   }
+}
+
+function hasPdfVisualRemediation(root, before, after, observations) {
+  const left = observations?.get(before?.id)?.pdf?.manifest.pages;
+  const right = observations?.get(after?.id)?.pdf?.manifest.pages;
+  if (!left || !right) return false;
+  try {
+    for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+      const first = left[index],
+        second = right[index];
+      if (first && second) {
+        if (first.pixel_sha256 === second.pixel_sha256) continue;
+        const a = readBoundFile(root, first.path, "PDF before page", []);
+        const b = readBoundFile(root, second.path, "PDF after page", []);
+        if (
+          a &&
+          b &&
+          isMaterialVisualDifference(
+            visualDifference(
+              inspectMediaOnce(a, "png", inspectPngVisualBytes),
+              inspectMediaOnce(b, "png", inspectPngVisualBytes)
+            )
+          )
+        )
+          return true;
+      } else {
+        const page = first || second;
+        const file = readBoundFile(root, page.path, "PDF added or removed page", []);
+        if (file) {
+          try {
+            validateMeaningfulVisual(inspectMediaOnce(file, "png", inspectPngVisualBytes));
+            return true;
+          } catch {
+            /* blank page is not remediation */
+          }
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 function isMaterialVisualDifference(difference) {
@@ -5282,6 +5481,31 @@ function validateHumanReport(
   const css = [...rawHtml.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
     .map((match) => match[1])
     .join("\n");
+  for (const observation of options.nativeObservations?.values() || []) {
+    if (!observation.pdf || observation.active !== true) continue;
+    const { manifest, raw } = observation.pdf;
+    const marker = visibleMarker(
+      html,
+      {
+        "data-dc-pdf-capture": manifest.capture.id,
+        "data-dc-pdf-observation-sha256": manifest.observation.sha256,
+      },
+      css
+    );
+    const required = [
+      `${manifest.capture.pages} pages`,
+      ...normalizePdfAudit(manifest, raw).limitations,
+    ];
+    if (
+      !marker ||
+      required.some((text) => !normalizeVisible(marker.text).includes(normalizeVisible(text)))
+    )
+      add(
+        issues,
+        "report.human_report",
+        `visible PDF evidence ${manifest.capture.id} must state its complete page count and actual accessibility assurance limits`
+      );
+  }
   if (report.schema_version === 2) {
     const assurance = visibleMarker(
       html,

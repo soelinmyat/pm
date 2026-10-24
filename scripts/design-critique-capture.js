@@ -29,6 +29,7 @@ const {
   validateWebViewport,
 } = require("./lib/product-ui-viewport");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { cleanSourceIdentity } = require("./lib/git-source-identity");
 
 const CAPTURE_PROBE = path.join(__dirname, "design-critique-capture-probe.js");
 const MAX_ROUTE_BYTES = 1024 * 1024;
@@ -832,16 +833,7 @@ function git(root, args, options = {}) {
 }
 
 function sourceIdentity(root) {
-  const head = git(root, ["rev-parse", "HEAD"]).trim();
-  const tree = git(root, ["rev-parse", "HEAD^{tree}"]).trim();
-  sha(head, "current HEAD");
-  sha(tree, "current tree");
-  const status = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=no"], {
-    encoding: null,
-  });
-  if (status.length !== 0)
-    throw new Error("tracked source must be clean before trusted product UI capture");
-  return { head, tree, tracked_status_sha256: digest(status), clean: true };
+  return cleanSourceIdentity(root);
 }
 
 function assertRouteDiff(root, route) {
@@ -2016,6 +2008,7 @@ function parseArgs(argv) {
     ["--subject", "subjectId"],
     ["--coverage", "coverageId"],
     ["--capture", "captureId"],
+    ["--pdf", "pdfPath"],
     ["--url", "url"],
     ["--expect-url", "expectedUrl"],
     ["--state-assertion", "assertionPath"],
@@ -2049,13 +2042,27 @@ function parseArgs(argv) {
     "subjectId",
     "coverageId",
     "captureId",
-    "url",
-    "assertionPath",
-    "width",
-    "height",
     "outputDir",
+    ...(options.pdfPath === undefined ? ["url", "assertionPath", "width", "height"] : []),
   ])
     if (options[field] === undefined) throw new Error(`missing required ${field}`);
+  if (options.pdfPath !== undefined) {
+    if (!options.pdfPath.trim()) throw new Error("--pdf requires a non-empty project path");
+    for (const field of [
+      "url",
+      "expectedUrl",
+      "assertionPath",
+      "width",
+      "height",
+      "browserPath",
+      "readinessTimeoutMs",
+      "settleMs",
+    ])
+      if (options[field] !== undefined)
+        throw new Error(`PDF capture cannot use web option ${field}`);
+    if (options.allowedOrigins.length)
+      throw new Error("offline PDF capture cannot allow network origins");
+  }
   for (const field of ["width", "height", "readinessTimeoutMs", "settleMs"])
     if (options[field] !== undefined) options[field] = Number(options[field]);
   return options;
@@ -2064,11 +2071,14 @@ function parseArgs(argv) {
 function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
-    const result = captureProductUi(options);
+    const result =
+      options.pdfPath === undefined
+        ? captureProductUi(options)
+        : require("./lib/design-critique-pdf").captureDocumentPdf(options);
     process.stdout.write(
       options.json
         ? `${JSON.stringify(result, null, 2)}\n`
-        : `Product UI capture saved: ${result.manifest.path}\nAssurance: ${result.assurance_level} (workflow attestation, not a signature)\n`
+        : `${options.pdfPath === undefined ? "Product UI" : "PDF document"} capture saved: ${result.manifest.path}\nAssurance: ${result.assurance_level} (workflow attestation, not a signature)\n`
     );
     return 0;
   } catch (error) {

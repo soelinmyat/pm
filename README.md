@@ -106,6 +106,12 @@ Loading-state visual captures can retain genuine outstanding read-only Fetch/XHR
 and image requests after document load. The helper records those requests and keeps origin,
 visibility, and atomic stability checks enabled.
 
+Design Critique can inspect actual static product report PDFs through an explicit
+PDF route. Its offline Poppler producer retains the original file and every page,
+then independently verifies pixels, source and tool identities. Reports disclose
+text-extraction and tagging limits; they do not claim native assistive-technology
+certification. Existing web/mobile and HTML checks remain unchanged.
+
 ## What PM Is Not
 
 - Not a project management tool — Linear and Jira handle sprints and assignments

@@ -23,3 +23,8 @@ Distinct error captions need their exact visible StaticText guard paired with a
 matching visible `role-text` alert, with native bounds proving containment.
 Existing regional geometry, meaningful pixels, material change and pixel-support
 floors still apply; identical, unbound or beacon-only content cannot qualify.
+
+
+Static product report PDFs use explicit `artifact.format: "pdf"` and the trusted
+`--pdf` producer, retaining every page and disclosed accessibility assurance
+limits. Follow `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pdf-document-evidence.md`.
