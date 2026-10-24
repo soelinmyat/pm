@@ -125,6 +125,14 @@ Width change cannot exceed that shared height; the native measured union still
 needs meaningful pixels, material change and the existing pixel-support floor.
 A separate progress status does not become a busy button through metadata.
 
+For an image-preview button whose busy state belongs to its group, add exact
+`role-name` visible guards for both the named group and button in both captures.
+The loading capture also asserts `aria-busy="true"` on that group. Both measured
+group/control pairs must keep anchored bounds, with each button wholly inside
+its group. Comparison uses only the button's measured region and the existing
+meaningful-pixel, material-change and 32-pixel support requirements. Recapture a
+counterpart that lacks these guards; do not add them to an old receipt.
+
 For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. Ordinary nested content remains valid. A sibling overlay fails, and one positioned descendant branch covering at least 90% of the marker and winning every sampled point also fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
 Native composite keyboard checks retain the member actually reached by document Tab entry, including when a focusable owner delegates entry to a member with `tabindex="-1"`. Arrow probes still have to reach the other members. Programmatic focus alone, an unreachable predecessor, or a keyboard trap does not establish entry.
@@ -961,13 +969,13 @@ Cleanup happens at session end, not between phases. Servers stay running for the
 ### Loading captures with outstanding reads
 
 For a routed `loading` state, the web capture helper permits outstanding GET/HEAD
-Fetch or XHR requests after document load and a quiet network interval. The same
+Fetch, XHR or Image requests after document load and a quiet network interval. The same
 request set must remain pending throughout capture and keyboard probing. Its
 request sequence IDs are retained as `pending_at_capture` in the hash-bound
 network ledger and capture manifest. The checker permits these references only
 for loading rows and verifies that each points to an observed read-only data
-request. Other states still require network idle; unfinished documents, images,
-scripts, writes, unknown requests, and open sockets do not qualify.
+request. Other states still require network idle; unfinished documents, scripts,
+stylesheets, fonts, writes, unknown requests, and open sockets do not qualify.
 
 The visible loading semantic guard, allowed origins, target isolation, native
 DOM/accessibility samples, identical screenshots, and protocol barriers remain

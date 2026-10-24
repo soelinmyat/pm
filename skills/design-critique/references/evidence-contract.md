@@ -73,6 +73,17 @@ Distinct named modal scenarios may prove a localized title change through an exa
 
 ## Captures
 
+A loading image-preview button may use the same bounded regional proof when
+`aria-busy="true"` belongs to its named native group. Both captures must visibly
+assert exactly matching `role-name` locators for the group and button. Each
+native observation must identify the named role, both group and button bounds
+must retain the existing anchored geometry, and the button must lie wholly
+inside the group in each capture. Only the measured button union is compared;
+the larger group is not a pixel region. The same meaningful-image, changed-tile,
+32 full-contrast pixel support and resource limits apply. Missing or unnamed
+counterparts, unrelated group changes, caller crop geometry and beacons fail.
+Fresh captures are required when a counterpart lacks these native guards.
+
 `captures.json` binds the route and every evidence byte:
 
 ```json
@@ -462,13 +473,13 @@ Only `passed` invokes `dev-gate-check.js --require design-critique`. Every other
 ### Loading captures with outstanding reads
 
 For a routed `loading` state, the web capture helper permits outstanding GET/HEAD
-Fetch or XHR requests after document load and a quiet network interval. The same
+Fetch, XHR or Image requests after document load and a quiet network interval. The same
 request set must remain pending throughout capture and keyboard probing. Its
 request sequence IDs are retained as `pending_at_capture` in the hash-bound
 network ledger and capture manifest. The checker permits these references only
 for loading rows and verifies that each points to an observed read-only data
-request. Other states still require network idle; unfinished documents, images,
-scripts, writes, unknown requests, and open sockets do not qualify.
+request. Other states still require network idle; unfinished documents, scripts,
+stylesheets, fonts, writes, unknown requests, and open sockets do not qualify.
 
 The visible loading semantic guard, allowed origins, target isolation, native
 DOM/accessibility samples, identical screenshots, and protocol barriers remain

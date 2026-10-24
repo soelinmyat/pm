@@ -4,12 +4,13 @@ function isReadOnlyDataRequest(request) {
   return (
     request &&
     ["GET", "HEAD"].includes(request.method) &&
-    ["Fetch", "XHR"].includes(request.resource_type)
+    ["Fetch", "XHR", "Image"].includes(request.resource_type)
   );
 }
 
-// Loading may retain data reads, but never unfinished documents/assets, writes,
-// unknown requests or sockets. Callers still enforce quiet time and origin policy.
+// Loading may retain API and image reads after document load. Other unfinished
+// assets, writes, unknown requests and sockets still prevent capture. Callers
+// enforce document readiness, quiet time, stable request sets and origin policy.
 function pendingRequestsReady(state, pendingIds, records) {
   return (
     pendingIds.size === 0 ||
@@ -31,7 +32,9 @@ function validatePendingAtCapture(pending, requests, state) {
     throw new Error("pending_at_capture is only permitted for loading captures");
   for (const id of pending) {
     if (!isReadOnlyDataRequest(requests.find((request) => request.sequence === id)))
-      throw new Error("pending_at_capture must reference observed read-only Fetch/XHR requests");
+      throw new Error(
+        "pending_at_capture must reference observed read-only Fetch/XHR/Image requests"
+      );
   }
 }
 
