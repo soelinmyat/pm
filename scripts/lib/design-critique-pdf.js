@@ -237,7 +237,7 @@ function captureDocumentPdf(options) {
     observation: { path: `${base}pdf-observation.json`, sha256: hash(rawBytes) },
     source: { before, after },
     tools: { before: rendered.toolsBefore, after: rendered.toolsAfter },
-    configuration: { scale: PDF_RENDER_SCALE, samples: 2 },
+    configuration: { scale: PDF_RENDER_SCALE, samples: 2, page_box: "crop" },
     stability: { samples: 2, page_pixels_sha256: pagePixelsHash(pages) },
     timestamps: {
       started_at: startedAt,
@@ -402,7 +402,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
   same(manifest.source.before, manifest.source.after, "PDF source observations");
   same(
     manifest.configuration,
-    { scale: PDF_RENDER_SCALE, samples: 2 },
+    { scale: PDF_RENDER_SCALE, samples: 2, page_box: "crop" },
     "PDF renderer configuration"
   );
   same(

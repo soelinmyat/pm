@@ -191,6 +191,7 @@ function renderPdf(bytes) {
           "-l",
           String(geometry.number),
           "-singlefile",
+          "-cropbox",
           "-scale-to",
           String(PDF_RENDER_SCALE),
           "-png",
@@ -201,6 +202,16 @@ function renderPdf(bytes) {
         const header = inspectPngHeaderBytes(png);
         if (header.width * header.height > MAX_PDF_PAGE_PIXELS)
           throw new Error("PDF page exceeds the pixel budget");
+        const dimensions = [geometry.width_pts, geometry.height_pts];
+        if (geometry.rotation % 180) dimensions.reverse();
+        const scale = PDF_RENDER_SCALE / Math.max(...dimensions);
+        // pdfinfo rounds point measurements; allow at most one raster pixel.
+        if (
+          Math.max(header.width, header.height) !== PDF_RENDER_SCALE ||
+          Math.abs(header.width - dimensions[0] * scale) > 1 ||
+          Math.abs(header.height - dimensions[1] * scale) > 1
+        )
+          throw new Error(`PDF page ${geometry.number} raster disagrees with its visible geometry`);
         const inspected = inspectPngVisualBytes(png);
         if (
           first &&

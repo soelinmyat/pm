@@ -102,6 +102,42 @@ function hash(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
+for (const rotation of [0, 90, 180, 270]) {
+  test(`native PDF raster matches the visible offset CropBox at rotation ${rotation}`, (t) => {
+    if (spawnSync("pdftoppm", ["-v"]).status !== 0) {
+      t.skip("Poppler is unavailable; native PDF cropping cannot be verified");
+      return;
+    }
+    const { renderPdf } = require("../scripts/lib/pdf-render");
+    const rendered = renderPdf(
+      submittedPdf(
+        ["This text is outside the visible page"],
+        "",
+        "0 g 100 200 150 200 re f\n0 g 500 500 100 100 re f\n",
+        ` /CropBox [100 200 400 400] /Rotate ${rotation}`
+      )
+    );
+    const page = rendered.pages[0];
+    assert.deepEqual([page.width, page.height], rotation % 180 ? [1067, 1600] : [1600, 1067]);
+    assert.deepEqual(rendered.observation.pages[0], {
+      number: 1,
+      width_pts: 300,
+      height_pts: 200,
+      rotation,
+      text: rendered.observation.pages[0].text,
+    });
+    const reference = renderPdf(
+      submittedPdf(
+        ["Different text also outside the visible page"],
+        "",
+        "0 g 0 0 150 200 re f\n",
+        ` /CropBox [0 0 300 200] /Rotate ${rotation}`
+      )
+    );
+    assert.equal(page.pixel_sha256, reference.pages[0].pixel_sha256);
+  });
+}
+
 for (const name of ["OpenAction", "Ope#6eAction", "AcroForm", "RichMedia", "Launch", "JS"]) {
   test(`static PDF evidence rejects active object names: ${name}`, () => {
     const pdf = submittedPdf(["Static report"], ` /${name} << >>`);

@@ -15,6 +15,9 @@ owning session, the current clean source commit, remote base and diff hash.
 Each distinct document/data variant is a separate subject. Each PDF subject
 requires exactly one `print` state at the `print` viewport, covering every page
 at its native paper geometry. Fixed PDF pages do not acquire HTML breakpoints.
+Page rasters use the effective visible CropBox and page rotation. Raster
+dimensions must agree with that observed geometry at the fixed render scale;
+content outside the visible crop is excluded.
 HTML subjects keep their existing desktop/tablet/narrow/print requirements.
 
 With the normal immutable route at
