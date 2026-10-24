@@ -50,7 +50,63 @@ test("native file-label assertion binds a focused input and visible associated l
   assert.equal(validateStateAssertion(value), value);
 });
 
-function nativeFileLabelProbe(variant = "working") {
+// Intercept the actual helper's first screenshot protocol call in this test
+// process only. The real browser emits native drift events; no production hook
+// or modified page response is added to the shipped acquisition path.
+function instrumentBaselineProbe(directory, mutation) {
+  assert.ok(["dom", "stylesheet", "network", "pixels"].includes(mutation));
+  const original = path.resolve(__dirname, "../scripts/design-critique-capture-probe.js");
+  const injection = `
+const originalConnect = connect;
+connect = async (url) => {
+  const client = await originalConnect(url), send = client.send.bind(client);
+  const sheets = []; let screenshots = 0;
+  client.on("CSS.styleSheetAdded", (event) => sheets.push(event.header.styleSheetId));
+  client.send = async (method, params = {}, sessionId = null) => {
+    if (method !== "Page.captureScreenshot" || ++screenshots !== 1)
+      return send(method, params, sessionId);
+    const mutation = ${JSON.stringify(mutation)};
+    let restore = async () => {};
+    if (mutation === "dom") {
+      await send("Runtime.evaluate", {expression: 'document.body.setAttribute("data-baseline-transient", "1")'});
+      restore = () => send("Runtime.evaluate", {expression: 'document.body.removeAttribute("data-baseline-transient")'});
+    } else if (mutation === "stylesheet") {
+      const styleSheetId = sheets[0];
+      if (!styleSheetId) throw Error("Test stylesheet unavailable");
+      const {text} = await send("CSS.getStyleSheetText", {styleSheetId});
+      await send("CSS.setStyleSheetText", {styleSheetId, text: text + "\\n#upload-zone{border-color:rgb(255,0,0)}"});
+      restore = () => send("CSS.setStyleSheetText", {styleSheetId, text});
+    } else if (mutation === "network") {
+      await send("Runtime.evaluate", {expression: 'fetch("data:text/plain,baseline-reference-probe").then(r => r.text())', awaitPromise: true});
+    } else {
+      await send("Emulation.setEmulatedMedia", {features: [{name: "prefers-color-scheme", value: "dark"}]});
+      restore = () => send("Emulation.setEmulatedMedia", {features: [{name: "prefers-color-scheme", value: "light"}]});
+    }
+    try { return await send(method, params, sessionId); }
+    finally { await restore(); }
+  };
+  return client;
+};
+`;
+  const wrapper = path.join(directory, "instrumented-baseline-probe.cjs");
+  fs.writeFileSync(
+    wrapper,
+    `const fs = require("node:fs"), Module = require("node:module"), path = require("node:path");
+const original = ${JSON.stringify(original)};
+const source = fs.readFileSync(original, "utf8");
+const entry = "if (require.main === module)";
+if (source.split(entry).length !== 2) throw Error("Test probe entry drifted");
+const compiled = new Module(original);
+compiled.filename = original;
+compiled.paths = Module._nodeModulePaths(path.dirname(original));
+compiled._compile(source.replace(entry, ${JSON.stringify(injection)} + "\\nif (true)"), original);
+`,
+    { mode: 0o600 }
+  );
+  return wrapper;
+}
+
+function nativeFileLabelProbe(variant = "working", mutation = null) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-file-label-focus-"));
   const input = `<input id="upload-input" type="${variant === "wrong-type" ? "text" : "file"}" aria-label="Supporting document"${variant === "disabled" ? " disabled" : ""}>`;
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -61,6 +117,7 @@ function nativeFileLabelProbe(variant = "working") {
   ${variant === "no-ring" ? "#upload-zone:focus-within{outline:none}" : ""}
   ${variant === "transparent-shadow" ? "#upload-zone:focus-within{outline:none;box-shadow:0 0 0 3px transparent}" : ""}
   ${variant === "shifted-label" ? "#upload-zone:focus-within{margin-left:1px}" : ""}
+  @media(prefers-color-scheme:dark){#upload-zone{box-shadow:0 0 0 4px #a028a0}}
   ${variant === "tiny-label" ? "#upload-zone{width:20px;height:10px}" : ""}
   ${variant === "offscreen" ? "#upload-zone{position:absolute;left:-2000px}" : ""}
   #upload-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -79,19 +136,23 @@ function nativeFileLabelProbe(variant = "working") {
     const assertion = fileLabelAssertion();
     if (variant === "unfocused") assertion.before_capture[0].count = 2;
     if (variant === "already-focused") assertion.before_capture[0].count = 3;
-    const result = runCaptureProbe({
-      browserPath: resolveBrowser(),
-      url,
-      expectedUrl: url,
-      viewport: { width: 1024, height: 600 },
-      stateAssertion: validateStateAssertion(assertion),
-      allowedOrigins: [],
-      readinessTimeoutMs: 15_000,
-      settleMs: 200,
-      outputPath: path.join(directory, "capture.png"),
-      verificationPath: path.join(directory, "verification.png"),
-      focusBaselinePath: path.join(directory, "focus-baseline.png"),
-    });
+    const result = runCaptureProbe(
+      {
+        browserPath: resolveBrowser(),
+        url,
+        expectedUrl: url,
+        viewport: { width: 1024, height: 600 },
+        stateAssertion: validateStateAssertion(assertion),
+        allowedOrigins: [],
+        readinessTimeoutMs: 15_000,
+        settleMs: 200,
+        outputPath: path.join(directory, "capture.png"),
+        verificationPath: path.join(directory, "verification.png"),
+        focusBaselinePath: path.join(directory, "focus-baseline.png"),
+        focusBaselineVerificationPath: path.join(directory, "focus-baseline-verification.png"),
+      },
+      mutation ? { probePath: instrumentBaselineProbe(directory, mutation) } : {}
+    );
     validateFileLabelBaseline(result.focus_baseline, result.page);
     const bands = result.assertion_visibility.checks.find(
       (check) => check.label === "state marker"
@@ -105,6 +166,20 @@ function nativeFileLabelProbe(variant = "working") {
         bands
       ),
     };
+  } catch (error) {
+    if (mutation)
+      for (const name of [
+        "capture.png",
+        "verification.png",
+        "focus-baseline.png",
+        "focus-baseline-verification.png",
+      ])
+        assert.equal(
+          fs.existsSync(path.join(directory, name)),
+          false,
+          `${name} must be discarded after acquisition failure`
+        );
+    throw error;
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -182,3 +257,12 @@ test("native file-label rejects background-colored bands using actual Chromium p
   const { bandChange } = nativeFileLabelProbe("background-ring");
   assert.equal(bandChange, false);
 });
+
+for (const mutation of ["dom", "stylesheet", "network", "pixels"]) {
+  test(`native file-label baseline rejects restored transient acquisition drift: ${mutation}`, () => {
+    assert.throws(
+      () => nativeFileLabelProbe("working", mutation),
+      /atomic capture|baseline.*pixels changed/
+    );
+  });
+}

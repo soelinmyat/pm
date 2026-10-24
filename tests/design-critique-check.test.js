@@ -1736,6 +1736,7 @@ function attachTrustedCaptureObservation(
       target,
       focused_target: { ...structuredClone(target), control_focused: true },
       visibility,
+      stability: { samples: 2, decoded_pixels_sha256: image.pixelSha256 },
       captured_at: capture.captured_at,
     };
   }
@@ -9352,6 +9353,7 @@ for (const defect of [
   "different-page",
   "future-time",
   "corrupt-pixels",
+  "single-sample",
 ]) {
   test(`native file-label baseline rejects mismatched bound evidence: ${defect}`, () => {
     const fixture = makeFixture();
@@ -9367,6 +9369,7 @@ for (const defect of [
     if (defect === "different-page") baseline.page.target_id += "-other";
     if (defect === "future-time") baseline.captured_at = "2026-07-12T00:05:00Z";
     if (defect === "corrupt-pixels") baseline.screenshot.pixel_sha256 = "0".repeat(64);
+    if (defect === "single-sample") baseline.stability.samples = 1;
     rewrite(fixture.root, capture.observation.path, manifest);
     capture.observation = binding(fixture.root, capture.observation.path);
     rewrite(fixture.root, fixture.capturesPath, fixture.captures);

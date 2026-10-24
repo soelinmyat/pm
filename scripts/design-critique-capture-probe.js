@@ -3,6 +3,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const { inspectPngVisualBytes } = require("./lib/media-inspect");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
@@ -5046,6 +5047,43 @@ async function main() {
       for (const [actionIndex, action] of actions.entries()) {
         assertNetworkHealthy();
         if (config.stateAssertion.focus_label && actionIndex === lastTab) {
+          // Earlier native preparation can trigger loading or animation. The
+          // unfocused reference gets the same settled event/identity barrier as
+          // the focused acquisition, ending before intentional keyboard input.
+          const baselineReadyDeadline = Date.now() + readinessTimeoutMs;
+          const baselinePrepareStartedAt = Date.now();
+          while (Date.now() < baselineReadyDeadline) {
+            assertNetworkHealthy();
+            if (
+              requestsReady() &&
+              pendingWebSockets.size === 0 &&
+              activeFetchHandlers.size === 0 &&
+              activeTargetHandlers.size === 0 &&
+              Date.now() - lastNetworkActivity >= settleMs &&
+              Date.now() - baselinePrepareStartedAt >= settleMs
+            )
+              break;
+            await sleep(25);
+          }
+          if (Date.now() >= baselineReadyDeadline)
+            throw new Error("native file label baseline did not reach settled readiness");
+          // DOM events cover only frontend-requested nodes. Subscribe to the
+          // full author tree before the final readiness barrier and monitoring.
+          await client.send("DOM.getDocument", { depth: -1, pierce: true });
+          const baselineReadyEpoch = networkEpoch;
+          await crossTargetBarrier();
+          assertNetworkHealthy();
+          if (
+            networkEpoch !== baselineReadyEpoch ||
+            !requestsReady() ||
+            pendingWebSockets.size > 0 ||
+            activeFetchHandlers.size > 0 ||
+            activeTargetHandlers.size > 0 ||
+            Date.now() - lastNetworkActivity < settleMs
+          )
+            throw new Error("network activity crossed native file label baseline readiness");
+          frozenPendingIds = JSON.stringify([...pendingRequests].sort());
+          criticalWindow = true;
           const baselineAssertion = {
             ...config.stateAssertion,
             all: [
@@ -5074,6 +5112,28 @@ async function main() {
             image.data,
             "focus baseline screenshot"
           );
+          const middle = await nativeSample(
+            client,
+            target.id,
+            computedStyles,
+            baselineAssertion,
+            null,
+            [],
+            null,
+            config.stateAssertion
+          );
+          const verification = await client.send("Page.captureScreenshot", {
+            format: "png",
+            fromSurface: true,
+            captureBeyondViewport: false,
+          });
+          if (!verification.data)
+            throw new Error("native file label baseline verification screenshot is missing");
+          const verificationScreenshot = writeExclusiveFile(
+            config.focusBaselineVerificationPath,
+            verification.data,
+            "focus baseline verification screenshot"
+          );
           const after = await nativeSample(
             client,
             target.id,
@@ -5084,11 +5144,41 @@ async function main() {
             null,
             config.stateAssertion
           );
-          if (canonicalSample(before) !== canonicalSample(after))
-            throw new Error("native file label baseline changed during capture");
+          if (
+            canonicalSample(before) !== canonicalSample(middle) ||
+            canonicalSample(middle) !== canonicalSample(after)
+          )
+            throw new Error("native file label baseline changed during atomic capture");
+          const firstPixels = inspectPngVisualBytes(Buffer.from(image.data, "base64"));
+          const secondPixels = inspectPngVisualBytes(Buffer.from(verification.data, "base64"));
+          if (
+            !firstPixels.pixelSha256 ||
+            firstPixels.pixelSha256 !== secondPixels.pixelSha256 ||
+            firstPixels.width !== config.viewport.width ||
+            firstPixels.height !== config.viewport.height ||
+            secondPixels.width !== config.viewport.width ||
+            secondPixels.height !== config.viewport.height
+          )
+            throw new Error(
+              "native file label baseline decoded pixels changed during atomic capture"
+            );
+          const baselineBarrierEpoch = networkEpoch;
+          await crossTargetBarrier();
           assertNetworkHealthy();
+          if (
+            networkEpoch !== baselineBarrierEpoch ||
+            !requestsReady() ||
+            pendingWebSockets.size > 0 ||
+            activeFetchHandlers.size > 0 ||
+            activeTargetHandlers.size > 0
+          )
+            throw new Error("network activity crossed native file label baseline atomic capture");
+          criticalWindow = false;
+          frozenPendingIds = null;
           focusBaseline = {
             screenshot,
+            verification_screenshot: verificationScreenshot,
+            stability: { samples: 2, decoded_pixels_sha256: firstPixels.pixelSha256 },
             page: { ...before.identity, final_url: redactedUrlIdentity(before.identity.final_url) },
             target: before.fileLabel,
             visibility: before.assertionVisibility,

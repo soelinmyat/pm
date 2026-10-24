@@ -993,6 +993,9 @@ function runCaptureProbe(configuration, runtime = {}) {
       configuration.outputPath,
       configuration.verificationPath,
       ...(configuration.focusBaselinePath ? [configuration.focusBaselinePath] : []),
+      ...(configuration.focusBaselineVerificationPath
+        ? [configuration.focusBaselineVerificationPath]
+        : []),
     ])
       fs.rmSync(filePath, { force: true });
     const controlToken = crypto.randomBytes(24).toString("hex");
@@ -1038,6 +1041,9 @@ function runCaptureProbe(configuration, runtime = {}) {
     configuration.outputPath,
     configuration.verificationPath,
     ...(configuration.focusBaselinePath ? [configuration.focusBaselinePath] : []),
+    ...(configuration.focusBaselineVerificationPath
+      ? [configuration.focusBaselineVerificationPath]
+      : []),
   ])
     fs.rmSync(filePath, { force: true });
   if (result?.error) throw new Error(`trusted capture failed: ${result.error.message}`);
@@ -1180,7 +1186,16 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
 function validateFileLabelBaseline(baseline, page, published = false) {
   exactObject(
     baseline,
-    ["screenshot", "page", "target", "focused_target", "visibility", "captured_at"],
+    [
+      "screenshot",
+      "page",
+      "target",
+      "focused_target",
+      "visibility",
+      "captured_at",
+      "stability",
+      ...(!published ? ["verification_screenshot"] : []),
+    ],
     "native file label baseline"
   );
   exactObject(
@@ -1198,7 +1213,24 @@ function validateFileLabelBaseline(baseline, page, published = false) {
     for (const key of ["width", "height"])
       if (!Number.isSafeInteger(baseline.screenshot[key]) || baseline.screenshot[key] < 1)
         throw new Error("native file label baseline screenshot dimensions are invalid");
-  } else validateAttestation(baseline.screenshot, "native file label baseline.screenshot");
+  } else {
+    validateAttestation(baseline.screenshot, "native file label baseline.screenshot");
+    validateAttestation(
+      baseline.verification_screenshot,
+      "native file label baseline.verification_screenshot"
+    );
+  }
+  exactObject(
+    baseline.stability,
+    ["samples", "decoded_pixels_sha256"],
+    "native file label baseline.stability"
+  );
+  if (
+    baseline.stability.samples !== 2 ||
+    !/^[a-f0-9]{64}$/.test(baseline.stability.decoded_pixels_sha256 || "") ||
+    (published && baseline.stability.decoded_pixels_sha256 !== baseline.screenshot.pixel_sha256)
+  )
+    throw new Error("native file label baseline requires two stable decoded pixel samples");
   if (!isDeepStrictEqual(baseline.page, page))
     throw new Error("native file label baseline must retain the same page and viewport");
   for (const [key, focused] of [
@@ -1683,6 +1715,7 @@ function captureProductUi(options, runtime = {}) {
     const screenshotPath = path.join(staging, "capture.png");
     const verificationPath = path.join(staging, "verification.png");
     const focusBaselinePath = path.join(staging, "focus-baseline.png");
+    const focusBaselineVerificationPath = path.join(staging, "focus-baseline-verification.png");
     const probe = (runtime.runProbe || runCaptureProbe)({
       browserPath: browserBefore.public.path,
       url: plan.requestedUrl,
@@ -1694,7 +1727,7 @@ function captureProductUi(options, runtime = {}) {
       settleMs: plan.settleMs,
       outputPath: screenshotPath,
       verificationPath,
-      ...(plan.assertion.focus_label ? { focusBaselinePath } : {}),
+      ...(plan.assertion.focus_label ? { focusBaselinePath, focusBaselineVerificationPath } : {}),
     });
     validateProbeResult(probe, plan);
     const screenshotBytes = readPinnedCapture(screenshotPath, probe.screenshot);
@@ -1705,6 +1738,22 @@ function captureProductUi(options, runtime = {}) {
     const focusBaselineImage = focusBaselineBytes
       ? inspectPngVisualBytes(focusBaselineBytes)
       : null;
+    const focusBaselineVerificationImage = focusBaselineBytes
+      ? inspectPngVisualBytes(
+          readPinnedCapture(
+            focusBaselineVerificationPath,
+            probe.focus_baseline.verification_screenshot
+          )
+        )
+      : null;
+    if (
+      focusBaselineBytes &&
+      (focusBaselineImage.pixelSha256 !== focusBaselineVerificationImage.pixelSha256 ||
+        focusBaselineImage.width !== focusBaselineVerificationImage.width ||
+        focusBaselineImage.height !== focusBaselineVerificationImage.height ||
+        focusBaselineImage.pixelSha256 !== probe.focus_baseline.stability.decoded_pixels_sha256)
+    )
+      throw new Error("native file label baseline decoded pixels changed during atomic capture");
     const screenshot = inspectPngVisualBytes(screenshotBytes);
     const verification = inspectPngVisualBytes(verificationBytes);
     if (
@@ -1826,6 +1875,8 @@ function captureProductUi(options, runtime = {}) {
         })
       )
     );
+    const publishedFocusBaseline = focusBaselineBytes ? { ...probe.focus_baseline } : null;
+    if (publishedFocusBaseline) delete publishedFocusBaseline.verification_screenshot;
     const manifest = manifestShape({
       schema_version: 2,
       kind: "product-ui-capture",
@@ -1869,7 +1920,7 @@ function captureProductUi(options, runtime = {}) {
           ...(focusBaselineBytes
             ? {
                 focus_baseline: {
-                  ...probe.focus_baseline,
+                  ...publishedFocusBaseline,
                   screenshot: {
                     path: `${base}focus-baseline.png`,
                     sha256: digest(focusBaselineBytes),
