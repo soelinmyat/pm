@@ -18,6 +18,9 @@ const ACTIVE_NAMES = new Set([
   "EmbeddedFiles",
 ]);
 
+const PDF_WHITESPACE = new Set([0, 9, 10, 12, 13, 32]);
+const isPdfWhitespace = (char) => PDF_WHITESPACE.has(char?.charCodeAt(0));
+
 // Inspect object syntax, not image/font streams or literal/hex text strings.
 function assertStaticPdfObjects(objects) {
   for (const source of objects) {
@@ -46,17 +49,23 @@ function assertStaticPdfObjects(objects) {
         if (cursor < 0) throw new Error("static PDF has an unterminated hex string");
         cursor += 1;
       } else if (char === "/") {
-        const match = /^[^\s()[\]<>/%]+/.exec(source.slice(cursor + 1));
-        if (!match) throw new Error("static PDF has an invalid name");
-        const name = match[0].replace(/#([a-f0-9]{2})/gi, (_, value) =>
-          String.fromCharCode(parseInt(value, 16))
-        );
+        let end = cursor + 1;
+        while (
+          end < source.length &&
+          !isPdfWhitespace(source[end]) &&
+          !"()<>[]{}/%".includes(source[end])
+        )
+          end += 1;
+        if (end === cursor + 1) throw new Error("static PDF has an invalid name");
+        const name = source
+          .slice(cursor + 1, end)
+          .replace(/#([a-f0-9]{2})/gi, (_, value) => String.fromCharCode(parseInt(value, 16)));
         if (ACTIVE_NAMES.has(name))
           throw new Error(`static PDF evidence rejects active content /${name}`);
-        cursor += match[0].length + 1;
+        cursor = end;
       } else if (
         source.startsWith("stream", cursor) &&
-        /[\s>]/.test(source[cursor - 1] || " ") &&
+        (isPdfWhitespace(source[cursor - 1]) || source[cursor - 1] === ">") &&
         /[\r\n]/.test(source[cursor + 6] || "")
       ) {
         break;

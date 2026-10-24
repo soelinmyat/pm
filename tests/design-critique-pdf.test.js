@@ -116,6 +116,35 @@ test("static PDF checks preserve ordinary text mentioning action-like names", ()
   );
 });
 
+for (const name of ["OpenAction", "Ope#6eAction"]) {
+  test(`static PDF rejects NUL-delimited actions before native capture: ${name}`, (t) => {
+    const { captureDocumentPdf } = require("../scripts/lib/design-critique-pdf");
+    const fixture = pdfFixture(t);
+    const pdf = submittedPdf(
+      ["Static report"],
+      ` /${name}${String.fromCharCode(0)} << /S /Launch${String.fromCharCode(0)} /F (untrusted-command) >>`
+    );
+    assert.throws(() => inspectPdfBytes(pdf, { staticDocument: true }), /active|static/i);
+    fs.writeFileSync(path.join(fixture.root, ".pm/input/report.pdf"), pdf);
+    fixture.route.subjects[0].artifact.sha256 = hash(pdf);
+    fs.writeFileSync(path.join(fixture.root, fixture.routePath), JSON.stringify(fixture.route));
+    assert.throws(() => captureDocumentPdf(parseArgs(fixture.args)), /active|static/i);
+    assert.equal(fs.existsSync(path.join(fixture.root, BASE)), false);
+  });
+}
+
+test("static PDF action names end at every PDF whitespace character", () => {
+  for (const code of [0, 9, 10, 12, 13, 32])
+    assert.throws(
+      () =>
+        inspectPdfBytes(submittedPdf(["Report"], ` /Launch${String.fromCharCode(code)} << >>`), {
+          staticDocument: true,
+        }),
+      /active|static/i,
+      `PDF whitespace ${code}`
+    );
+});
+
 test("PDF capture rejects web flags and network configuration", () => {
   for (const pair of [
     ["--url", "https://example.test"],
