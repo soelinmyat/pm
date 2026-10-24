@@ -436,6 +436,26 @@ function readDesignHistory(root, reviews, report, route, options, issues) {
       const retained = { ...(value || {}) };
       delete retained.source;
       delete retained.created_at;
+      if (retained.mode === "pm-artifact" && Array.isArray(retained.subjects))
+        retained.subjects = retained.subjects.map((subject) => {
+          if (
+            !object(subject) ||
+            subject.platform !== "document" ||
+            subject.artifact?.format !== "pdf"
+          )
+            return subject;
+          // Document bytes and their retained location belong to a round. The
+          // task/variant identity, format, kind and complete coverage stay fixed.
+          return {
+            ...subject,
+            surface: "<round-pdf>",
+            artifact: {
+              ...subject.artifact,
+              path: "<round-pdf>",
+              sha256: "<round-pdf>",
+            },
+          };
+        });
       return retained;
     };
     if (!isDeepStrictEqual(scope(oldRoute.value), scope(route)))
@@ -1079,7 +1099,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
         closed(item.observation, ["path", "sha256"], `${at}.observation`, issues);
         const ownerRouteFile = historical?.routeFile || routeFile;
         const loaded = loadPdfCapture(root, item.observation.path, {
-          active: !historical,
+          active: !historical && !runtime.frozenPredecessor,
           capture: item,
           routeBinding: { path: ownerRouteFile.relative, sha256: ownerRouteFile.sha256 },
         });
@@ -5014,12 +5034,12 @@ function requiredScoreEvidence(root, key, route, captures) {
     evidence
       .filter((item) => kinds.includes(item.kind))
       .filter((item) => {
-        if (
-          route.schema_version !== 2 ||
-          route.mode !== "product-ui" ||
-          !["accessibility-tree", "dom-audit"].includes(item.kind)
-        )
-          return true;
+        const captureBoundAudit =
+          item.kind === "pdf-document" ||
+          (route.schema_version === 2 &&
+            route.mode === "product-ui" &&
+            ["accessibility-tree", "dom-audit"].includes(item.kind));
+        if (!captureBoundAudit) return true;
         const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
         return audit?.capture_ids?.some((id) => activeCaptureIds.has(id));
       })

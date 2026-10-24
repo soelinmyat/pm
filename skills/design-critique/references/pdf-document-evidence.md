@@ -90,3 +90,20 @@ with `data-dc-pdf-capture="<capture-id>"` and
 `N pages` for the exact count and every exact limitation from the normalized
 audit. Link the original PDF and all page PNGs for inspection. Do not present
 text extraction as a complete assistive-technology accessibility certification.
+
+
+## Recovery across document rounds
+
+Keep the same subject ID, title, format, kind, variant and required coverage when
+correcting a PDF. Each round freezes its own exact artifact path, hash and
+matching surface; changing those document bindings alone is not a new task.
+Preserve the predecessor report, route, reviewer inputs/results and capture
+bundle unchanged. Its retained `capture.pdf` remains the original document even
+if an external input path is later replaced or removed.
+
+Only internally verified inactive/frozen history can use those original bytes
+and historical source/tool observations. Its source commit/tree/diff and every
+retained page/audit binding are still checked. Current active evidence requires
+the current clean source, current producer and independently resolved renderer.
+Final scores cite audits for current active captures; predecessor audits stay
+available for the immutable earlier reviews and finding history.

@@ -30,6 +30,7 @@ const {
 
 const ACQUISITION = "poppler-static-pdf-v1";
 const ASSURANCE = "workflow-attested-non-cryptographic";
+const HISTORICAL_PDF_PRODUCERS = new Set(["1.14.42"]);
 const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const json = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 const binding = (file) => ({ path: file.relative, sha256: hash(file.bytes) });
@@ -124,7 +125,23 @@ function preparePdfPlan(options) {
     options.outputDir !== `${canonical[1]}/round-${round}/${options.captureId}`
   )
     throw new Error("PDF capture output must match its immutable route, round, and capture ID");
-  const document = read(root, options.pdfPath, MAX_PDF_BYTES, options.verificationContext);
+  if (
+    typeof options.pdfPath !== "string" ||
+    !options.pdfPath ||
+    options.pdfPath.includes("\\") ||
+    options.pdfPath.includes("\0") ||
+    /^[a-z]:/i.test(options.pdfPath) ||
+    options.pdfPath.split("/").some((part) => !part || part === "." || part === "..")
+  )
+    throw new Error("PDF document path must be a canonical project-relative path");
+  // Frozen history reads its authenticated original from capture.pdf. Its old
+  // input may have been replaced or removed after a corrected export.
+  const document =
+    options.frozenDocumentBytes === undefined
+      ? read(root, options.pdfPath, MAX_PDF_BYTES, options.verificationContext)
+      : { relative: options.pdfPath, bytes: options.frozenDocumentBytes };
+  if (!Buffer.isBuffer(document.bytes) || document.bytes.length > MAX_PDF_BYTES)
+    throw new Error("PDF document exceeds its retained byte budget");
   if (hash(document.bytes) !== subject.artifact.sha256)
     throw new Error("PDF artifact bytes do not match the frozen route");
   return {
@@ -140,8 +157,21 @@ function preparePdfPlan(options) {
   };
 }
 
-function assertSource(root, route) {
-  const source = cleanSourceIdentity(root, "trusted PDF capture");
+function assertSource(root, route, { frozen = false } = {}) {
+  const source = frozen
+    ? {
+        head: route.source.commit,
+        tree: execFileSync("git", ["rev-parse", "--verify", `${route.source.commit}^{tree}`], {
+          cwd: root,
+          timeout: 10_000,
+          maxBuffer: 4096,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+        }).trim(),
+        tracked_status_sha256: hash(Buffer.alloc(0)),
+        clean: true,
+      }
+    : cleanSourceIdentity(root, "trusted PDF capture");
   if (source.head !== route.source?.commit) throw new Error("PDF route commit is stale");
   const diff = execFileSync(
     "git",
@@ -286,7 +316,8 @@ function loadPdfCapture(root, manifestPath, options = {}) {
   exact(manifest.producer, ["name", "plugin_version"], "PDF producer");
   if (
     manifest.producer.name !== "design-critique-capture" ||
-    (options.active !== false && manifest.producer.plugin_version !== PLUGIN_VERSION)
+    (manifest.producer.plugin_version !== PLUGIN_VERSION &&
+      (options.active !== false || !HISTORICAL_PDF_PRODUCERS.has(manifest.producer.plugin_version)))
   )
     throw new Error("PDF capture producer version is not current");
   exact(manifest.route, ["path", "sha256"], "PDF route binding");
@@ -294,6 +325,9 @@ function loadPdfCapture(root, manifestPath, options = {}) {
   exact(manifest.capture, ["id", "path", "sha256", "pages", "round", "captured_at"], "PDF capture");
   exact(manifest.observation, ["path", "sha256"], "PDF observation binding");
   const base = path.posix.dirname(file.relative);
+  if (manifest.capture.path !== `${base}/capture.pdf`)
+    throw new Error("PDF capture path does not match its canonical bundle");
+  const retainedPdf = read(root, manifest.capture.path, MAX_PDF_BYTES, verificationContext);
   const plan = preparePdfPlan({
     root,
     routePath: manifest.route.path,
@@ -302,6 +336,7 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     captureId: manifest.capture.id,
     pdfPath: manifest.document.path,
     outputDir: base,
+    frozenDocumentBytes: options.active === false ? retainedPdf.bytes : undefined,
     verificationContext,
   });
   same(binding(plan.routeFile), manifest.route, "PDF route binding");
@@ -317,7 +352,6 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     manifest.capture.sha256 !== manifest.document.sha256
   )
     throw new Error("PDF capture identity does not match its document and route");
-  const retainedPdf = read(root, manifest.capture.path, MAX_PDF_BYTES, verificationContext);
   if (hash(retainedPdf.bytes) !== manifest.capture.sha256)
     throw new Error("PDF capture bytes changed");
   const count = inspectPdfBytes(retainedPdf.bytes, { staticDocument: true }).pages;
@@ -417,6 +451,12 @@ function loadPdfCapture(root, manifestPath, options = {}) {
     throw new Error("PDF raw observation binding changed");
   const raw = JSON.parse(rawFile.bytes);
   validatePdfObservation(manifest, raw);
+  if (options.active === false)
+    same(
+      assertSource(plan.root, plan.route, { frozen: true }),
+      manifest.source.after,
+      "Frozen PDF source identity"
+    );
   if (options.active !== false) {
     same(assertSource(plan.root, plan.route), manifest.source.after, "Current PDF source identity");
     const current = renderPdf(retainedPdf.bytes);

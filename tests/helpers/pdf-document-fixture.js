@@ -87,7 +87,7 @@ function pdfFixture(t) {
   return { root, route, routePath, args, pdf };
 }
 
-function submittedPdf(texts, catalog = "") {
+function submittedPdf(texts, catalog = "", graphics = "") {
   const objects = [
     `<< /Type /Catalog /Pages 2 0 R${catalog} >>`,
     "",
@@ -96,7 +96,7 @@ function submittedPdf(texts, catalog = "") {
   const pages = [];
   for (const text of texts) {
     const page = objects.length + 1;
-    const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET\n`;
+    const stream = `${graphics}BT /F1 24 Tf 72 720 Td (${text}) Tj ET\n`;
     pages.push(`${page} 0 R`);
     objects.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${page + 1} 0 R >>`
