@@ -72,6 +72,28 @@ function preparePdfPlan(options) {
     !isRfc3339DateTime(route.created_at)
   )
     throw new Error("PDF capture requires a current schema-v2 artifact route");
+  const sourceFields = ["commit", "base_ref", "base_commit", "diff_sha256"];
+  if (route.source && Object.hasOwn(route.source, "remote_push_url_sha256"))
+    sourceFields.push("remote_push_url_sha256");
+  exact(route.source, sourceFields, "PDF route source identity");
+  for (const field of ["commit", "base_commit"])
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(route.source[field] || ""))
+      throw new Error(`PDF route source.${field} requires a full Git object ID`);
+  for (const field of [
+    "diff_sha256",
+    ...(sourceFields.includes("remote_push_url_sha256") ? ["remote_push_url_sha256"] : []),
+  ])
+    if (!/^[a-f0-9]{64}$/.test(route.source[field] || ""))
+      throw new Error(`PDF route source.${field} requires a SHA-256 identity`);
+  if (
+    typeof route.source.base_ref !== "string" ||
+    !route.source.base_ref.trim() ||
+    route.source.base_ref.length > 500 ||
+    [...route.source.base_ref].some(
+      (char) => char.codePointAt(0) < 32 || char.codePointAt(0) === 127
+    )
+  )
+    throw new Error("PDF route source.base_ref requires bounded non-empty text");
   const subjects = (route.subjects || []).filter((row) => row.id === options.subjectId);
   const rows = (route.coverage || []).filter((row) => row.id === options.coverageId);
   if (subjects.length !== 1 || rows.length !== 1)

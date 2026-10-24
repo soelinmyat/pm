@@ -265,3 +265,21 @@ for (const name of ["ObjStm", "XRef", "Encr#79pt"]) {
     );
   });
 }
+
+test("PDF source binding rejects option-shaped and malformed identities before Git execution", (t) => {
+  const { preparePdfPlan } = require("../scripts/lib/design-critique-pdf");
+  const fixture = pdfFixture(t);
+  const original = structuredClone(fixture.route.source);
+  for (const [field, value] of [
+    ["base_commit", "--output=/must-not-write-outside-project"],
+    ["commit", "HEAD"],
+    ["base_commit", "a".repeat(39)],
+    ["diff_sha256", "not-a-hash"],
+    ["base_ref", "main\n--option"],
+    ["remote_push_url_sha256", "bad"],
+  ]) {
+    fixture.route.source = { ...original, [field]: value };
+    fs.writeFileSync(path.join(fixture.root, fixture.routePath), JSON.stringify(fixture.route));
+    assert.throws(() => preparePdfPlan(parseArgs(fixture.args)), /source\.|source identity/);
+  }
+});
