@@ -73,6 +73,17 @@ Distinct named modal scenarios may prove a localized title change through an exa
 
 ## Captures
 
+A loading image-preview button may use the same bounded regional proof when
+`aria-busy="true"` belongs to its named native group. Both captures must visibly
+assert exactly matching `role-name` locators for the group and button. Each
+native observation must identify the named role, both group and button bounds
+must retain the existing anchored geometry, and the button must lie wholly
+inside the group in each capture. Only the measured button union is compared;
+the larger group is not a pixel region. The same meaningful-image, changed-tile,
+32 full-contrast pixel support and resource limits apply. Missing or unnamed
+counterparts, unrelated group changes, caller crop geometry and beacons fail.
+Fresh captures are required when a counterpart lacks these native guards.
+
 `captures.json` binds the route and every evidence byte:
 
 ```json

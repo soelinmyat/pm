@@ -1295,7 +1295,7 @@ function hasNativePendingButtonChange(root, left, right, observations) {
     !isDeepStrictEqual(before.manifest.page.css_viewport, after.manifest.page.css_viewport)
   )
     return false;
-  const visibleButton = (observation, locator) => {
+  const visibleControl = (observation, locator, role = "button") => {
     const index = observation.assertion?.all.findIndex(
       (clause) => clause.expect.kind === "visible" && isDeepStrictEqual(clause.locator, locator)
     );
@@ -1303,10 +1303,24 @@ function hasNativePendingButtonChange(root, left, right, observations) {
     const check = observation.manifest.page.state_assertion.visibility.checks.find(
       (check) => check.label === `state assertion clause ${index + 1}`
     );
-    return check?.native_role === "button" && check.native_name_present === true
+    return check?.native_role === role && check.native_name_present === true
       ? check.visual_bounds
       : null;
   };
+  const namedRole = (locator, role) => {
+    if (locator.by !== "role-name") return false;
+    const separator = locator.value.indexOf(":");
+    return (
+      separator > 0 &&
+      locator.value.slice(0, separator).trim().toLowerCase() === role &&
+      locator.value.slice(separator + 1).trim().length > 0
+    );
+  };
+  const contains = (outer, inner) =>
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height;
   for (const [side, loading, other] of [
     [left, before, after],
     [right, after, before],
@@ -1319,12 +1333,33 @@ function hasNativePendingButtonChange(root, left, right, observations) {
         guard.expect.value !== "true"
       )
         continue;
-      const region = anchoredNativeRegion(
-        visibleButton(loading, guard.locator),
-        visibleButton(other, guard.locator)
-      );
-      if (!region) continue;
-      if (hasMaterialNativeRegionChange(root, left, right, region, true)) return true;
+      let locators = [guard.locator];
+      let loadingGroup, otherGroup;
+      if (namedRole(guard.locator, "group")) {
+        loadingGroup = visibleControl(loading, guard.locator, "group");
+        otherGroup = visibleControl(other, guard.locator, "group");
+        if (!anchoredNativeRegion(loadingGroup, otherGroup)) continue;
+        // Image previews commonly put busy on their named group. Require its
+        // named button in both native captures; compare only that button,
+        // never the larger group or caller-supplied crop geometry.
+        locators = loading.assertion.all
+          .filter(
+            (clause) => clause.expect.kind === "visible" && namedRole(clause.locator, "button")
+          )
+          .map((clause) => clause.locator);
+      }
+      for (const locator of locators) {
+        const loadingButton = visibleControl(loading, locator);
+        const otherButton = visibleControl(other, locator);
+        const region = anchoredNativeRegion(loadingButton, otherButton);
+        if (!region) continue;
+        if (
+          loadingGroup &&
+          (!contains(loadingGroup, loadingButton) || !contains(otherGroup, otherButton))
+        )
+          continue;
+        if (hasMaterialNativeRegionChange(root, left, right, region, true)) return true;
+      }
     }
   }
   return false;

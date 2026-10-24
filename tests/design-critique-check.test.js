@@ -1016,6 +1016,8 @@ function attachTrustedCaptureObservation(
     );
   const pendingButtonProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-");
+  const pendingGroupProof =
+    typeof nativeStateProof === "string" && nativeStateProof.startsWith("pending-group-");
   const namedTextProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("named-");
   const errorCaptionProof =
@@ -1088,6 +1090,22 @@ function attachTrustedCaptureObservation(
       locator: { by: "role-name", value: "status:Loading records" },
       expect: { kind: "visible" },
     });
+  if (pendingGroupProof) {
+    const locator = nativeStateProof.includes("plain-group")
+      ? { by: "id", value: "signature-group" }
+      : {
+          by: "role-name",
+          value: `group:${nativeStateProof.includes("foreign-group") && coverage.state === "boundary" ? "Other signature" : "Recorded signature"}`,
+        };
+    if (coverage.state === "loading") {
+      assertion.all[1].locator = locator;
+      if (nativeStateProof.includes("no-busy")) assertion.all[1].expect.value = "false";
+    }
+    if (nativeStateProof.includes("plain-button"))
+      assertion.all[0].locator = { by: "id", value: "signature-preview" };
+    if (!(nativeStateProof.includes("missing-group") && coverage.state === "boundary"))
+      assertion.all.push({ locator, expect: { kind: "visible" } });
+  }
   const sparseStateProof =
     typeof nativeStateProof === "string" && nativeStateProof.startsWith("sparse-state");
   if (sparseStateProof && ["empty", "loading"].includes(coverage.state)) {
@@ -1279,6 +1297,37 @@ function attachTrustedCaptureObservation(
       native_role: "status",
       native_name_present: true,
     });
+  }
+  if (pendingGroupProof && ["boundary", "loading"].includes(coverage.state)) {
+    const button = assertionVisibility.checks[1];
+    if (nativeStateProof.includes("missing-button") && coverage.state === "boundary")
+      button.native_role = "heading";
+    if (nativeStateProof.includes("unnamed-button")) button.native_name_present = false;
+    if (nativeStateProof.includes("moved-button") && coverage.state === "loading")
+      button.visual_bounds.x++;
+  }
+  if (
+    pendingGroupProof &&
+    !(nativeStateProof.includes("missing-group") && coverage.state === "boundary")
+  ) {
+    assertionVisibility.verified_nodes++;
+    const group = {
+      label: `state assertion clause ${assertion.all.length}`,
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 570,
+      y: 342,
+      visual_bounds: { x: 380, y: 314, width: 380, height: 60 },
+      native_role: "group",
+      native_name_present: true,
+    };
+    if (nativeStateProof.includes("outside-button")) group.visual_bounds.x = 520;
+    if (nativeStateProof.includes("moved-group") && coverage.state === "loading")
+      group.visual_bounds.y++;
+    if (nativeStateProof.includes("unnamed-group")) group.native_name_present = false;
+    if (nativeStateProof.includes("wrong-group-role")) group.native_role = "region";
+    if (nativeStateProof.includes("no-group-geometry")) delete group.visual_bounds;
+    assertionVisibility.checks.push(group);
   }
   if (namedTextProof) {
     const check = assertionVisibility.checks[1];
@@ -1869,6 +1918,15 @@ function validPng(
         rows[pixel + 1] = 0;
         rows[pixel + 2] = 250;
       }
+    }
+    if (focusRing === "pending-group-noise") {
+      for (let y = 324; y < 360; y++)
+        for (let x = 600; x < 720; x++) {
+          const pixel = y * (width * 4 + 1) + 1 + x * 4;
+          rows[pixel] = 30;
+          rows[pixel + 1] = 80;
+          rows[pixel + 2] = 180;
+        }
     }
   } else if (
     focusRing === "state-content" ||
@@ -7263,6 +7321,46 @@ test("native pending button comparison accepts meaningful change inside the meas
     false
   );
 });
+
+test("native busy group accepts a real change inside its named contained button", () => {
+  const fixture = centeredPendingFixture("pending-group-button");
+  const result = check(fixture);
+  assert.deepEqual(result, { ok: true, issues: [] });
+});
+
+test("native busy group comparison is independent of capture order", () => {
+  const fixture = centeredPendingFixture("pending-group-button");
+  fixture.captures.captures.reverse();
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+for (const [proof, pixels] of [
+  ["missing-group", "pending-busy"],
+  ["foreign-group", "pending-busy"],
+  ["plain-group", "pending-busy"],
+  ["plain-button", "pending-busy"],
+  ["missing-button", "pending-busy"],
+  ["unnamed-button", "pending-busy"],
+  ["unnamed-group", "pending-busy"],
+  ["wrong-group-role", "pending-busy"],
+  ["no-group-geometry", "pending-busy"],
+  ["outside-button", "pending-busy"],
+  ["moved-group", "pending-busy"],
+  ["moved-button", "pending-busy"],
+  ["no-busy", "pending-busy"],
+  ["button", "pending-idle"],
+  ["button", "pending-beacon"],
+  ["button", "pending-four-pixel"],
+  ["button", "pending-group-noise"],
+]) {
+  test(`native busy group rejects unbound or immaterial proof: ${proof}/${pixels}`, () => {
+    const fixture = centeredPendingFixture(`pending-group-${proof}`, pixels);
+    assert.match(JSON.stringify(check(fixture).issues), /materially different decoded pixels/);
+  });
+}
 
 test("native wide pending button accepts a localized spinner below the regional average floor", () => {
   const fixture = makeFixture();
