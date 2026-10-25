@@ -267,6 +267,8 @@ Review targets retain immutable copies of their upstream design report. If an ol
 
 Source Review can finish when main advances during the review if the frozen base is still its ancestor and both bases have the same merge base with the reviewed commit. Exact current HEAD, remote identity, diff and file inventory checks still apply; targets and reviewer results remain unchanged.
 
+When source Review passes but required verification fails, Dev keeps an immutable source checkpoint and records the failed test without advancing delivery. The source verdict and verification outcome remain separate; current tests and all applicable gates are still required before merge.
+
 The [quality evaluation suite](evals/README.md) covers daily Research, Think,
 Strategy, and Ideate work as well as delivery workflows. It reports observed
 efficiency data and leaves unavailable measurements unknown. No general Astra

@@ -1334,13 +1334,23 @@ function validateResult(session, result, options = {}) {
   } else if (session.phase === "qa" && new Set(["failed", "blocked"]).has(result.status)) {
     validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
   }
+  let scopedEvidence;
   if (
     Object.hasOwn(RECOVERY_THRESHOLDS, session.phase) &&
     new Set(["passed", "failed", "blocked"]).has(result.status)
   )
-    validateScopedGateEvidence(session, result, errors);
+    scopedEvidence = validateScopedGateEvidence(session, result, errors);
 
-  if (result.commit) validateCommit(session, result.commit, options, errors);
+  if (result.commit)
+    validateCommit(
+      session,
+      result.commit,
+      options,
+      errors,
+      session.phase === "review" &&
+        result.status === "failed" &&
+        scopedEvidence?.outcome === "passed"
+    );
   return errors;
 }
 
@@ -1370,6 +1380,25 @@ function validateScopedGateEvidence(session, result, errors) {
       .join("/");
     const input = readProjectInput(root, relative, 4 * 1024 * 1024);
     const report = JSON.parse(input.bytes.toString("utf8"));
+    const failedVerification =
+      phase === "review" &&
+      result.status === "failed" &&
+      report.outcome === "passed" &&
+      (result.evidence || []).some((record) => {
+        if (
+          record.kind !== "test" ||
+          !Number.isInteger(record.exit_code) ||
+          record.exit_code <= 0 ||
+          typeof record.artifact !== "string" ||
+          !path.isAbsolute(record.artifact)
+        )
+          return false;
+        try {
+          return fs.lstatSync(record.artifact).isFile();
+        } catch {
+          return false;
+        }
+      });
     let checked;
     let policy;
     let round;
@@ -1377,13 +1406,24 @@ function validateScopedGateEvidence(session, result, errors) {
     if (phase === "review") {
       const { checkReview, expandFromReport } = require("../review-check");
       checked = checkReview(
-        expandFromReport({ root, reportPath: relative, fromReport: true, verifyBrowser: false })
+        expandFromReport({
+          root,
+          reportPath: relative,
+          fromReport: true,
+          verifyBrowser: false,
+          ...(failedVerification ? { verifyGit: false, verifyFrozenGit: true } : {}),
+        })
       );
       const targetInput = readProjectInput(root, report.target?.path, 4 * 1024 * 1024);
       const target = JSON.parse(targetInput.bytes.toString("utf8"));
       policy = target.recovery_policy;
       round = report.review_round;
       previous = report.prior_report;
+      if (
+        failedVerification &&
+        relative !== `${path.posix.dirname(report.target.path)}/report.json`
+      )
+        throw new Error("failed verification requires an immutable passing round checkpoint");
     } else {
       const { checkDesignCritique } = require("../design-critique-check");
       const base = require("../review-target").resolveTrustedBase(
@@ -1415,7 +1455,7 @@ function validateScopedGateEvidence(session, result, errors) {
       );
     const commit = phase === "review" ? report.source?.commit : report.commit;
     if (commit !== result.commit) throw new Error("report source must equal result commit");
-    if (report.outcome !== result.status)
+    if (report.outcome !== result.status && !failedVerification)
       throw new Error(`report outcome ${report.outcome} contradicts ${result.status}`);
     if (required && policy !== RECOVERY_POLICY)
       throw new Error(
@@ -1854,7 +1894,7 @@ function defaultVerifyDelivery(receipt, session) {
   return JSON.parse(output);
 }
 
-function validateCommit(session, commit, options, errors) {
+function validateCommit(session, commit, options, errors, allowAncestor = false) {
   const isReachable = options.isCommitReachable || defaultCommitReachable;
   const branchHead = options.branchHead || defaultBranchHead;
   try {
@@ -1863,7 +1903,7 @@ function validateCommit(session, commit, options, errors) {
       return;
     }
     const current = branchHead(session);
-    if (current && current !== commit) {
+    if (current && current !== commit && !allowAncestor) {
       errors.push(issue("$.commit", `is stale; current branch head is ${current}`));
     }
   } catch (error) {

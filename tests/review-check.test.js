@@ -51,6 +51,129 @@ const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
+test("failed verification retains a passed source Review without advancing delivery", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  fs.copyFileSync(
+    path.join(fixture.root, fixture.reportPath),
+    path.join(fixture.root, fixture.roundReportPath)
+  );
+  let session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "review";
+  const failurePath = ".pm/verification-failure.json";
+  write(fixture.root, failurePath, { command: "node --test", exit_code: 1 });
+  const result = {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: "review",
+    attempt: 1,
+    status: "failed",
+    summary: "Source Review passed, but actual required verification failed.",
+    commit: fixture.target.source.commit,
+    files_changed: [],
+    evidence: [
+      {
+        kind: "review",
+        command: "node scripts/review-check.js --from-report",
+        exit_code: 0,
+        artifact: path.join(fixture.root, fixture.roundReportPath),
+      },
+      {
+        kind: "test",
+        command: "node --test",
+        exit_code: 1,
+        artifact: path.join(fixture.root, failurePath),
+      },
+    ],
+    blocker: null,
+    runtime: { provider: "codex", model: "test-model", reasoning: "high" },
+  };
+  for (const testEvidence of [
+    { ...result.evidence[1], exit_code: 0 },
+    { ...result.evidence[1], exit_code: -1 },
+    { ...result.evidence[1], artifact: null },
+    { ...result.evidence[1], artifact: fixture.root },
+    { ...result.evidence[1], artifact: ".pm/verification-failure.json" },
+    { ...result.evidence[1], artifact: path.join(fixture.root, ".pm/missing.json") },
+    { ...result.evidence[1], kind: "trace" },
+  ]) {
+    assert.throws(() =>
+      recordResult(session, { ...result, evidence: [result.evidence[0], testEvidence] })
+    );
+  }
+  const originalSession = session;
+  session = recordResult(session, result);
+  assert.equal(session.status, "active");
+  assert.equal(session.phase, "review");
+  assert.equal(session.phase_attempt, 2);
+  assert.equal(session.evidence.review.commit, null);
+  assert.deepEqual(session.evidence.review.records, []);
+  assert.equal(session.evidence.review.recovery_history[0].outcome, "passed");
+  assert.equal(session.attempts.at(-1).status, "failed");
+  assert.equal(
+    fs.existsSync(path.join(fixture.root, ".pm/dev-sessions/example/gates.json")),
+    false
+  );
+
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "subsequent verification repair"]);
+  const historical = recordResult(originalSession, result);
+  assert.equal(historical.evidence.review.commit, null);
+  assert.deepEqual(
+    historical.evidence.review.recovery_history,
+    session.evidence.review.recovery_history,
+    "an ancestor observation can record failure, never certify the changed HEAD"
+  );
+  assert.throws(() =>
+    recordResult(originalSession, {
+      ...result,
+      status: "passed",
+      evidence: [result.evidence[0], { ...result.evidence[1], exit_code: 0 }],
+    })
+  );
+  assert.throws(
+    () => recordResult(session, { ...result, attempt: 2 }),
+    /immediately prior|replay|reset/
+  );
+});
+
+test("a passing source Review can publish an immutable round checkpoint", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const options = {
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.roundReportPath,
+    writeReport: true,
+    verifyBrowser: false,
+  };
+  const checked = checkReview(options);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.report.outcome, "passed");
+  const bytes = fs.readFileSync(path.join(fixture.root, fixture.roundReportPath));
+  assert.equal(checkReview(options).ok, false, "round checkpoints must not be replaced");
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, fixture.roundReportPath)), bytes);
+  const frozen = checkReview({ ...options, writeReport: false });
+  assert.equal(frozen.ok, true, JSON.stringify(frozen.issues));
+});
+
 test("separate clarification files preserve exact original results", () => {
   for (const variant of ["valid", "changed", "missing", "no-agreement"]) {
     const fixture = makeFixture({ maxWorkers: 3 });
