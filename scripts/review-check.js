@@ -261,6 +261,13 @@ function checkReview(options) {
       add(issues, "report.presentation", `HTML presentation required: ${policy.reason}`);
   }
   const reportStage = options.reportStage || "final";
+  const checkpointReport = reviewRoot
+    ? expectedReviewPath(reviewRoot, target.review_round, "report", { outcome: "failed" })
+    : null;
+  const roundCheckpoint =
+    reportStage === "final" &&
+    report.outcome === "passed" &&
+    options.reportPath === checkpointReport;
   if (
     reportStage === "final" &&
     report.outcome === "passed" &&
@@ -284,10 +291,13 @@ function checkReview(options) {
       stage: reportStage,
       canonicalRoot: canonicalReviewRoot,
     });
-    if (options.reportPath !== expectedReport)
+    if (options.reportPath !== expectedReport && !roundCheckpoint)
       add(issues, "report.path", `must equal ${expectedReport}`);
-    if (!structured && options.humanReportPath !== expectedHuman)
-      add(issues, "report.human_report.path", `must equal ${expectedHuman}`);
+    const allowedHuman = roundCheckpoint
+      ? expectedReviewPath(reviewRoot, target.review_round, "human", { outcome: "failed" })
+      : expectedHuman;
+    if (!structured && options.humanReportPath !== allowedHuman)
+      add(issues, "report.human_report.path", `must equal ${allowedHuman}`);
   }
 
   let validatedHumanReport = null;
@@ -307,7 +317,8 @@ function checkReview(options) {
     if (projectPath(options.reportPath)) {
       try {
         const immutable =
-          (options.reportStage || "final") === "final" && report.outcome !== "passed";
+          (options.reportStage || "final") === "final" &&
+          (report.outcome !== "passed" || roundCheckpoint);
         const publication = projectFile.writeProjectJsonAtomic(root, options.reportPath, report, {
           fileMode: 0o600,
           directoryMode: 0o700,
@@ -324,7 +335,9 @@ function checkReview(options) {
           issues,
           "report.path",
           /EEXIST|file exists/i.test(error.message)
-            ? "refusing to overwrite immutable non-passing round report"
+            ? roundCheckpoint
+              ? "refusing to overwrite immutable passing round checkpoint"
+              : "refusing to overwrite immutable non-passing round report"
             : error.message
         );
         return { ok: false, issues, report };

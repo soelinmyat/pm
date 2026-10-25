@@ -22,13 +22,19 @@ function renderReviewReport(options) {
   const pathContext = reviewPathContext(report.target?.path, report.review_round, report.run_id);
   const reviewRoot = pathContext.evidenceRoot;
   const reportStage = path.basename(relativeReport) === "draft-report.json" ? "draft" : "final";
+  const roundCheckpoint =
+    reportStage === "final" &&
+    report.outcome === "passed" &&
+    relativeReport ===
+      expectedReviewPath(reviewRoot, report.review_round, "report", { outcome: "failed" });
+  const pathOutcome = roundCheckpoint ? "failed" : report.outcome;
   const expectedReport = expectedReviewPath(reviewRoot, report.review_round, "report", {
-    outcome: report.outcome,
+    outcome: pathOutcome,
     stage: reportStage,
     canonicalRoot: pathContext.canonicalRoot,
   });
   const expectedHuman = expectedReviewPath(reviewRoot, report.review_round, "human", {
-    outcome: report.outcome,
+    outcome: pathOutcome,
     stage: reportStage,
     canonicalRoot: pathContext.canonicalRoot,
   });
@@ -49,12 +55,16 @@ function renderReviewReport(options) {
     publication = projectFiles.writeProjectTextAtomic(root, options.outputPath, html, {
       fileMode: 0o600,
       directoryMode: 0o700,
-      replace: !(reportStage === "final" && report.outcome !== "passed"),
+      replace: !(reportStage === "final" && (report.outcome !== "passed" || roundCheckpoint)),
       maxBytes: MAX_HTML_BYTES,
     });
   } catch (error) {
     if (/EEXIST|file exists/i.test(error.message))
-      throw new Error("refusing to overwrite immutable non-passing human report");
+      throw new Error(
+        roundCheckpoint
+          ? "refusing to overwrite immutable passing round checkpoint HTML"
+          : "refusing to overwrite immutable non-passing human report"
+      );
     throw error;
   }
   return {

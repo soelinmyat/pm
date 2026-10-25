@@ -137,6 +137,8 @@ For HTML, the first screenful visibly binds outcome, round, blocker count, top i
 
 ## Post-pass freshness
 
+A passing source Review may also publish its complete checked report at the exact frozen round's `report.json` path, with its round-local HTML when requested. That checkpoint is exclusive and immutable; canonical report publication remains the delivery-discovery path. Dev may record a failed Review phase when this source checkpoint passed but a separately retained required test failed. The source-history anchor preserves `passed`, while the phase attempt records `failed`, remains in Review, and supplies no passing gate evidence. This failure-only recording can validate an ancestor checkpoint through frozen Git after a descendant repair; it never certifies the changed HEAD. Other verdict contradictions, interrupted checks, missing failure artifacts and passing results retain the existing strict rules.
+
 ### Delivery-attestation projection
 
 After Review converges, Ship may project the canonical report and current routed gate artifacts into one `delivery-attestation-v1` record at `.pm/dev-sessions/{slug}/ship/delivery-attestation.json`. This projection does not replace Review. It re-hashes bounded canonical evidence and binds the exact commit, base, merge base, affected plan, hook/config/tool/preflight and command identities, producer, outcome, invalidation generation, repository-declared bypass semantics, destination, and four-field ref-update input. The record requires a separately supplied machine-local authentication key; arbitrary paths, copied evidence, stale observations, unsupported schemas, later findings, or later feature mutation are not reusable.
