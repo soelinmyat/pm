@@ -150,6 +150,35 @@ test("failed verification retains a passed source Review without advancing deliv
   );
 });
 
+test("a passing round checkpoint renders immutable requested HTML and rechecks", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const options = {
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.roundReportPath,
+    humanReportPath: fixture.roundHtmlPath,
+    writeReport: true,
+    verifyBrowser: false,
+  };
+  const published = checkReview(options);
+  assert.equal(published.ok, true, JSON.stringify(published.issues));
+  const render = {
+    root: fixture.root,
+    reportPath: fixture.roundReportPath,
+    outputPath: fixture.roundHtmlPath,
+  };
+  renderReviewReport(render);
+  const bytes = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath));
+  assert.equal(checkReview({ ...options, writeReport: false }).ok, true);
+  assert.throws(() => renderReviewReport(render), /immutable passing round checkpoint/);
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath)), bytes);
+});
+
 test("a passing source Review can publish an immutable round checkpoint", (t) => {
   const fixture = makeFixture({ maxWorkers: 3 });
   t.after(() => {
