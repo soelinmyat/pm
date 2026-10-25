@@ -9869,6 +9869,15 @@ test("direct PDF Design gate accepts complete native pages and explicit assuranc
 test("direct-PDF release preserves unchanged native 1.14.41 evidence and rejects unknown producers", () => {
   const { fixture, run } = recertificationReleaseFixture("1.14.41", "1.14.42");
   bindFixturePrimaryPrompt(fixture, 1, PRE_PDF_PRIMARY_PROMPT);
+  // This test models the 1.14.42 consumer, including its renderer identity.
+  // Rebinding the prompt regenerates HTML with the current test-runner version.
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs
+      .readFileSync(htmlPath, "utf8")
+      .replace(`"version":"${PLUGIN_VERSION}"`, '"version":"1.14.42"')
+  );
   const files = new Set([
     fixture.capturesPath,
     fixture.reviewsPath,
@@ -9883,6 +9892,24 @@ test("direct-PDF release preserves unchanged native 1.14.41 evidence and rejects
   for (const [file, bytes] of before)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
   const { run: unknown } = recertificationReleaseFixture("1.14.43", "1.14.42");
+  assert.match(JSON.stringify(unknown().issues), /capture producer/);
+});
+
+test("Review-checkpoint release preserves native 1.14.42 bytes and rejects future producers", () => {
+  const { fixture, run } = recertificationReleaseFixture("1.14.42", "1.14.43");
+  const files = [
+    fixture.capturesPath,
+    fixture.reviewsPath,
+    ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+    ...fixture.captures.evidence.map((entry) => entry.path),
+  ];
+  const before = new Map(
+    files.map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+  );
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  for (const [file, bytes] of before)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  const { run: unknown } = recertificationReleaseFixture("1.14.44", "1.14.43");
   assert.match(JSON.stringify(unknown().issues), /capture producer/);
 });
 
