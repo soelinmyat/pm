@@ -9913,6 +9913,37 @@ test("Review-checkpoint release preserves native 1.14.42 bytes and rejects futur
   assert.match(JSON.stringify(unknown().issues), /capture producer/);
 });
 
+test("tab-restoration release retains frozen native 1.14.43 evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+    checkpointVersion: "1.14.43",
+  });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
+for (const version of [
+  "1.14.37",
+  "1.14.38",
+  "1.14.39",
+  "1.14.40",
+  "1.14.41",
+  "1.14.42",
+  "1.14.43",
+  "1.14.45",
+]) {
+  test(`tab-restoration release rejects stale or unknown active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.44");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, false);
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
 // Exact Primary instruction bytes shipped at v1.14.41, before PDF support.
 const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
 

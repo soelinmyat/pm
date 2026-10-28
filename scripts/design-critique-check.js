@@ -171,6 +171,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.43",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.42"), "1.14.43"])
 );
+// Native tab restoration changes active collection, not sparse pixel proof.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.44",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.43"), "1.14.44"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -199,6 +204,15 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   // Long-text collection requires fresh active captures; preserve 36 only
   // through the existing immutable inactive/frozen-history checks.
   "1.14.36",
+  // Bounded tab restoration requires fresh active captures. Earlier native
+  // records remain eligible only as inactive captures or frozen predecessors.
+  "1.14.37",
+  "1.14.38",
+  "1.14.39",
+  "1.14.40",
+  "1.14.41",
+  "1.14.42",
+  "1.14.43",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2220,7 +2234,9 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43"]).has(manifest.observation.producer.version)
+      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44"]).has(
+        manifest.observation.producer.version
+      )
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
     const expectedVisibleNodes =
