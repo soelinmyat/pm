@@ -1961,6 +1961,41 @@ function selfRemountingTabsControls() {
   return `<section aria-label="Remounting tabs example"><div id="panel">${sensors}</div><div><div id="views" role="tablist" aria-label="Views"></div></div></section><script>{const views=document.querySelector("#views");const panel=document.querySelector("#panel");const ids=["tab-a","tab-b"];const labels={"tab-a":"Sensors","tab-b":"History"};const roving=group=>{group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios[radios.indexOf(document.activeElement)+direction];if(!next)return;radios.forEach(item=>{item.tabIndex=item===next?0:-1;item.setAttribute("aria-checked",String(item===next))});next.focus()})};const render=selected=>{views.innerHTML=ids.map(id=>\`<button id="\${id}" role="tab" aria-selected="\${id===selected}" tabindex="\${id===selected?0:-1}">\${labels[id]}</button>\`).join("")};const select=id=>{render(id);document.getElementById(id).focus();panel.innerHTML=id==="tab-a"?${JSON.stringify(sensors)}:"";if(panel.firstChild)roving(panel.firstChild)};render("tab-a");roving(document.querySelector("#sensors"));views.addEventListener("click",event=>{const tab=event.target.closest("[role=tab]");if(tab)select(tab.id)});views.addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=ids[ids.indexOf(document.activeElement.id)+direction];if(next)select(next)})}</script>`;
 }
 
+// Frameworks can move native roving focus before committing selection and URL
+// state. Restoration must observe that commit instead of reading the old tab.
+function asynchronousUrlTabsControls({ restoreUrl = true } = {}) {
+  return `<section aria-label="Period example"><div id="periods" role="tablist" aria-label="Period"><button id="period-day" type="button" role="tab" aria-selected="true" tabindex="0">Day</button><button id="period-month" type="button" role="tab" aria-selected="false" tabindex="-1">Month</button></div></section><script>{const group=document.querySelector('#periods');const tabs=[...group.querySelectorAll('[role=tab]')];let timer;const select=tab=>{if(tab.getAttribute('aria-selected')==='true')return;clearTimeout(timer);timer=setTimeout(()=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute('aria-selected',String(item===tab))});if(tab!==tabs[0]||${JSON.stringify(restoreUrl)})history.replaceState(null,'',tab===tabs[0]?'?period=day':'?period=month')},80)};tabs.forEach(tab=>tab.addEventListener('click',()=>select(tab)));group.addEventListener('keydown',event=>{const delta=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;if(!delta)return;event.preventDefault();const next=tabs[(tabs.indexOf(document.activeElement)+delta+tabs.length)%tabs.length];next.focus();select(next)})}</script>`;
+}
+
+async function serveUrlTabsFixture(fixture) {
+  const htmlPath = path.join(fixture.root, "tabs.html");
+  const html = decodeURIComponent(fixture.url.slice("data:text/html;charset=utf-8,".length));
+  fixture.eventsPath = path.join(fixture.root, "events.jsonl");
+  const trace = `<script>{const group=document.querySelector('#periods');const note=(kind,trusted)=>fetch('/event?state='+encodeURIComponent(JSON.stringify({kind,trusted,focus:document.activeElement?.id,selected:group.querySelector('[aria-selected="true"]')?.id,url:location.search})));group.addEventListener('keydown',event=>note(event.key,event.isTrusted));group.addEventListener('click',event=>note('click',event.isTrusted));new MutationObserver(()=>note('mutation')).observe(group,{subtree:true,attributes:true});}</script>`;
+  fs.writeFileSync(
+    htmlPath,
+    html.replace("</head>", '<link rel="icon" href="data:,"></head>') + trace
+  );
+  const source = `const fs=require('node:fs'),http=require('node:http');
+    const html=fs.readFileSync(process.argv[1]);const events=process.argv[2];
+    const server=http.createServer((request,response)=>{
+      const url=new URL(request.url,'http://127.0.0.1');if(url.pathname==='/event'){fs.appendFileSync(events,url.searchParams.get('state')+'\\n');response.writeHead(204);response.end();return;}
+      response.writeHead(200,{'content-type':'text/html; charset=utf-8'});response.end(html);
+    });
+    server.listen(0,'127.0.0.1',()=>process.stdout.write(JSON.stringify({port:server.address().port})+'\\n'));`;
+  const server = spawn(process.execPath, ["-e", source, htmlPath, fixture.eventsPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    const { port } = JSON.parse(await waitForChildLine(server));
+    fixture.url = `http://127.0.0.1:${port}/capture?period=day`;
+    return server;
+  } catch (error) {
+    server.kill("SIGTERM");
+    throw error;
+  }
+}
+
 // A tablist whose host re-renders it once, as a lazily hydrated widget would:
 // on the first focus (so its probe loses the focused tab) or, with `afterSelect`,
 // on its second selection change (so its probe loses only the tab it had not reached).
@@ -2255,6 +2290,8 @@ const FOCUSABILITY_VARIANTS = {
   "form-tabs": () => clickActivatedTabsControls({ form: true }),
   "deferred-tabs": () => clickActivatedTabsControls({ deferred: true }),
   "self-remounting-tabs": selfRemountingTabsControls,
+  "asynchronous-url-tabs": () => asynchronousUrlTabsControls(),
+  "asynchronous-url-drift-tabs": () => asynchronousUrlTabsControls({ restoreUrl: false }),
   "remount-on-focus-tabs": () => remountingHostTabsControls(),
   "remount-after-select-tabs": () => remountingHostTabsControls({ afterSelect: true }),
   "active-descendant-radiogroup": activeDescendantRadiogroupControls,
@@ -3017,6 +3054,61 @@ test(
       assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
       assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
     } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence waits for asynchronous tab selection before restoring the URL",
+  { skip: browserSkip },
+  async () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "asynchronous-url-tabs" });
+    const server = await serveUrlTabsFixture(fixture);
+    try {
+      const result = runBrowserCapture(fixture, [new URL(fixture.url).origin]);
+      const controls = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(controls.get("button#period-day").tab_index, 0);
+      assert.equal(controls.get("button#period-month").tab_index, -1);
+      assert.equal(controls.get("button#period-month").focus_context, "composite");
+      const events = fs.readFileSync(fixture.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
+      assert.ok(events.some((event) => event.kind === "ArrowRight" && event.trusted));
+      assert.ok(events.some((event) => event.kind === "Enter" && event.trusted));
+      const changes = events.filter((event) => event.kind === "mutation");
+      assert.ok(
+        changes.some((event) => event.selected === "period-month" && event.url === "?period=month")
+      );
+      assert.equal(changes.at(-1).selected, "period-day");
+      assert.equal(changes.at(-1).url, "?period=day");
+    } finally {
+      const exited = new Promise((resolve) => server.once("exit", resolve));
+      server.kill("SIGTERM");
+      await exited;
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence rejects asynchronous tab restoration that leaves URL drift",
+  { skip: browserSkip },
+  async () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "asynchronous-url-drift-tabs" });
+    const server = await serveUrlTabsFixture(fixture);
+    try {
+      assert.throws(
+        () => runBrowserCapture(fixture, [new URL(fixture.url).origin]),
+        /navigation drift during composite keyboard probing/
+      );
+      const events = fs.readFileSync(fixture.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
+      assert.ok(events.some((event) => event.kind === "ArrowRight" && event.trusted));
+      assert.equal(events.filter((event) => event.kind === "mutation").at(-1).url, "?period=month");
+    } finally {
+      const exited = new Promise((resolve) => server.once("exit", resolve));
+      server.kill("SIGTERM");
+      await exited;
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   }

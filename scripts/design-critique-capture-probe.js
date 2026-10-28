@@ -4074,6 +4074,9 @@ async function probeCompositeKeyboardAccess(
         const selected = candidate.selected_backend_node_ids;
         const restoreKey = COMPOSITE_RESTORE_KEYS[candidate.owner_role];
         if (!restoreKey || selected?.length !== 1) continue;
+        // Roving focus can arrive before a controlled widget commits its
+        // selection and URL. Read restoration eligibility after that commit.
+        await waitForDomQuiet(client, executionContextId);
         const currentTree = await client.send("Page.getFrameTree");
         const urlDrift =
           typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl;
