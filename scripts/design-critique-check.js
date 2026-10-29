@@ -115,6 +115,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.42", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40", "1.14.41"])],
   // Review checkpoint recording changes no native capture or audit contract.
   ["1.14.43", new Set(["1.14.37", "1.14.38", "1.14.39", "1.14.40", "1.14.41", "1.14.42"])],
+  // Shared-error comparison is checker-only. Preserve the unchanged 44 native
+  // producer and report contracts; earlier producers remain historical only.
+  ["1.14.45", new Set(["1.14.44"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -175,6 +178,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.44",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.43"), "1.14.44"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.45",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.44"), "1.14.45"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1201,6 +1208,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     acceptedCaptureRows,
     coverage,
     decodedByCapture,
+    observationByCapture,
     issues,
     runtime.retainFailedAuditChecks
   );
@@ -1231,6 +1239,7 @@ function validateDistinctActiveCaptures(
   captureRows,
   coverage,
   decodedByCapture,
+  observationByCapture,
   issues,
   retainFailedContentQuality = false
 ) {
@@ -1249,7 +1258,8 @@ function validateDistinctActiveCaptures(
         `distinct required coverage ${priorPath} and ${capture.coverage_id} must use a distinct canonical capture path`
       );
     else paths.set(file.path, capture.coverage_id);
-    const priorHash = hashes.get(file.sha256);
+    const sharedError = sharedNativeErrorIdentity(capture, coverage, observationByCapture);
+    const priorHash = recordDistinctCaptureContent(hashes, file.sha256, capture, sharedError);
     // Only internally revalidated nonpassing history may retain this quality
     // failure. Canonical paths and every individual byte/pixel binding remain checked.
     if (priorHash && priorHash !== capture.coverage_id && !retainFailedContentQuality)
@@ -1258,9 +1268,10 @@ function validateDistinctActiveCaptures(
         `captures.captures.${capture.id}`,
         `distinct required coverage ${priorHash} and ${capture.coverage_id} must use a distinct capture content hash`
       );
-    else hashes.set(file.sha256, capture.coverage_id);
     const pixelHash = decodedByCapture.get(capture.id)?.pixelSha256;
-    const priorPixels = pixelHashes.get(pixelHash);
+    const priorPixels = pixelHash
+      ? recordDistinctCaptureContent(pixelHashes, pixelHash, capture, sharedError)
+      : null;
     if (
       pixelHash &&
       priorPixels &&
@@ -1272,8 +1283,74 @@ function validateDistinctActiveCaptures(
         `captures.captures.${capture.id}`,
         `distinct required coverage ${priorPixels} and ${capture.coverage_id} must use a distinct decoded-pixel hash`
       );
-    else if (pixelHash) pixelHashes.set(pixelHash, capture.coverage_id);
   }
+}
+
+// A shared error fallback may render identically on separate routes. Its pixels
+// do not establish a second acquisition: each route still needs its own fully
+// verified native manifest, page context, URL and visible named alert guard.
+function sharedNativeErrorIdentity(capture, coverage, observations) {
+  const row = coverage.get(capture.coverage_id);
+  const observed = observations.get(capture.id);
+  if (row?.state !== "error" || observed?.verified !== true || !observed.manifest) return null;
+  const { manifest, manifestFile, assertion } = observed;
+  const { page, observation } = manifest;
+  const checks = page.state_assertion.visibility.checks;
+  const alerts = (assertion?.all || []).flatMap((clause, index) =>
+    clause.locator?.by === "role-name" &&
+    clause.locator.value.startsWith("alert:") &&
+    clause.expect?.kind === "visible" &&
+    checks.some(
+      (check) =>
+        check.label === `state assertion clause ${index + 1}` &&
+        check.native_role?.toLowerCase() === "alert" &&
+        check.native_name_present === true
+    )
+      ? [clause.locator.value]
+      : []
+  );
+  if (!alerts.length) return null;
+  return {
+    signature: canonicalJson([
+      row.viewport,
+      capture.width,
+      capture.height,
+      page.final_url.origin,
+      uniqueSorted(alerts),
+    ]),
+    identities: [
+      ["subject", row.subject_id],
+      ["pathname", page.final_url.pathname],
+      ["url", page.final_url.full_url_sha256],
+      ["target", page.target_id],
+      ["frame", page.main_frame_id],
+      ["loader", page.loader_id],
+      ["manifest-path", manifestFile.path],
+      ["manifest-hash", manifestFile.sha256],
+      ["invocation", observation.invocation_configuration_sha256],
+    ].map(([kind, value]) => `${kind}:${value}`),
+  };
+}
+
+// Keep collision checks linear even when many subjects share one error image.
+// Every acquisition must be distinct from all predecessors, not only the first.
+function recordDistinctCaptureContent(seen, hash, capture, sharedError) {
+  const prior = seen.get(hash);
+  if (!prior) {
+    seen.set(hash, {
+      coverageId: capture.coverage_id,
+      signature: sharedError?.signature,
+      identities: new Set(sharedError?.identities),
+    });
+    return null;
+  }
+  const independent =
+    sharedError &&
+    prior.signature === sharedError.signature &&
+    sharedError.identities.every((identity) => !prior.identities.has(identity));
+  if (sharedError) for (const identity of sharedError.identities) prior.identities.add(identity);
+  if (!independent) prior.signature = null;
+  return independent ? null : prior.coverageId;
 }
 
 function validateCrossStateVisualDistance(
@@ -2234,7 +2311,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44"]).has(
+      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45"]).has(
         manifest.observation.producer.version
       )
     )

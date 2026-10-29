@@ -4069,6 +4069,121 @@ test("rejects re-encoded identical pixels for distinct required states", () => {
   assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
 });
 
+function sharedErrorFixture(t, { reencoded = false, state = "error", sameUrl = false } = {}) {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  addRequiredStateCapture(fixture, state, validPng(1440, 1000, 40));
+  addProductUiSubject(fixture, "billing-detail");
+  if (sameUrl) fixture.route.subjects[1].surface = fixture.route.subjects[0].surface;
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const first = fixture.captures.captures.find((row) => row.coverage_id === `ui-${state}`);
+  const second = fixture.captures.captures.find(
+    (row) => row.coverage_id === `billing-detail-${state}`
+  );
+  const bytes = reencoded
+    ? validPng(first.width, first.height, 40, 64)
+    : fs.readFileSync(path.join(fixture.root, first.path));
+  second.sha256 = write(fixture.root, second.path, bytes).sha256;
+  second.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
+  fixture.nativeStateProofByCapture = Object.fromEntries(
+    [first, second].map((row) => [row.id, "named-error-caption-statictext-role-name-only"])
+  );
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const fresh = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  const errorObservations = fresh.result.observations.filter((row) => row.state === "error");
+  for (const [index, observation] of errorObservations.entries())
+    observation.observation =
+      index === 0
+        ? "The error state at the desktop viewport centers the alert above a Retry button, leaving the lower content area clear."
+        : "The error state at the desktop viewport keeps the back link near the upper left; the recovery action sits below the explanatory message.";
+  attachReviewReceipt(fixture.root, fresh, 1);
+  rewriteReviewsAndReport(fixture);
+  return { fixture, first, second };
+}
+
+for (const reencoded of [false, true]) {
+  test(`accepts independently observed shared error UI across different routes (${reencoded ? "pixels" : "bytes"})`, (t) => {
+    const { fixture } = sharedErrorFixture(t, { reencoded });
+    const result = check(fixture);
+    assert.equal(result.ok, true, JSON.stringify(result.issues));
+  });
+}
+
+test("shared error UI cannot reuse the same native route under different subjects", (t) => {
+  const { fixture } = sharedErrorFixture(t, { sameUrl: true });
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
+
+test("shared error UI cannot reuse another capture's native observation", (t) => {
+  const { fixture, first, second } = sharedErrorFixture(t);
+  second.observation = first.observation;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
+
+for (const field of ["target_id", "main_frame_id", "loader_id"]) {
+  test(`shared error UI rejects reused native ${field} even with rebound stability`, (t) => {
+    const { fixture, first, second } = sharedErrorFixture(t);
+    const read = (file) => JSON.parse(fs.readFileSync(path.join(fixture.root, file), "utf8"));
+    const manifest = read(second.observation.path);
+    manifest.page[field] = read(first.observation.path).page[field];
+    const page = Object.fromEntries(
+      ["target_id", "main_frame_id", "loader_id", "final_url", "css_viewport"].map((key) => [
+        key,
+        manifest.page[key],
+      ])
+    );
+    manifest.observation.stability.native_observations_sha256 = digest(
+      Buffer.from(
+        JSON.stringify({
+          page,
+          assertion_visibility: manifest.page.state_assertion.visibility,
+          accessibility: read(manifest.raw_evidence.accessibility_tree.path).observations,
+          dom: read(manifest.raw_evidence.dom_audit.path).observations,
+        })
+      )
+    );
+    second.observation = write(fixture.root, second.observation.path, JSON.stringify(manifest));
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+    assert.doesNotMatch(JSON.stringify(result.issues), /must bind two stable native observations/);
+  });
+}
+
+test("shared error UI requires a visible named native alert in both acquisitions", (t) => {
+  const { fixture, second } = sharedErrorFixture(t);
+  fixture.nativeStateProofByCapture[second.id] = "named-error-caption-statictext";
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
+
+test("shared error eligibility cannot waive identical success views across subjects", (t) => {
+  const { fixture } = sharedErrorFixture(t, { state: "success" });
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
+
 test("rejects different state captures whose only visual change is a one-pixel beacon", () => {
   const fixture = makeFixture();
   const desktop = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
@@ -9912,6 +10027,48 @@ test("Review-checkpoint release preserves native 1.14.42 bytes and rejects futur
   const { run: unknown } = recertificationReleaseFixture("1.14.44", "1.14.43");
   assert.match(JSON.stringify(unknown().issues), /capture producer/);
 });
+
+for (const sparse of [false, true]) {
+  test(`shared-error release preserves unchanged native 1.14.44 evidence (${sparse ? "sparse" : "ordinary"})`, (t) => {
+    const { fixture, refresh, run } = recertificationReleaseFixture("1.14.44", "1.14.45");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    if (sparse) {
+      fixture.nativeStateProof = "sparse-static";
+      addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+      fixture.producerVersionByCapture = Object.fromEntries(
+        fixture.captures.captures.map((capture) => [capture.id, "1.14.44"])
+      );
+      refresh();
+    }
+    const files = [
+      fixture.capturesPath,
+      fixture.reviewsPath,
+      fixture.reportPath,
+      ...fixture.captures.captures.flatMap((capture) => [capture.path, capture.observation.path]),
+      ...fixture.captures.evidence.map((entry) => entry.path),
+    ];
+    const before = new Map(
+      files.map((file) => [file, fs.readFileSync(path.join(fixture.root, file))])
+    );
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    for (const [file, bytes] of before)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+    rewriteNormalizedAudit(fixture, fixture.captures.evidence[0], (raw) => {
+      raw.observations.landmarks = [];
+    });
+    refresh();
+    assert.match(JSON.stringify(run().issues), /landmarks/);
+  });
+}
+
+for (const version of ["1.14.43", "1.14.46"]) {
+  test(`shared-error release rejects unsupported active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.45");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, false);
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
 
 test("tab-restoration release retains frozen native 1.14.43 evidence unchanged", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
