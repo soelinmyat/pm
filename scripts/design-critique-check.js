@@ -1298,7 +1298,7 @@ function sharedNativeErrorIdentity(capture, coverage, observations) {
   const checks = page.state_assertion.visibility.checks;
   const alerts = (assertion?.all || []).flatMap((clause, index) =>
     clause.locator?.by === "role-name" &&
-    clause.locator.value.startsWith("alert:") &&
+    isAlertLocator(clause.locator) &&
     clause.expect?.kind === "visible" &&
     checks.some(
       (check) =>
@@ -1306,7 +1306,12 @@ function sharedNativeErrorIdentity(capture, coverage, observations) {
         check.native_role?.toLowerCase() === "alert" &&
         check.native_name_present === true
     )
-      ? [clause.locator.value]
+      ? [
+          clause.locator.value
+            .slice(clause.locator.value.indexOf(":") + 1)
+            .trim()
+            .replace(/\s+/g, " "),
+        ]
       : []
   );
   if (!alerts.length) return null;

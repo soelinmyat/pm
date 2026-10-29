@@ -975,7 +975,8 @@ function refreshTrustedCaptureObservations(fixture) {
       fixture.nativeFocusProof ?? true,
       fixture.nativeStateProofByCapture?.[capture.id] ?? fixture.nativeStateProof,
       fixture.producerVersionByCapture?.[capture.id] ?? PLUGIN_VERSION,
-      fixture.fileLabelBaselineByCapture?.[capture.id] ?? fixture.fileLabelBaseline ?? true
+      fixture.fileLabelBaselineByCapture?.[capture.id] ?? fixture.fileLabelBaseline ?? true,
+      fixture.nativeAlertLocatorByCapture?.[capture.id] ?? null
     );
 }
 
@@ -990,7 +991,8 @@ function attachTrustedCaptureObservation(
   nativeFocusProof = true,
   nativeStateProof = null,
   producerVersion = PLUGIN_VERSION,
-  fileLabelBaseline = true
+  fileLabelBaseline = true,
+  nativeAlertLocator = null
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -1197,6 +1199,10 @@ function attachTrustedCaptureObservation(
         expect: { kind: "visible" },
       });
   }
+  if (nativeAlertLocator && coverage.state === "error")
+    for (const clause of assertion.all)
+      if (clause.locator.by === "role-name" && clause.locator.value.startsWith("alert:"))
+        clause.locator.value = nativeAlertLocator;
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -4069,7 +4075,16 @@ test("rejects re-encoded identical pixels for distinct required states", () => {
   assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
 });
 
-function sharedErrorFixture(t, { reencoded = false, state = "error", sameUrl = false } = {}) {
+function sharedErrorFixture(
+  t,
+  {
+    reencoded = false,
+    state = "error",
+    sameUrl = false,
+    alertLocators = null,
+    proof = "named-error-caption-statictext-role-name-only",
+  } = {}
+) {
   const fixture = makeFixture();
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
   addRequiredStateCapture(fixture, state, validPng(1440, 1000, 40));
@@ -4087,8 +4102,11 @@ function sharedErrorFixture(t, { reencoded = false, state = "error", sameUrl = f
   second.sha256 = write(fixture.root, second.path, bytes).sha256;
   second.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
   fixture.nativeStateProofByCapture = Object.fromEntries(
-    [first, second].map((row) => [row.id, "named-error-caption-statictext-role-name-only"])
+    [first, second].map((row) => [row.id, proof])
   );
+  fixture.nativeAlertLocatorByCapture = alertLocators
+    ? Object.fromEntries([first, second].map((row, index) => [row.id, alertLocators[index]]))
+    : null;
   refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.route = fixture.captures.route;
@@ -4113,6 +4131,29 @@ for (const reencoded of [false, true]) {
     assert.equal(result.ok, true, JSON.stringify(result.issues));
   });
 }
+
+for (const [description, alertLocators, proof] of [
+  ["mixed-case roles", ["Alert:Account", "ALERT:Account"], undefined],
+  ["trimmed role and name whitespace", ["alert: Account ", " ALERT :  Account  "], undefined],
+  [
+    "normalized internal name whitespace",
+    ["alert:Account message", "Alert:  Account\u00a0 message  "],
+    "named-error-caption-statictext-role-name-only-caption-spaces",
+  ],
+]) {
+  test(`shared error UI accepts native-equivalent alert guards: ${description}`, (t) => {
+    const { fixture } = sharedErrorFixture(t, { alertLocators, proof });
+    const result = check(fixture);
+    assert.equal(result.ok, true, JSON.stringify(result.issues));
+  });
+}
+
+test("shared error UI keeps distinct accessible alert names separate", (t) => {
+  const { fixture } = sharedErrorFixture(t, { alertLocators: ["alert:Account", "alert:account"] });
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
 
 test("shared error UI cannot reuse the same native route under different subjects", (t) => {
   const { fixture } = sharedErrorFixture(t, { sameUrl: true });
