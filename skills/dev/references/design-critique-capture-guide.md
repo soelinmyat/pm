@@ -157,6 +157,8 @@ Composites inside native named dialogs are probed before background widgets. Thi
 
 Within the same named-dialog context, native probes visit later independent groups before earlier controls can change their enabled members. Descendant widgets still precede their ancestor owners; unrelated layout wrappers do not take priority over this order. Every member still needs its own native entry and keyboard traversal proof against the frozen state. Before deciding whether to restore the original selection, the helper waits for asynchronous DOM selection/URL commits using its bounded quiet check. Restoration still uses the existing native keys and form-submit guard; the final exact URL and network checks are unchanged. Release 1.14.44 requires fresh active captures; older supported records remain frozen history, while sparse-content and native file-label proof retain their existing checks.
 
+Do not alter the interface or add visual noise to distinguish genuine identical shared error screens. The checker accepts their equal pixels only across different web subjects at the same error state and viewport, with matching visible named native alerts and independently verified distinct same-origin route, page/frame/loader, manifest and invocation identities. Keep each canonical screenshot path separate. Duplicate states within a subject, other states, copied observations and all failed native/audit checks remain blocked. Checker-only 1.14.45 explicitly retains the unchanged 1.14.44 producer and report contracts.
+
 ### Native preparation for below-fold and keyboard states
 
 An assertion may include an optional `before_capture` array. It is hash-bound with
