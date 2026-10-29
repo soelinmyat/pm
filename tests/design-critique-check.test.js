@@ -10142,6 +10142,30 @@ for (const version of [
   });
 }
 
+for (const version of ["1.14.44", "1.14.45"]) {
+  test(`searchable-listbox release retains frozen native ${version} evidence unchanged`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+      checkpointVersion: version,
+    });
+    const retained = recoveryDCFiles(fixture.root);
+    assert.deepEqual(
+      check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+      { ok: true, issues: [] }
+    );
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+
+for (const version of ["1.14.44", "1.14.45", "1.14.47"]) {
+  test(`searchable-listbox release rejects stale or unknown active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.46");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, false);
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
 // Exact Primary instruction bytes shipped at v1.14.41, before PDF support.
 const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
 

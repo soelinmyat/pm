@@ -183,6 +183,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.45",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.44"), "1.14.45"])
 );
+// Searchable-listbox probe ordering leaves sparse pixel proof unchanged.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.46",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.45"), "1.14.46"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -220,6 +225,10 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.41",
   "1.14.42",
   "1.14.43",
+  // Searchable-listbox probe ordering requires fresh active captures;
+  // preserve these producers only behind inactive/frozen-history checks.
+  "1.14.44",
+  "1.14.45",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2316,7 +2325,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45"]).has(
+      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46"]).has(
         manifest.observation.producer.version
       )
     )

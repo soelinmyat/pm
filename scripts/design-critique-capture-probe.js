@@ -835,9 +835,17 @@ function compositeKeyboardCandidates(
     for (const backendNodeId of group.entry_backend_node_ids) {
       const probe = entryProbes.get(backendNodeId);
       if (probe) {
-        const popup = popupAncestor(byBackendId.get(backendNodeId));
+        const entryNode = byBackendId.get(backendNodeId);
+        const popup = popupAncestor(entryNode);
+        const predecessorPopup = popupAncestor(byBackendId.get(probe.from_backend_node_id));
+        // A search input can precede an inner listbox in the same dialog.
+        // Prefer returning through that input before forward Tab dismisses it.
+        // This orders the probe only; native exit, return and arrows still run.
         const samePopup =
-          popup !== null && popup === popupAncestor(byBackendId.get(probe.from_backend_node_id));
+          popup !== null &&
+          predecessorPopup !== null &&
+          (popup === predecessorPopup ||
+            hasDomAncestor(entryNode, model, (ancestor) => ancestor.index === predecessorPopup));
         group.entry_probes[backendNodeId] = {
           ...probe,
           preferred_exit_modifiers: samePopup ? (probe.modifiers === 8 ? 0 : 8) : 0,
