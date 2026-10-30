@@ -14,7 +14,7 @@ services where they already satisfy the outcome.
 ## Project policy
 
 Read repository instructions at intake. Projects opt into executable enforcement
-by placing this exact standalone marker in their root `AGENTS.md`:
+by placing this exact standalone marker in their regular (non-symlink) root `AGENTS.md`:
 
 ```html
 <!-- mcp-feature-coverage: required -->
@@ -53,8 +53,9 @@ policy present at the authoritative base.
 
 ## Current evidence
 
-Before final Review/verification, save `mcp-coverage.json` beside the canonical
-Dev session's `gates.json`. Its closed v1 shape is:
+Before final Review/verification, save `mcp-coverage.json` beside the worktree-local
+`gates.json` under `.pm/dev-sessions/<slug>/`, even when the canonical Dev session
+lives in the originating repository. Its closed v1 shape is:
 
 ```json
 {
@@ -92,7 +93,7 @@ empty `checks` array. Empty criteria, unknown statuses/fields, missing output,
 failed commands, altered hashes and stale run/base/head identities fail closed.
 
 Command outputs live under the same session's `mcp-evidence/`, use paths relative
-to the originating repository, and must be regular, nonempty files (at most 1 MiB
+to the source worktree, and must be regular, nonempty files (at most 1 MiB
 per file). Scrub credentials and private customer data before retaining output;
 hash those final retained bytes. Report bytes also have a 1 MiB limit. Never
 manufacture a passing receipt or client test. This is workflow-attested evidence,

@@ -8,6 +8,7 @@ const { readProjectInput } = require("./project-file");
 
 const POLICY_MARKER = "<!-- mcp-feature-coverage: required -->";
 const MAX_BYTES = 1024 * 1024;
+const hasPolicy = (content) => content.split(/\r?\n/).some((line) => line.trim() === POLICY_MARKER);
 const digest = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const text = (value) => typeof value === "string" && value.trim().length > 0;
 const exactKeys = (value, keys) =>
@@ -23,7 +24,8 @@ function requiresMcpCoverage(root, refs = []) {
   const local = path.join(root, "AGENTS.md");
   if (
     fs.existsSync(local) &&
-    readProjectInput(root, "AGENTS.md", MAX_BYTES).bytes.toString().includes(POLICY_MARKER)
+    fs.lstatSync(local).isFile() &&
+    hasPolicy(readProjectInput(root, "AGENTS.md", MAX_BYTES).bytes.toString())
   )
     return true;
   if (!fs.existsSync(path.join(root, ".git"))) return false;
@@ -32,7 +34,7 @@ function requiresMcpCoverage(root, refs = []) {
     // validating the authoritative base/head before calling this policy check.
     if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(ref)) continue;
     const files = gitExec(root, ["ls-tree", "--name-only", ref, "--", "AGENTS.md"]).trim();
-    if (files && gitExec(root, ["show", `${ref}:AGENTS.md`]).includes(POLICY_MARKER)) return true;
+    if (files && hasPolicy(gitExec(root, ["show", `${ref}:AGENTS.md`]))) return true;
   }
   return false;
 }
@@ -45,7 +47,7 @@ function checkMcpCoverage({ root, session, commit, baseCommit, reportDirectory }
       return { ok: true, required: false, issues };
     if (!session || !baseCommit || !commit)
       throw new Error("canonical session and resolved base/head are required");
-    const evidenceRoot = session.source?.repo_root || root;
+    const evidenceRoot = root; // Gate artifacts belong to source.worktree, not the originating session.
     const directory = path.relative(evidenceRoot, reportDirectory).split(path.sep).join("/");
     const report = JSON.parse(
       readProjectInput(evidenceRoot, `${directory}/mcp-coverage.json`, MAX_BYTES).bytes

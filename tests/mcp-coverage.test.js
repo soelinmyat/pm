@@ -209,13 +209,37 @@ test("symlinked test output cannot substitute external evidence", (t) => {
   assert.equal(f.check().ok, false);
 });
 
-test("coverage supports a canonical session in the originating worktree", (t) => {
+test("coverage follows worktree-local gates when the session originates elsewhere", (t) => {
   const f = fixture(t);
-  const report = coverage(f);
   const source = path.join(f.root, "source");
   f.git("worktree", "add", "-q", "--detach", source);
   f.session.source.repo_root = f.root;
   f.session.source.worktree = source;
-  save(f, report);
+  const localDir = path.join(source, ".pm/dev-sessions/example");
+  fs.mkdirSync(localDir, { recursive: true });
+  const report = coverage({ ...f, root: source, dir: localDir });
+  save({ ...f, dir: localDir }, report);
+  const { checkMcpCoverage } = require("../scripts/lib/mcp-coverage");
+  const result = checkMcpCoverage({
+    root: source,
+    session: f.session,
+    commit: f.commit,
+    baseCommit: f.commit,
+    reportDirectory: localDir,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("an unmarked AGENTS symlink preserves non-opted-in project behavior", (t) => {
+  const f = fixture(t, false);
+  fs.writeFileSync(path.join(f.root, "CLAUDE.md"), "# Project instructions\n");
+  fs.unlinkSync(path.join(f.root, "AGENTS.md"));
+  fs.symlinkSync("CLAUDE.md", path.join(f.root, "AGENTS.md"));
+  assert.equal(f.check().ok, true, JSON.stringify(f.check().issues));
+});
+
+test("an inline marker example does not opt a project into enforcement", (t) => {
+  const f = fixture(t, false);
+  fs.writeFileSync(path.join(f.root, "AGENTS.md"), `Do not enable ${marker} for this project.\n`);
   assert.equal(f.check().ok, true, JSON.stringify(f.check().issues));
 });
