@@ -24,6 +24,8 @@ Produce one validated, commit-linked RFC HTML/JSON artifact pair whose execution
 
 ## How
 
+When repository policy requires MCP feature coverage, read `${CLAUDE_PLUGIN_ROOT}/references/mcp-feature-coverage.md`. Carry the scoped tool contracts, shared services, permissions and verification into the existing execution contract.
+
 1. Read the canonical session and only the input paths saved during intake. Follow `writing-rfcs.md` and `generation-contract.md`; the former owns document quality and stable artifact rules, while the latter owns execution packet and result requirements.
 2. Map relevant code before choosing architecture. Cite exact files and commands. Do not invent product decisions missing from the proposal; preserve them as explicit open questions.
 3. Decompose work into independently testable issues with dependencies, owned files, AC traces, and Test hooks. Copy `session.context.design_context` verbatim into the sidecar: approved design requirements, UI-impact classification, prototype identity (single-file hash, complete multi-file manifest, or explicit `null`), critical states, and applicable experience/visual invariants. Never reconstruct or selectively copy those values from proposal prose or memory. Use raw sub-issue design/spec review only when existing proposal detail is insufficient; do not spawn one worker per trivial issue.

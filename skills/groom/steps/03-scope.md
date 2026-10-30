@@ -14,6 +14,8 @@ Lock the smallest coherent outcome with explicit inclusions, exclusions, assumpt
 
 ## How
 
+For a project requiring MCP feature coverage, read `${CLAUDE_PLUGIN_ROOT}/references/mcp-feature-coverage.md`. Include the agent-facing workflows and coverage decisions in the existing scope and acceptance criteria; missing parity is not a completed feature.
+
 Read and follow `references/scope-validation.md`. Apply the 10x/table-stakes/gap-fill/parity decision, impact/effort check, strategy constraints, and existing feature/code overlap. Split independent outcomes. Every non-goal includes a reason, and every material scope item points to evidence or an assumption.
 
 Include the reference's closed `value_decision` object in the retained Scope artifact: beneficiary, buyer (including explicit unknown), user outcome, commercial hypothesis, counterevidence, uncertainty, build/test-first/defer recommendation, and smallest discriminating test with its reversal condition. Bind all citations to the proposal's existing evidence/assumption rows; commercial inferences cite an assumption. Carry this object into `decision_brief.value_decision` during proposal synthesis without changing ranking or introducing a second approval gate.

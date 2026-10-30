@@ -11,3 +11,5 @@ PM automatically discovers repository-native delivery capabilities with zero con
 New reviews preserve immutable upstream design snapshots. For older targets whose canonical design report has advanced, follow the skill’s exact-byte archive recovery command; never rewrite the old target or substitute a new report for its original evidence.
 
 After the scoped recovery threshold, retain the same run and immutable failed reports, diagnose the failure and change the approach before fresh affected checks. A round count alone does not revoke approved scope; genuine decisions, disputes and risk changes still escalate.
+
+Projects requiring MCP feature coverage follow `references/mcp-feature-coverage.md`: assess agent workflows during scoping, carry contracts into implementation, and verify current coverage before completion. Dev delivery enforces the opted-in project policy through its verification gate.

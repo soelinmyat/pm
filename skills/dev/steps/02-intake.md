@@ -21,6 +21,8 @@ Turn the request and available product context into confirmed scope plus a durab
 
 ## How
 
+Read repository MCP policy and `${CLAUDE_PLUGIN_ROOT}/references/mcp-feature-coverage.md` when the project requires it. Include applicable agent workflows in acceptance criteria, and identify justified non-applicability without treating deferred coverage as done.
+
 1. Read repository instructions and run the project context discovery protocol. For UI work, Read `${CLAUDE_PLUGIN_ROOT}/references/browser-evidence-preflight.md` now: inspect current tools/policy and plan the permitted collector for required live and certifying claims before depending on browser evidence. Retain bounded method context and missing-capability limitations in intake evidence; this does not change the derived safety route or add an approval gate. Recall at most five relevant entries from `{pm_dir}/memory.md`; absence is not a blocker.
 2. Resolve the task locally before querying integrations: direct backlog slug, matching `id`/`linear_id`, approved RFC sidecar, then configured tracker. Conversation context is valid when no artifact exists.
 3. Normalize `kind` to `proposal`, `task`, or `bug`. Kind affects readiness inputs, not safety gates. Never let `task` or `bug` erase high-risk review.

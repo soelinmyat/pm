@@ -92,6 +92,16 @@ Web Design Critique capture recognizes genuinely owned modal listboxes alongside
 
 Web Design Critique can name multiple locale or task scenarios on the same page without inventing separate pages. Every scenario remains source-bound and subject to native and cross-state pixel checks. Small busy-button changes can use matching native button bounds with the existing meaningful-image and material-distance thresholds.
 
+## MCP as a product surface
+
+Projects can require MCP support as part of feature completion. Add the policy
+marker described in [MCP feature coverage](references/mcp-feature-coverage.md)
+to the project's root `AGENTS.md` with the owner's approval. Groom and RFC carry
+agent workflows into acceptance criteria and implementation; Review checks
+coverage, and Dev verification blocks missing, deferred or stale evidence.
+Specific non-applicability is supported for changes without an agent workflow.
+Projects that do not opt in keep their existing checks.
+
 ## Why PM?
 
 Product context decays. The research doc goes stale, the strategy deck is six months old, and nobody remembers why you decided against that feature.

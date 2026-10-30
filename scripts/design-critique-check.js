@@ -118,6 +118,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // Shared-error comparison is checker-only. Preserve the unchanged 44 native
   // producer and report contracts; earlier producers remain historical only.
   ["1.14.45", new Set(["1.14.44"])],
+  // MCP workflow coverage leaves native capture, audit and report contracts unchanged.
+  ["1.14.47", new Set(["1.14.46"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -187,6 +189,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.46",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.45"), "1.14.46"])
+);
+// MCP workflow coverage leaves sparse pixel proof unchanged.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.47",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.46"), "1.14.47"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2325,7 +2332,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46"]).has(
+      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46", "1.14.47"]).has(
         manifest.observation.producer.version
       )
     )
