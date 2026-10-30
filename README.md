@@ -92,7 +92,17 @@ Web Design Critique capture recognizes genuinely owned modal listboxes alongside
 
 Web Design Critique can name multiple locale or task scenarios on the same page without inventing separate pages. Every scenario remains source-bound and subject to native and cross-state pixel checks. Small busy-button changes can use matching native button bounds with the existing meaningful-image and material-distance thresholds.
 
-Controlled named popups can prove small open/closed or filtered-content changes through their native dialog bounds. The visibly asserted combobox must bind the dialog through its exact expanded controls ID; visible semantic content with exact counterpart absence for content transitions, keyboard focus where applicable, meaningful changed pixels and the existing pixel-support floor remain required. This checker-only comparison preserves native 1.14.46 evidence without accepting unknown producers.
+Controlled named popups can prove small open/closed or filtered-content changes through their native dialog bounds. The visibly asserted combobox must bind the dialog through its exact expanded controls ID; visible semantic content with exact counterpart absence for content transitions, keyboard focus where applicable, meaningful changed pixels and the existing pixel-support floor remain required. This checker-only comparison preserves native 1.14.46 and 1.14.47 evidence without accepting unknown producers.
+
+## MCP as a product surface
+
+Projects can require MCP support as part of feature completion. Add the policy
+marker described in [MCP feature coverage](references/mcp-feature-coverage.md)
+to the project's root `AGENTS.md` with the owner's approval. Groom and RFC carry
+agent workflows into acceptance criteria and implementation; Review checks
+coverage, and Dev verification blocks missing, deferred or stale evidence.
+Specific non-applicability is supported for changes without an agent workflow.
+Projects that do not opt in keep their existing checks.
 
 ## Why PM?
 

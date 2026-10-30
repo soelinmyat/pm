@@ -18,3 +18,5 @@ For explicitly enrolled ProductMemory work, follow `references/productmemory-nat
 QA continues authorized scoped recovery beyond three rounds without a counter-triggered approval request. Persistent failures require diagnosis and a changed approach; immutable failure history, acceptance criteria and genuine dependency/product/scope-risk boundaries remain intact.
 
 Use `dev-session recertify` for rechecked phase evidence. Its verification records take precedence at the verified commit even when that is the original commit; missing or failing replacement records never restore an older passing result. Preserve the original records and all gate-specific evidence checks.
+
+Projects requiring MCP feature coverage follow `references/mcp-feature-coverage.md`: assess agent workflows during scoping, carry contracts into implementation, and verify current coverage before completion. Dev delivery enforces the opted-in project policy through its verification gate.

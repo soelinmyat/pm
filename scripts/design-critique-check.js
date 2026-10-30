@@ -119,8 +119,10 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // Shared-error comparison is checker-only. Preserve the unchanged 44 native
   // producer and report contracts; earlier producers remain historical only.
   ["1.14.45", new Set(["1.14.44"])],
-  // Popup comparison is checker-only; producer46 and all audit contracts are unchanged.
+  // MCP workflow coverage leaves native capture, audit and report contracts unchanged.
   ["1.14.47", new Set(["1.14.46"])],
+  // Controlled-popup comparison changes no native capture or audit contract.
+  ["1.14.48", new Set(["1.14.46", "1.14.47"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -191,10 +193,15 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.46",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.45"), "1.14.46"])
 );
-// Controlled-popup regional comparison changes no sparse producer contract.
+// MCP workflow coverage leaves sparse pixel proof unchanged.
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.47",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.46"), "1.14.47"])
+);
+// Controlled-popup regional comparison changes no sparse producer contract.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.48",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.47"), "1.14.48"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2339,9 +2346,16 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46", "1.14.47"]).has(
-        manifest.observation.producer.version
-      )
+      !new Set([
+        "1.14.41",
+        "1.14.42",
+        "1.14.43",
+        "1.14.44",
+        "1.14.45",
+        "1.14.46",
+        "1.14.47",
+        "1.14.48",
+      ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
     const expectedVisibleNodes =

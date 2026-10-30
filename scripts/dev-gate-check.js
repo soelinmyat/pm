@@ -22,6 +22,7 @@ const { resolveGateEvidenceContract } = require("./lib/dev-session-schema");
 const { checkQaReport } = require("./lib/qa-report-schema");
 const { currentEvidenceRecords } = require("./lib/workflow-runtime/records");
 const { sessionUsesFocusedUiQa } = require("./lib/dev-risk");
+const { checkMcpCoverage } = require("./lib/mcp-coverage");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -212,6 +213,17 @@ function checkGateManifest(manifest, opts = {}) {
       opts.authoritativePushUrlSha256 || null,
       issues
     );
+  }
+
+  if (requiredGates.includes("verification") && canonicalSession) {
+    const coverage = checkMcpCoverage({
+      root: canonicalSession.source?.worktree || artifactRoot,
+      session: canonicalSession,
+      commit: currentCommit,
+      baseCommit: opts.authoritativeBaseCommit || canonicalSession.source?.base_commit,
+      reportDirectory: path.dirname(resolveArtifactPath(manifestPath, artifactRoot)),
+    });
+    issues.push(...coverage.issues.map((message) => issue(manifestPath, message)));
   }
 
   if (reviewEvidenceMode === "inspect")
