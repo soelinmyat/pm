@@ -10349,3 +10349,16 @@ for (const correction of ["material", "metadata"]) {
     }
   });
 }
+
+for (const version of ["1.14.46", "1.14.47", "1.14.48"]) {
+  test(`MCP coverage release explicitly bounds native producer compatibility ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.47");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    if (version === "1.14.48") {
+      assert.equal(run().ok, false);
+      assert.match(JSON.stringify(run().issues), /capture producer/);
+    } else {
+      assert.deepEqual(run(), { ok: true, issues: [] });
+    }
+  });
+}
