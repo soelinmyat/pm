@@ -59,6 +59,11 @@ function fixture(leftState = "modal", rightState = "empty") {
         all.push({ locator: input, expect: { kind: "focused" } });
       }
     }
+    if (state !== "primary")
+      all.push({
+        locator: role(state === "empty" ? "option:All locations" : "statictext:No results found"),
+        expect: { kind: "absent" },
+      });
     const assertion = { schema_version: 2, state, all };
     if (state === "keyboard")
       assertion.before_capture = [
@@ -334,3 +339,26 @@ for (const reverse of [false, true]) {
     assert.equal(result(f), null);
   });
 }
+
+test("different asserted subsets cannot prove a popup content transition", () => {
+  const f = fixture("modal", "keyboard");
+  // Both actual popups may contain both options. Positive guards do not claim
+  // either is absent, even though each capture chooses a different guard.
+  after(f).assertion.all[5].locator = role("option:Another location");
+  assert.equal(result(f), null);
+});
+
+test("changed positive names still require an exact counterpart absence guard", () => {
+  const f = fixture();
+  remove(before(f), (x) => x.expect.kind === "absent");
+  remove(after(f), (x) => x.expect.kind === "absent");
+  assert.equal(result(f), null);
+});
+
+test("an unrelated absence cannot prove the visible semantic content changed", () => {
+  const f = fixture();
+  for (const o of f.observations.values())
+    for (const guard of o.assertion.all)
+      if (guard.expect.kind === "absent") guard.locator = role("option:Unrelated location");
+  assert.equal(result(f), null);
+});

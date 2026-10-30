@@ -40,7 +40,7 @@ function nativePopupStateRegion(left, right, observations) {
       openA.bounds.x !== openB.bounds.x ||
       openA.bounds.y !== openB.bounds.y ||
       openA.bounds.width !== openB.bounds.width ||
-      same([...new Set(openA.content)].sort(), [...new Set(openB.content)].sort())
+      !hasContentTransition(a, openA, b, openB)
     )
       return null;
     return { ...openA.bounds, height: Math.max(openA.bounds.height, openB.bounds.height) };
@@ -170,9 +170,23 @@ function popup(ctx) {
       continue;
     const child = visible(ctx, guard.locator, text.role);
     if (child && child.backend !== region.backend && contains(region.bounds, child.bounds))
-      content.push(normalize(text.name));
+      content.push({ name: normalize(text.name), locator: guard.locator });
   }
   return content.length ? { name, bounds: region.bounds, owner: control, content } : null;
+}
+
+function hasContentTransition(a, openA, b, openB) {
+  const names = (popup) => [...new Set(popup.content.map((x) => x.name))].sort();
+  if (same(names(openA), names(openB))) return false;
+  // Different positive assertion subsets are not an inventory. At least one
+  // exact visible semantic node must be proved absent in the other capture.
+  const disappears = (popup, counterpart) =>
+    popup.content.some(({ locator }) =>
+      counterpart.assertion.all.some(
+        (guard) => guard?.expect?.kind === "absent" && same(guard.locator, locator)
+      )
+    );
+  return disappears(openA, b) || disappears(openB, a);
 }
 
 function focusedSearch(ctx, bounds) {
