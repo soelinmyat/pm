@@ -10349,3 +10349,32 @@ for (const correction of ["material", "metadata"]) {
     }
   });
 }
+
+for (const sparse of [false, true]) {
+  test(`popup-comparison release preserves unchanged native46 evidence (${sparse})`, (t) => {
+    const { fixture, refresh, run } = recertificationReleaseFixture("1.14.46", "1.14.47");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    if (sparse) {
+      fixture.nativeStateProof = "sparse-static";
+      addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+      fixture.producerVersionByCapture = Object.fromEntries(
+        fixture.captures.captures.map((capture) => [capture.id, "1.14.46"])
+      );
+      refresh();
+    }
+    assert.deepEqual(run(), { ok: true, issues: [] });
+    rewriteNormalizedAudit(fixture, fixture.captures.evidence[0], (raw) => {
+      raw.observations.landmarks = [];
+    });
+    refresh();
+    assert.match(JSON.stringify(run().issues), /landmarks/);
+  });
+}
+for (const version of ["1.14.45", "1.14.48", "999.0.0"]) {
+  test(`popup-comparison release rejects unsupported producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.47");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, false);
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}

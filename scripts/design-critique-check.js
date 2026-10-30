@@ -65,6 +65,7 @@ const {
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { nativePopupStateRegion } = require("./lib/native-popup-content");
 const { loadPdfCapture, normalizePdfAudit } = require("./lib/design-critique-pdf");
 // These capture-time identities use the supported native observation contract.
 // Inactive rows and internally revalidated frozen checkpoints retain these
@@ -118,6 +119,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // Shared-error comparison is checker-only. Preserve the unchanged 44 native
   // producer and report contracts; earlier producers remain historical only.
   ["1.14.45", new Set(["1.14.44"])],
+  // Popup comparison is checker-only; producer46 and all audit contracts are unchanged.
+  ["1.14.47", new Set(["1.14.46"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -187,6 +190,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.46",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.45"), "1.14.46"])
+);
+// Controlled-popup regional comparison changes no sparse producer contract.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.47",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.46"), "1.14.47"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -1430,6 +1438,7 @@ function validateCrossStateVisualDistance(
           !nativeFocusChange &&
           !hasNativePendingButtonChange(root, left, right, observationByCapture) &&
           !hasNativeNamedTextChange(root, left, right, observationByCapture) &&
+          !hasNativePopupContentChange(root, left, right, observationByCapture) &&
           !hasNativeStateContentChange(root, left, right, observationByCapture) &&
           !hasNativeEmptyLoadingChange(root, left, right, observationByCapture)
         ) {
@@ -1563,6 +1572,11 @@ function hasNativePendingButtonChange(root, left, right, observations) {
     }
   }
   return false;
+}
+
+function hasNativePopupContentChange(root, left, right, observations) {
+  const region = nativePopupStateRegion(left, right, observations);
+  return region !== null && hasMaterialNativeRegionChange(root, left, right, region);
 }
 
 function hasMaterialNativeRegionChange(root, left, right, region, allowLocalizedChange = false) {
@@ -2325,7 +2339,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
-      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46"]).has(
+      !new Set(["1.14.41", "1.14.42", "1.14.43", "1.14.44", "1.14.45", "1.14.46", "1.14.47"]).has(
         manifest.observation.producer.version
       )
     )

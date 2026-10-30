@@ -92,6 +92,8 @@ Web Design Critique capture recognizes genuinely owned modal listboxes alongside
 
 Web Design Critique can name multiple locale or task scenarios on the same page without inventing separate pages. Every scenario remains source-bound and subject to native and cross-state pixel checks. Small busy-button changes can use matching native button bounds with the existing meaningful-image and material-distance thresholds.
 
+Controlled named popups can prove small open/closed or filtered-content changes through their native dialog bounds. The visibly asserted combobox must bind the dialog through its exact expanded controls ID; visible semantic content, keyboard focus where applicable, meaningful changed pixels and the existing pixel-support floor remain required. This checker-only comparison preserves native 1.14.46 evidence without accepting unknown producers.
+
 ## Why PM?
 
 Product context decays. The research doc goes stale, the strategy deck is six months old, and nobody remembers why you decided against that feature.
