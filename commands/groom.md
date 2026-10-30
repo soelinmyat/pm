@@ -10,3 +10,5 @@ Load only the runner-selected current phase and its prerequisites. A draft-only 
 A Think origin may use a different slug from the retained approved proposal when exact approval and source lineage authenticate the promotion.
 
 New proposals retain the cited customer/commercial value decision from scope. For consequential app journeys, use a runnable isolated in-app preview with realistic separate fixtures and exact executable handoff; preserve inert document mode where appropriate. Product approval can explicitly grant bounded technical delivery for the exact reviewed content.
+
+Projects requiring MCP feature coverage follow `references/mcp-feature-coverage.md`: assess agent workflows during scoping, carry contracts into implementation, and verify current coverage before completion. Dev delivery enforces the opted-in project policy through its verification gate.

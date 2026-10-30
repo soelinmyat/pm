@@ -28,6 +28,8 @@ Complete the routed implementation work and produce commit-linked test evidence 
 
 ## How
 
+For a project requiring MCP coverage, follow `${CLAUDE_PLUGIN_ROOT}/references/mcp-feature-coverage.md`: implement the scoped agent workflows and retain current MCP test output for every applicable acceptance criterion. Prepare the session coverage report for final Review and verification.
+
 1. Read the canonical session. Read the RFC Execution Contract first when present. Treat acceptance criteria and explicit non-goals as the scope boundary; use legacy issue-card detail only when intake recorded that fallback.
 2. Validate `task.work_units` with `scripts/lib/dev-work-units.js`. A unit must name its dependencies and owned paths. Reject cycles, unknown dependencies, or requested authority broader than the parent session.
 3. Use inline execution for one ordered unit. For multiple units, call `analyzeWorkUnits` and delegate only its `runnable` set; ownership overlaps and ambiguous globs serialize. Before dispatch, record each unit with `dev-session work-unit --session {session_path} --id {id} --status running --worktree {assigned_worktree}`. The runner verifies the shared Git common directory and persists that worktree's branch and base SHA. Root remains responsible for integrating completed commits and resolving conflicts.
