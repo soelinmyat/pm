@@ -3046,7 +3046,8 @@ async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
     key,
     code: definition.code,
     windowsVirtualKeyCode: definition.windowsVirtualKeyCode,
-    nativeVirtualKeyCode: definition.windowsVirtualKeyCode,
+    // Native key codes are OS-specific; Windows codes can activate browser
+    // chrome on macOS. Let Chromium derive them from the portable metadata.
     modifiers,
   };
   // Text keys need a character-producing keyDown: native buttons activate
@@ -4466,11 +4467,6 @@ async function main() {
       `--user-data-dir=${profileDir}`,
       "--headless=new",
       "--disable-background-networking",
-      // Native keyboard exit can background the headless page. Keep its
-      // restoration/readiness timers running within the capture deadline.
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-renderer-backgrounding",
       "--disable-component-update",
       "--disable-default-apps",
       "--disable-extensions",

@@ -203,6 +203,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.48",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.47"), "1.14.48"])
 );
+// Native key encoding changes active collection, not sparse pixel proof.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.49",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.48"), "1.14.49"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -244,6 +249,11 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   // preserve these producers only behind inactive/frozen-history checks.
   "1.14.44",
   "1.14.45",
+  // Portable native keyboard input requires fresh active captures. Preserve
+  // earlier producers only through the immutable inactive/history checks.
+  "1.14.46",
+  "1.14.47",
+  "1.14.48",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2355,6 +2365,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.46",
         "1.14.47",
         "1.14.48",
+        "1.14.49",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");

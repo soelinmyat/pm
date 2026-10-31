@@ -10393,3 +10393,27 @@ for (const version of ["1.14.46", "1.14.47", "1.14.48"]) {
     }
   });
 }
+
+for (const version of ["1.14.46", "1.14.47", "1.14.48"]) {
+  test(`native-key release retains frozen ${version} evidence unchanged`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
+      checkpointVersion: version,
+    });
+    const retained = recoveryDCFiles(fixture.root);
+    assert.deepEqual(
+      check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+      { ok: true, issues: [] }
+    );
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+
+for (const version of ["1.14.46", "1.14.47", "1.14.48", "1.14.50"]) {
+  test(`native-key release rejects stale or unknown active producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.49");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, false);
+    assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
