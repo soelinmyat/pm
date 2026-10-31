@@ -4466,6 +4466,11 @@ async function main() {
       `--user-data-dir=${profileDir}`,
       "--headless=new",
       "--disable-background-networking",
+      // Native keyboard exit can background the headless page. Keep its
+      // restoration/readiness timers running within the capture deadline.
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
       "--disable-component-update",
       "--disable-default-apps",
       "--disable-extensions",
