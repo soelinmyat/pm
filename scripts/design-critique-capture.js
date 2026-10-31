@@ -991,17 +991,34 @@ function runCaptureProbe(configuration, runtime = {}) {
     ])
       fs.rmSync(filePath, { force: true });
     const controlToken = crypto.randomBytes(24).toString("hex");
-    result = spawnSync(
-      process.execPath,
-      ["--experimental-websocket", "--max-old-space-size=768", probePath],
-      {
-        input: JSON.stringify({ ...configuration, controlToken }),
-        encoding: "utf8",
-        timeout: runtime.timeoutMs || 60_000,
-        maxBuffer: 4 * 1024 * 1024,
-        stdio: ["pipe", "pipe", "pipe", "pipe"],
-      }
-    );
+    // A private regular-file descriptor gives the helper deterministic EOF.
+    // Synchronous stdin pipes can stall before Chromium launches on macOS.
+    const inputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capture-config-"));
+    let inputDescriptor;
+    try {
+      const inputPath = path.join(inputDirectory, "input.json");
+      fs.writeFileSync(inputPath, JSON.stringify({ ...configuration, controlToken }), {
+        flag: "wx",
+        mode: 0o600,
+      });
+      inputDescriptor = fs.openSync(
+        inputPath,
+        fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+      );
+      result = spawnSync(
+        process.execPath,
+        ["--experimental-websocket", "--max-old-space-size=768", probePath],
+        {
+          encoding: "utf8",
+          timeout: runtime.timeoutMs || 60_000,
+          maxBuffer: 4 * 1024 * 1024,
+          stdio: [inputDescriptor, "pipe", "pipe", "pipe"],
+        }
+      );
+    } finally {
+      if (inputDescriptor !== undefined) fs.closeSync(inputDescriptor);
+      fs.rmSync(inputDirectory, { recursive: true, force: true });
+    }
     let control = null;
     try {
       control = JSON.parse(String(result.output?.[3] || "").trim());
