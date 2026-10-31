@@ -1,15 +1,15 @@
 ---
 title: MCP feature coverage
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # MCP feature coverage
 
-A product that treats MCP as a first-class surface must finish its agent-facing
-workflows before calling the feature done. This is feature parity by user outcome,
-not one tool per screen or a quota of tools. Reuse existing tools and shared domain
-services where they already satisfy the outcome.
+The project owns its MCP capability and completion policy. PM follows that policy
+and checks the required coverage evidence; it does not define a separate product
+policy or require read/write parity of its own. Assess user outcomes within the
+project's permitted MCP scope, reusing existing tools and shared domain services.
 
 ## Project policy
 
@@ -27,26 +27,43 @@ internal change records an explicit non-applicability assessment rather than
 silently bypassing the check. Removing the marker in a branch does not waive the
 policy present at the authoritative base.
 
+The marker activates evidence enforcement, not permission to expose capabilities.
+Read the surrounding project policy to determine allowed workflows, prohibited
+operations and completion requirements. If that scope is missing or conflicting,
+resolve the missing decision with the user before implementing affected MCP
+capabilities; do not infer write access from a parity requirement.
+
+For a read-only project, assess discovery, current state, analysis, readiness and
+results as applicable, with links to the existing product UI for human actions.
+Do not require or introduce mutation, proposal, confirmation or execution tools
+when the project excludes them. A product feature that changes state can satisfy
+MCP coverage through its policy-permitted read workflows; absent write tools are
+not a coverage gap in that project. Conversely, PM does not impose a read-only
+restriction on projects whose policy explicitly permits writes.
+
 ## Carry coverage through the workflow
 
-- **Groom:** for each user outcome, identify agent discovery, read/analysis and
-  action workflows, existing coverage and missing contracts. Include applicable
-  coverage in acceptance criteria. Pure visual/internal work can be non-applicable
-  with a specific reason; deferred functionality remains an open scope gap.
+- **Groom:** for each user outcome, identify the workflows required and permitted
+  by project policy, existing coverage and missing contracts. Carry that policy
+  boundary into acceptance criteria. Pure visual/internal work can be non-applicable
+  with a specific reason; deferred in-policy functionality remains an open scope gap.
 - **RFC:** name tools/services, schemas, scope and tenant boundaries, pagination,
   errors, annotations, documentation and transport tests in the existing execution
-  contract. Keep domain behavior shared. For writes, design authorization,
-  confirmation, audit and idempotency/retry semantics explicitly. A parity policy
+  contract within the project's allowed scope. Keep domain behavior shared. Only
+  when project policy permits writes and the task authorizes them, design their
+  authorization, confirmation, audit and idempotency/retry semantics. A parity policy
   never authorizes exposing mutations, personal data or wider privileges by itself.
-- **Dev:** assess every acceptance criterion, implement its applicable workflows,
+- **Dev:** assess every acceptance criterion, implement its policy-permitted workflows,
   run relevant MCP contract/transport tests, and retain actual command output. Test
   success plus denied/cross-tenant access, invalid inputs and relevant failures.
   Existing tools need current parity evidence. Transport/OAuth changes also need
   affected client verification; SDK coverage is not proof of a live Claude or
   ChatGPT connection. Record unavailable client checks honestly and resolve them
   according to the task's acceptance criteria.
-- **Review:** compare the report with the complete diff and acceptance criteria.
-  Challenge unsupported non-applicability, missing workflows, inaccurate tool
+- **Review:** compare the report with project policy, the complete diff and
+  acceptance criteria. Reject capabilities outside the project's allowed scope;
+  do not demand prohibited capabilities as missing parity. Challenge unsupported
+  non-applicability, missing in-policy workflows, inaccurate tool
   annotations, weak authorization and tests that do not exercise MCP. Validate
   evidence and documentation. A structural pass cannot establish semantic parity;
   the source reviewer owns that judgment in the existing review round.

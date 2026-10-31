@@ -101,6 +101,10 @@ marker described in [MCP feature coverage](references/mcp-feature-coverage.md)
 to the project's root `AGENTS.md` with the owner's approval. Groom and RFC carry
 agent workflows into acceptance criteria and implementation; Review checks
 coverage, and Dev verification blocks missing, deferred or stale evidence.
+The project owns the MCP policy; PM follows its permitted scope and completion
+requirements. The marker does not grant capabilities or require write access.
+Read-only projects can cover state-changing features with applicable reads,
+analysis and product UI handoffs, without adding MCP mutation or confirmation tools.
 Specific non-applicability is supported for changes without an agent workflow.
 Projects that do not opt in keep their existing checks.
 

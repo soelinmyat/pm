@@ -3046,7 +3046,8 @@ async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
     key,
     code: definition.code,
     windowsVirtualKeyCode: definition.windowsVirtualKeyCode,
-    nativeVirtualKeyCode: definition.windowsVirtualKeyCode,
+    // Native key codes are OS-specific; Windows codes can activate browser
+    // chrome on macOS. Let Chromium derive them from the portable metadata.
     modifiers,
   };
   // Text keys need a character-producing keyDown: native buttons activate
