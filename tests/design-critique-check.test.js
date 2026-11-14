@@ -5837,6 +5837,51 @@ test("release upgrade still rejects 1.14.17 as an active capture producer", () =
   assert.match(JSON.stringify(result.issues), /capture producer/);
 });
 
+test("verification-recovery release preserves unchanged native 1.14.50 evidence and audit failures", (t) => {
+  const { fixture, refresh, run } = recertificationReleaseFixture("1.14.50", "1.14.51");
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  assert.deepEqual(run(), { ok: true, issues: [] });
+  const evidence = fixture.captures.evidence.find((entry) => entry.kind === "accessibility-tree");
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.landmarks = [];
+  });
+  refresh();
+  assert.match(JSON.stringify(run().issues), /landmarks/);
+});
+
+for (const proof of ["sparse-static", "file-label"]) {
+  test(`a future release admits its own ${proof} capability without admitting another producer`, (t) => {
+    const consumerVersion = "1.14.987";
+    const { fixture, refresh, run } = recertificationReleaseFixture(
+      consumerVersion,
+      consumerVersion
+    );
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    if (proof === "sparse-static") {
+      fixture.nativeStateProof = proof;
+      addRequiredStateCapture(fixture, "empty", sparseLoadingPixels(true));
+    } else {
+      fixture.nativeFocusProof = proof;
+      addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+    }
+    const setProducer = (version) => {
+      fixture.producerVersionByCapture = Object.fromEntries(
+        fixture.captures.captures.map((capture) => [capture.id, version])
+      );
+      refresh();
+    };
+    setProducer(consumerVersion);
+    assert.deepEqual(
+      run().issues.filter((issue) => issue.path.startsWith("captures.")),
+      []
+    );
+    for (const version of ["1.14.988", "1.14.0987", "999.0.0"]) {
+      setProducer(version);
+      assert.match(JSON.stringify(run().issues), /capture producer/);
+    }
+  });
+}
+
 function recertificationReleaseFixture(version, consumerVersion = "1.14.24") {
   const fixture = makeFixture();
   fixture.producerVersionByCapture = Object.fromEntries(

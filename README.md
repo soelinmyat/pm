@@ -285,6 +285,8 @@ Review targets retain immutable copies of their upstream design report. If an ol
 
 Source Review can finish when main advances during the review if the frozen base is still its ancestor and both bases have the same merge base with the reviewed commit. Exact current HEAD, remote identity, diff and file inventory checks still apply; targets and reviewer results remain unchanged.
 
+Capture capability admission recognizes the installed release’s exact native producer after version bumps. Foreign producer versions still need explicit compatibility, and frozen history retains its original identity, audit and pixel checks.
+
 When source Review passes but required verification fails, Dev keeps an immutable source checkpoint and records the failed test without advancing delivery. If verification succeeds on the unchanged commit, Dev rechecks and reuses that exact checkpoint without another source review. Changed source, checkpoint bytes, or invalid review evidence still require fresh review; current tests and all applicable gates remain required before merge.
 
 The [quality evaluation suite](evals/README.md) covers daily Research, Think,

@@ -7,6 +7,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
+const { parseVersion, compare: compareVersions } = require("./lib/semver-range");
 const { inspectHtmlArtifact, structuralMarkup } = require("./artifact-check");
 const {
   VIEWPORTS: ARTIFACT_VIEWPORTS,
@@ -123,6 +124,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.47", new Set(["1.14.46"])],
   // Controlled-popup comparison changes no native capture or audit contract.
   ["1.14.48", new Set(["1.14.46", "1.14.47"])],
+  // Verification recovery and capability admission do not change collection.
+  ["1.14.51", new Set(["1.14.50"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -213,6 +216,21 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.50",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.49"), "1.14.50"])
 );
+// Capability support is not a rolling trust range for external producers. A
+// release newer than this registry can read its own exact producer and the
+// explicitly recorded sparse protocol history. Producer freshness/immutable
+// history checks still decide whether those records are eligible at all.
+const latestCapabilityRelease = "1.14.50";
+const installedRelease = parseVersion(PLUGIN_VERSION);
+const newerCapabilityReader =
+  installedRelease && compareVersions(installedRelease, parseVersion(latestCapabilityRelease)) > 0;
+const supportedSparseProducers =
+  SPARSE_CONTENT_PRODUCER_VERSIONS.get(PLUGIN_VERSION) ||
+  new Set(
+    newerCapabilityReader
+      ? [...SPARSE_CONTENT_PRODUCER_VERSIONS.get(latestCapabilityRelease), PLUGIN_VERSION]
+      : []
+  );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -261,6 +279,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.48",
   // Retain the previous release only behind immutable history checks.
   "1.14.49",
+  "1.14.50",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2132,12 +2151,7 @@ function validateTrustedCaptureObservation(
       const screenshotFile = readBoundFile(root, capture.path, `${at}.capture.path`, issues);
       if (!decoded || !screenshotFile)
         throw new Error("loading content requires decoded bound full PNG bytes");
-      if (
-        hasSparseContent &&
-        !SPARSE_CONTENT_PRODUCER_VERSIONS.get(PLUGIN_VERSION)?.has(
-          manifest.observation.producer.version
-        )
-      )
+      if (hasSparseContent && !supportedSparseProducers.has(manifest.observation.producer.version))
         throw new Error("sparse content requires an explicitly supported native capture producer");
       const assertionFile = hasSparseContent
         ? readBoundFile(root, manifest.page.state_assertion.path, `${at}.state_assertion`, issues)
@@ -2363,6 +2377,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     });
     if (
       value.focus_label &&
+      !(newerCapabilityReader && manifest.observation.producer.version === PLUGIN_VERSION) &&
       !new Set([
         "1.14.41",
         "1.14.42",
