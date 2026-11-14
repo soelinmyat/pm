@@ -3501,3 +3501,120 @@ function makeRepo() {
     },
   };
 }
+
+test("first-QA recovery records real checked report history and continues Review attempts", (t) => {
+  const f = require("./helpers/qa-recovery-fixture").fixture(t);
+  const recovered = f.run();
+  assert.equal(recovered.status, 0, recovered.stderr);
+  const session = JSON.parse(fs.readFileSync(f.sessionPath));
+  const { reportPath } = writePassingReport(session, f.head);
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.tier = "focused";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const result = phaseResult(session, f.head, reportPath);
+  assert.deepEqual(validateResult(session, result), []);
+  const next = recordResult(session, result);
+  assert.equal(next.phase, "review");
+  assert.equal(next.phase_attempt, 2);
+  assert.equal(next.evidence.qa.qa_run_count, 1);
+  assert.equal(next.evidence.qa.qa_run_anchors.length, 1);
+  assert.equal(next.evidence.review.commit, null);
+  assert.equal(next.attempts[0].status, "passed");
+  assert.equal(next.routing.qa_recovery.archive.sha256, session.routing.qa_recovery.archive.sha256);
+  writeSession(f.sessionPath, next);
+  const root = f.root;
+  const reviewRoot = ".pm/dev-sessions/transport/review";
+  const targetPath = `${reviewRoot}/runs/recovered-review/round-1/target.json`;
+  const target = require("../scripts/review-target").buildReviewTarget({
+    root,
+    mode: "code-scan",
+    runId: "recovered-review",
+    maxWorkers: 1,
+    outPath: targetPath,
+    devSessionPath: f.sessionPath,
+  });
+  const write = (relative, value) => {
+    const absolute = path.join(root, relative);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, JSON.stringify(value, null, 2) + "\n");
+  };
+  write(targetPath, target);
+  const targetHash = digest(fs.readFileSync(path.join(root, targetPath)));
+  const resultPaths = target.allocation.map((worker) => {
+    const relative = `${reviewRoot}/runs/recovered-review/round-1/results/${worker.worker_id}.json`;
+    write(relative, {
+      schema_version: 1,
+      run_id: target.run_id,
+      review_round: 1,
+      target: { path: targetPath, sha256: targetHash },
+      source: target.source,
+      worker_id: worker.worker_id,
+      profile: worker.profile,
+      runtime: worker.runtime,
+      lenses: worker.lenses,
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: "No actionable findings in the fixture change.",
+      })),
+      findings: [],
+      checked_at: new Date().toISOString(),
+    });
+    return relative;
+  });
+  const reviewReportPath = `${reviewRoot}/report.json`;
+  const review = require("../scripts/review-check").checkReview({
+    root,
+    targetPath,
+    resultPaths,
+    reportPath: reviewReportPath,
+    writeReport: true,
+  });
+  assert.equal(review.ok, true, JSON.stringify(review.issues));
+  const reviewResult = {
+    ...result,
+    phase: "review",
+    attempt: 2,
+    summary: "Fresh fixture Review",
+    evidence: [
+      {
+        kind: "review",
+        command: "node scripts/review-check.js --from-report",
+        exit_code: 0,
+        artifact: path.join(root, reviewReportPath),
+      },
+      {
+        kind: "test",
+        command: "node --test",
+        exit_code: 0,
+        artifact: path.join(root, "README.md"),
+      },
+    ],
+  };
+  const shipped = recordResult(next, reviewResult);
+  assert.equal(shipped.phase, "ship");
+  writeSession(f.sessionPath, shipped);
+  const transaction = JSON.parse(fs.readFileSync(f.transactionPath));
+  const { assertRecoveryDeliveryReady } = require("../scripts/lib/dev-qa-recovery");
+  assert.throws(
+    () => assertRecoveryDeliveryReady(shipped, transaction),
+    /fresh qa release binding/
+  );
+  const { planGateWrite } = require("../scripts/lib/dev-gate-writer");
+  for (const name of ["tdd", "qa", "review", "verification"]) {
+    const plan = planGateWrite({ sessionPath: f.sessionPath, session: shipped, name });
+    fs.writeFileSync(plan.manifestPath, JSON.stringify(plan.manifest, null, 2) + "\n");
+  }
+  for (const kind of ["qa", "review", "verification"])
+    transaction.evidence[kind] = {
+      commit: f.head,
+      artifact: kind === "qa" ? reportPath : reviewReportPath,
+      sha256: `sha256:${digest(fs.readFileSync(kind === "qa" ? reportPath : path.join(root, reviewReportPath)))}`,
+      checked_at: new Date().toISOString(),
+    };
+  assert.doesNotThrow(() => assertRecoveryDeliveryReady(shipped, transaction));
+  const bad = JSON.parse(fs.readFileSync(reportPath));
+  bad.receipts[0].output.sha256 = "0".repeat(64);
+  fs.writeFileSync(reportPath, JSON.stringify(bad));
+  assert.throws(() => recordResult(session, result), /QA|qa|hash|digest/);
+});

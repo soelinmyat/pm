@@ -293,6 +293,7 @@ function runCommand(args, options = {}) {
       if (session.run_id !== transaction.run_id) {
         throw new Error("Dev session run_id does not match the release transaction");
       }
+      require("./lib/dev-qa-recovery").assertRecoveryDeliveryReady(session, transaction);
       return beginEffect(transaction, {
         effect: args.effect,
         authority: session.authority,

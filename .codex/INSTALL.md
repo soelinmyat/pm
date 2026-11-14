@@ -210,3 +210,5 @@ Notes:
 ## Windows Notes
 
 If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks and immutable design-capture bundle pointers can be created successfully.
+
+After installing a release with first-QA recovery, resume a blocked comprehensive Ship session through `dev-session require-qa`, following [the state contract](../skills/dev/references/state-schema.md#requiring-first-qa-before-delivery). No session or gate files should be edited by hand. The command adds actual QA and fresh downstream certification while retaining predecessor evidence.

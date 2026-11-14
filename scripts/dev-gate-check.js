@@ -89,6 +89,11 @@ function checkGateManifest(manifest, opts = {}) {
   }
   const sessionContext = readSessionContext(manifest, opts);
   const canonicalSession = opts.canonicalSession || null;
+  if (
+    canonicalSession?.routing?.qa_recovery &&
+    manifest.gates.some((gate) => gate?.name === "qa" && gate.status === "skipped")
+  )
+    issues.push(issue(manifestPath, "explicit first-QA recovery cannot skip QA"));
   if (opts.requireSessionBinding && !canonicalSession)
     issues.push(
       issue(manifestPath, opts.sessionError || "canonical gates require sibling session.json")

@@ -69,6 +69,43 @@
           "additionalProperties": false,
           "required": ["legacy_path", "migrated_at"],
           "properties": {
+        "qa_recovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "archive",
+            "commit",
+            "recorded_at"
+          ],
+          "properties": {
+            "archive": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^\\.pm/dev-sessions/"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              }
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40,64}$"
+            },
+            "recorded_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
             "legacy_path": { "type": "string", "pattern": "^/" },
             "migrated_at": { "type": "string", "format": "date-time" }
           }
