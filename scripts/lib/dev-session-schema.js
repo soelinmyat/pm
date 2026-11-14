@@ -1490,6 +1490,26 @@ function validateScopedGateEvidence(session, result, errors) {
         "continued recovery requires scoped diagnosis policy; legacy evidence cannot reset a lineage"
       );
     const last = history.at(-1);
+    const lastAttempt = session.attempts.at(-1);
+    // A failed verification does not invalidate an independently passed source
+    // Review. Reuse only the exact retained checkpoint after the complete current
+    // Review check above succeeds; never append a duplicate report-round anchor.
+    if (
+      phase === "review" &&
+      result.status === "passed" &&
+      last?.outcome === "passed" &&
+      lastAttempt?.phase === "review" &&
+      lastAttempt.status === "failed" &&
+      lastAttempt.attempt === last.attempt &&
+      result.attempt === last.attempt + 1 &&
+      lastAttempt.commit === commit &&
+      last.commit === commit &&
+      last.run_id === report.run_id &&
+      last.round === round &&
+      last.report.path === relative &&
+      last.report.sha256 === crypto.createHash("sha256").update(input.bytes).digest("hex")
+    )
+      return null;
     const startsAfterPass =
       last?.outcome === "passed" && report.run_id !== last.run_id && round === 1;
     if (

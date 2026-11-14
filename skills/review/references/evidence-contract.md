@@ -242,3 +242,10 @@ budgets remain enforced, with at most 50 retained rounds. Resource exhaustion is
 an actual capability blocker, never fabricated product disapproval. Dev records
 checked non-passing report anchors in optional `recovery_history`; these anchors
 cannot supply passing gate evidence or permit report replay/reset.
+
+An immediately following passing verification retry may reuse a retained passed
+source checkpoint at the same commit. Dev requires the exact checkpoint path and
+SHA-256, matching run/round and failed-attempt identity, and a successful complete
+current Review check. It retains the original report anchor and both phase
+attempts; no new review round is claimed. Failed source reviews, changed source,
+mutated evidence, and repeated failed results cannot use this exception.

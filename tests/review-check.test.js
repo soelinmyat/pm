@@ -57,6 +57,24 @@ test("failed verification retains a passed source Review without advancing deliv
     fs.rmSync(fixture.root, { recursive: true, force: true });
     fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
   });
+  let session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "review";
+  const sessionPath = ".pm/dev-sessions/example/session.json";
+  write(fixture.root, sessionPath, session);
+  fixture.target = buildReviewTarget({
+    root: fixture.root,
+    outPath: fixture.targetPath,
+    runId: fixture.target.run_id,
+    devSessionPath: sessionPath,
+    profile: "codex-workhorse",
+    maxWorkers: 3,
+  });
+  write(fixture.root, fixture.targetPath, fixture.target);
+  for (const resultPath of fixture.resultPaths) {
+    const reviewer = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    reviewer.target = binding(fixture.root, fixture.targetPath);
+    write(fixture.root, resultPath, reviewer);
+  }
   const checked = checkReview({
     root: fixture.root,
     targetPath: fixture.targetPath,
@@ -70,8 +88,6 @@ test("failed verification retains a passed source Review without advancing deliv
     path.join(fixture.root, fixture.reportPath),
     path.join(fixture.root, fixture.roundReportPath)
   );
-  let session = createSession({ slug: "example", sourceDir: fixture.root });
-  session.phase = "review";
   const failurePath = ".pm/verification-failure.json";
   write(fixture.root, failurePath, { command: "node --test", exit_code: 1 });
   const result = {
@@ -115,6 +131,7 @@ test("failed verification retains a passed source Review without advancing deliv
   }
   const originalSession = session;
   session = recordResult(session, result);
+  write(fixture.root, sessionPath, session);
   assert.equal(session.status, "active");
   assert.equal(session.phase, "review");
   assert.equal(session.phase_attempt, 2);
@@ -127,6 +144,64 @@ test("failed verification retains a passed source Review without advancing deliv
     false
   );
 
+  const passedPath = ".pm/verification-passed.json";
+  write(fixture.root, passedPath, { command: "node --test", exit_code: 0 });
+  const retry = {
+    ...result,
+    attempt: 2,
+    status: "passed",
+    summary: "Unchanged source Review rechecked; required verification rerun passed.",
+    evidence: [
+      result.evidence[0],
+      { ...result.evidence[1], exit_code: 0, artifact: path.join(fixture.root, passedPath) },
+    ],
+  };
+  assert.throws(() => recordResult(session, { ...retry, evidence: [result.evidence[0]] }));
+  assert.throws(() => recordResult(session, { ...retry, evidence: result.evidence }));
+  assert.throws(
+    () => recordResult(session, { ...result, attempt: 2 }),
+    /immediately prior|replay|reset/
+  );
+  const checkpointPath = path.join(fixture.root, fixture.roundReportPath);
+  const checkpointBytes = fs.readFileSync(checkpointPath);
+  fs.appendFileSync(checkpointPath, "\n");
+  assert.throws(() => recordResult(session, retry), /immediately prior|replay|reset/);
+  fs.writeFileSync(checkpointPath, checkpointBytes);
+  for (const relative of [fixture.targetPath, fixture.resultPaths[0]]) {
+    const file = path.join(fixture.root, relative);
+    const bytes = fs.readFileSync(file);
+    fs.appendFileSync(file, "\n");
+    assert.throws(() => recordResult(session, retry), /review report/);
+    fs.writeFileSync(file, bytes);
+  }
+  const sourcePath = path.join(fixture.root, "src/example.js");
+  const sourceBytes = fs.readFileSync(sourcePath);
+  fs.appendFileSync(sourcePath, "// uncommitted change\n");
+  assert.throws(() => recordResult(session, retry), /review report/);
+  fs.writeFileSync(sourcePath, sourceBytes);
+  assert.throws(
+    () =>
+      recordResult(session, {
+        ...retry,
+        evidence: [
+          { ...retry.evidence[0], artifact: path.join(fixture.root, fixture.reportPath) },
+          retry.evidence[1],
+        ],
+      }),
+    /immediately prior|replay|reset/
+  );
+  const recovered = recordResult(session, retry);
+  assert.equal(recovered.phase, "ship");
+  assert.equal(recovered.evidence.review.commit, result.commit);
+  assert.deepEqual(
+    recovered.evidence.review.recovery_history,
+    session.evidence.review.recovery_history
+  );
+  assert.deepEqual(
+    recovered.attempts.map((attempt) => attempt.status),
+    ["failed", "passed"]
+  );
+
   fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
   git(fixture.root, ["add", "src/example.js"]);
   git(fixture.root, ["commit", "-qm", "subsequent verification repair"]);
@@ -137,6 +212,7 @@ test("failed verification retains a passed source Review without advancing deliv
     session.evidence.review.recovery_history,
     "an ancestor observation can record failure, never certify the changed HEAD"
   );
+  assert.throws(() => recordResult(session, retry));
   assert.throws(() =>
     recordResult(originalSession, {
       ...result,
