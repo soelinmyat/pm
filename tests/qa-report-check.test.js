@@ -3503,7 +3503,7 @@ function makeRepo() {
 }
 
 test("first-QA recovery records real checked report history and continues Review attempts", (t) => {
-  const f = require("./helpers/qa-recovery-fixture").fixture(t);
+  const f = require("./helpers/qa-recovery-fixture").fixture(t, { versioned: true });
   const recovered = f.run();
   assert.equal(recovered.status, 0, recovered.stderr);
   const session = JSON.parse(fs.readFileSync(f.sessionPath));
@@ -3613,6 +3613,168 @@ test("first-QA recovery records real checked report history and continues Review
       checked_at: new Date().toISOString(),
     };
   assert.doesNotThrow(() => assertRecoveryDeliveryReady(shipped, transaction));
+  // Finish a real fixture journal, then let the remote base absorb the head.
+  const {
+    planEffect,
+    beginEffect,
+    reconcileEffect,
+    attestPrBody,
+  } = require("../scripts/lib/release-transaction-schema");
+  const body = "Recovery fixture delivery";
+  const bodyHash = `sha256:${digest(body)}`;
+  let delivered = transaction;
+  const finish = (effect, target, receipt) => {
+    delivered = planEffect(delivered, { effect, target });
+    delivered = beginEffect(delivered, {
+      effect,
+      actor: "root",
+      authority: shipped.authority,
+    }).transaction;
+    delivered = reconcileEffect(delivered, {
+      effect,
+      outcome: "matched",
+      receipt,
+      observation: { target, receipt },
+    }).transaction;
+  };
+  finish(
+    "push",
+    { remote: "origin", repository: "test/repo", branch: "fix/transport", commit: f.head },
+    { remote_tip: f.head }
+  );
+  finish(
+    "create-pr",
+    {
+      repository: "test/repo",
+      head: "fix/transport",
+      base: "main",
+      commit: f.head,
+      draft: false,
+      body_sha256: bodyHash,
+    },
+    { pr_number: 1, state: "OPEN", head_oid: f.head, draft: false, body_sha256: bodyHash }
+  );
+  delivered = attestPrBody(delivered, {
+    observation: {
+      repository: "test/repo",
+      pr_number: 1,
+      state: "OPEN",
+      head_oid: f.head,
+      base: "main",
+      draft: false,
+      body,
+      observed_at: new Date().toISOString(),
+    },
+  });
+  finish(
+    "merge",
+    {
+      repository: "test/repo",
+      pr_number: 1,
+      head_commit: f.head,
+      base: "main",
+      method: "merge",
+      body_sha256: bodyHash,
+    },
+    { pr_number: 1, state: "MERGED", head_oid: f.head, merge_sha: f.head, body_sha256: bodyHash }
+  );
+  execFileSync("git", ["push", "origin", "HEAD:main"], { cwd: root, stdio: "pipe" });
+  delivered = planEffect(delivered, {
+    effect: "place-main-tag",
+    target: { remote: "origin", tag: "v1.0.1", merge_sha: f.head, base: "main" },
+  });
+  assert.doesNotThrow(() => assertRecoveryDeliveryReady(shipped, delivered, "place-main-tag"));
+  const tagAttempt = beginEffect(delivered, {
+    effect: "place-main-tag",
+    actor: "root",
+    authority: shipped.authority,
+  });
+  assert.equal(tagAttempt.decision, "execute");
+  assert.doesNotThrow(() =>
+    assertRecoveryDeliveryReady(shipped, tagAttempt.transaction, "place-main-tag")
+  );
+  assert.equal(
+    beginEffect(tagAttempt.transaction, {
+      effect: "place-main-tag",
+      actor: "root",
+      authority: shipped.authority,
+    }).decision,
+    "observe-first"
+  );
+  const beginTag = () =>
+    spawnSync(
+      process.execPath,
+      [
+        path.resolve(__dirname, "../scripts/release-transaction.js"),
+        "begin",
+        "--transaction",
+        f.transactionPath,
+        "--session",
+        f.sessionPath,
+        "--effect",
+        "place-main-tag",
+        "--actor",
+        "root",
+        "--json",
+      ],
+      { cwd: root, encoding: "utf8" }
+    );
+  const persist = (value) =>
+    fs.writeFileSync(f.transactionPath, JSON.stringify(value, null, 2) + "\n");
+  const mustRejectWithoutWrite = () => {
+    const before = fs.readFileSync(f.transactionPath);
+    const rejected = beginTag();
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.deepEqual(fs.readFileSync(f.transactionPath), before);
+  };
+  persist(delivered);
+  const qaBytes = fs.readFileSync(reportPath);
+  fs.appendFileSync(reportPath, " ");
+  mustRejectWithoutWrite();
+  fs.writeFileSync(reportPath, qaBytes);
+  for (const mutate of [
+    (tr) => {
+      tr.source.push_url_sha256 = `sha256:${"0".repeat(64)}`;
+    },
+    (tr) => {
+      tr.effects["place-main-tag"].target.tag = "v9.9.9";
+    },
+    (tr) => {
+      tr.effects.merge.verified_receipt.receipt.head_oid = "0".repeat(40);
+    },
+    (tr) => {
+      tr.source.base_branch = "other";
+    },
+  ]) {
+    const invalid = structuredClone(delivered);
+    mutate(invalid);
+    persist(invalid);
+    mustRejectWithoutWrite();
+  }
+  persist(delivered);
+  const remotePath = execFileSync("git", ["remote", "get-url", "origin"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  execFileSync("git", [
+    "--git-dir",
+    remotePath,
+    "update-ref",
+    "refs/heads/main",
+    target.source.base_commit,
+  ]);
+  mustRejectWithoutWrite();
+  execFileSync("git", ["--git-dir", remotePath, "update-ref", "refs/heads/main", f.head]);
+  const executed = beginTag();
+  assert.equal(executed.status, 0, executed.stderr);
+  assert.equal(JSON.parse(executed.stdout).decision, "execute");
+  const attemptingBytes = fs.readFileSync(f.transactionPath);
+  fs.appendFileSync(reportPath, " ");
+  const observed = beginTag();
+  assert.equal(observed.status, 0, observed.stderr);
+  assert.equal(JSON.parse(observed.stdout).decision, "observe-first");
+  assert.deepEqual(fs.readFileSync(f.transactionPath), attemptingBytes);
+  fs.writeFileSync(reportPath, qaBytes);
   const bad = JSON.parse(fs.readFileSync(reportPath));
   bad.receipts[0].output.sha256 = "0".repeat(64);
   fs.writeFileSync(reportPath, JSON.stringify(bad));

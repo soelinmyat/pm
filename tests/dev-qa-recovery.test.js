@@ -306,3 +306,20 @@ test("require-qa rejects split-root sessions without mutation", (t) => {
   assert.match(result.stderr, /co-located session and worktree/);
   assert.deepEqual(fs.readFileSync(f.sessionPath), before);
 });
+
+test("published session schema accepts recovered routing and rejects misplaced recovery", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run().status, 0);
+  const session = JSON.parse(fs.readFileSync(f.sessionPath));
+  const Ajv = require("ajv/dist/2020");
+  const ajv = new Ajv({ strict: false });
+  require("ajv-formats")(ajv);
+  const validate = ajv.compile(require("../skills/dev/references/dev-session.schema.json"));
+  assert.equal(validate(session), true, JSON.stringify(validate.errors));
+  session.migration = {
+    legacy_path: "/legacy",
+    migrated_at: session.updated_at,
+    qa_recovery: session.routing.qa_recovery,
+  };
+  assert.equal(validate(session), false);
+});

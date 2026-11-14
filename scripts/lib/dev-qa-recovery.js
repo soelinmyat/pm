@@ -242,7 +242,7 @@ function requireQa(options) {
   }
 }
 
-function assertRecoveryDeliveryReady(session, transaction) {
+function assertRecoveryDeliveryReady(session, transaction, effect) {
   const recovery = session.routing?.qa_recovery;
   if (!recovery) return;
   if (session.status !== "active" || session.phase !== "ship")
@@ -277,6 +277,44 @@ function assertRecoveryDeliveryReady(session, transaction) {
     session.source.worktree,
     session.source.delivery_remote
   );
+
+  let evidenceBase = base.commit;
+  if (["place-main-tag", "tracker-update"].includes(effect)) {
+    // A merged feature has intentionally changed main's merge base. Authenticate
+    // the observed merge, then check every gate against its frozen Review base.
+    const merge = transaction.effects.merge;
+    const receipt = merge?.verified_receipt?.receipt;
+    if (
+      transactionIssues(transaction).length ||
+      merge?.status !== "verified" ||
+      receipt?.head_oid !== transaction.release.prepared_commit ||
+      base.ref !== `${transaction.source.delivery_remote}/${transaction.source.base_branch}` ||
+      `sha256:${base.remote_push_url_sha256}` !== transaction.source.push_url_sha256
+    )
+      throw new Error(
+        "QA recovery post-merge execution requires a matching verified merge and live destination"
+      );
+    const review = JSON.parse(
+      readProjectInput(root, `.pm/dev-sessions/${session.slug}/review/report.json`, MAX_BYTES).bytes
+    );
+    const targetFile = readProjectInput(root, review.target.path, MAX_BYTES);
+    const target = JSON.parse(targetFile.bytes);
+    if (
+      digest(targetFile.bytes) !== `sha256:${review.target.sha256}` ||
+      review.source.commit !== transaction.release.prepared_commit ||
+      target.source.commit !== transaction.release.prepared_commit
+    )
+      throw new Error("QA recovery post-merge Review must bind the exact prepared commit");
+    evidenceBase = target.source.base_commit;
+    runGit(
+      ["merge-base", "--is-ancestor", evidenceBase, receipt.merge_sha],
+      session.source.worktree
+    );
+    runGit(
+      ["merge-base", "--is-ancestor", receipt.merge_sha, base.commit],
+      session.source.worktree
+    );
+  }
   const checked = checkGateManifest(manifest, {
     manifestPath,
     artifactRoot: root,
@@ -285,7 +323,7 @@ function assertRecoveryDeliveryReady(session, transaction) {
     currentCommit: transaction.release.prepared_commit,
     currentBranch: session.source.branch,
     authoritativeBaseRef: base.ref,
-    authoritativeBaseCommit: base.commit,
+    authoritativeBaseCommit: evidenceBase,
     authoritativePushUrlSha256: base.remote_push_url_sha256,
     requireSessionBinding: true,
     requireDeliveryEvidence: true,

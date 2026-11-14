@@ -432,6 +432,12 @@ archive cannot be reset by replay.
 Run the QA step returned by `next`, publish the real canonical QA report and
 record it normally. Then perform fresh Review and verification; Review attempts
 continue above retained attempts. The recovered QA cannot be skipped, and release
-`begin` rechecks current canonical gates and newly bound QA/Review/verification.
+`begin` rechecks current canonical gates and newly bound QA/Review/verification
+before every new external action. Observe-first and already-verified decisions
+cannot execute an action. After a verified merge, tag/tracker execution retains
+all evidence checks and validates the exact prepared Review against its frozen
+base, requiring frozen-base → verified-merge → live-default ancestry and the
+same live destination. It does not require the merged feature to remain an
+unmerged branch diff.
 Recovery itself grants no passing gate or external authority. Preserve the old
 Review artifacts; this operation cannot repair or reset a separate Review lineage.

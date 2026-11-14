@@ -13,7 +13,7 @@ const {
 const { createReleaseTransaction } = require("../../scripts/lib/release-transaction-schema");
 const CLI = path.resolve(__dirname, "../../scripts/dev-session.js");
 const digest = (bytes) => `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-function fixture(t) {
+function fixture(t, options = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-require-qa-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = (...args) =>
@@ -90,11 +90,15 @@ function fixture(t) {
     slug: session.slug,
     repository: "test/repo",
     deliveryRemote: "origin",
-    pushUrlSha256: `sha256:${"a".repeat(64)}`,
+    pushUrlSha256: digest(git("remote", "get-url", "--push", "origin")),
     headBranch: "fix/transport",
     baseBranch: "main",
-    releaseMode: "delivery-only",
-    manifestHashes: [],
+    ...(options.versioned
+      ? { currentVersion: "1.0.0", nextVersion: "1.0.1" }
+      : { releaseMode: "delivery-only" }),
+    manifestHashes: options.versioned
+      ? [{ path: "README.md", sha256: digest(fs.readFileSync(path.join(root, "README.md"))) }]
+      : [],
     preparedCommit: head,
   });
   const transactionPath = path.join(path.dirname(sessionPath), "ship/release-transaction.json");
