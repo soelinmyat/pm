@@ -5201,17 +5201,30 @@ async function main() {
             throw new Error(
               "native file label baseline decoded pixels changed during atomic capture"
             );
-          const baselineBarrierEpoch = networkEpoch;
-          await crossTargetBarrier();
-          assertNetworkHealthy();
-          if (
-            networkEpoch !== baselineBarrierEpoch ||
-            !requestsReady() ||
-            pendingWebSockets.size > 0 ||
-            activeFetchHandlers.size > 0 ||
-            activeTargetHandlers.size > 0
-          )
-            throw new Error("network activity crossed native file label baseline atomic capture");
+          // Browser-internal targets can attach while screenshots are acquired.
+          // Drain their asynchronous resume handlers and repeat the barrier,
+          // retaining the critical window so real network/document drift fails.
+          const baselineSettleDeadline = Date.now() + Math.max(1_000, settleMs * 4);
+          while (true) {
+            assertNetworkHealthy();
+            const baselineBarrierEpoch = networkEpoch;
+            await crossTargetBarrier();
+            assertNetworkHealthy();
+            if (networkEpoch !== baselineBarrierEpoch)
+              throw new Error("network activity crossed native file label baseline atomic capture");
+            if (
+              requestsReady() &&
+              pendingWebSockets.size === 0 &&
+              activeFetchHandlers.size === 0 &&
+              activeTargetHandlers.size === 0
+            )
+              break;
+            if (Date.now() >= baselineSettleDeadline)
+              throw new Error(
+                "native file label baseline handlers did not settle after atomic capture"
+              );
+            await sleep(25);
+          }
           criticalWindow = false;
           frozenPendingIds = null;
           focusBaseline = {

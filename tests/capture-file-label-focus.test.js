@@ -106,7 +106,71 @@ compiled._compile(source.replace(entry, ${JSON.stringify(injection)} + "\\nif (t
   return wrapper;
 }
 
-function nativeFileLabelProbe(variant = "working", mutation = null) {
+// Model delayed Chrome-internal target notifications at the protocol boundary;
+// page snapshots and screenshots still come from the real Chromium process.
+function instrumentInternalResumeProbe(directory, mode) {
+  const original = path.resolve(__dirname, "../scripts/design-critique-capture-probe.js");
+  const injection = `
+const originalConnect = connect;
+let attachedHandler, screenshots = 0, finalFrameCalls = 0, injected = false, settleResume;
+const mode = ${JSON.stringify(mode)};
+function injectInternalTarget() {
+  if (injected) return;
+  injected = true;
+  fs.writeFileSync(${JSON.stringify(path.join(directory, "internal-resume-injection.json"))},
+    JSON.stringify({mode, screenshots, finalFrameCalls}));
+  attachedHandler({sessionId: "pm-test-internal", targetInfo: {
+    targetId: "pm-test-internal", type: "page", url: "chrome://version"
+  }});
+}
+connect = async (url) => {
+  const client = await originalConnect(url);
+  const send = client.send.bind(client), on = client.on.bind(client);
+  client.on = (event, handler) => {
+    if (event === "Target.attachedToTarget") attachedHandler = handler;
+    return on(event, handler);
+  };
+  client.send = async (method, params = {}, sessionId = null) => {
+    if (sessionId === "pm-test-internal" && method === "Runtime.runIfWaitingForDebugger") {
+      return new Promise((resolve, reject) => { settleResume = mode === "reject"
+        ? () => reject(Error("test internal resume rejected")) : resolve; });
+    }
+    if (method === "Page.captureScreenshot") {
+      screenshots++;
+      if (screenshots === 1 && mode === "during") injectInternalTarget();
+    }
+    if (method === "Page.getFrameTree" && screenshots === 2 && ++finalFrameCalls >= 2) {
+      // The first call belongs to nativeSample(after); the next is the barrier.
+      if (!injected) injectInternalTarget();
+      if (mode !== "hang" && settleResume) {
+        const settle = settleResume; settleResume = null;
+        setTimeout(settle, 150);
+      }
+    }
+    return send(method, params, sessionId);
+  };
+  return client;
+};
+`;
+  const wrapper = path.join(directory, "instrumented-internal-resume.cjs");
+  fs.writeFileSync(
+    wrapper,
+    `const fs = require("node:fs"), Module = require("node:module"), path = require("node:path");
+const original = ${JSON.stringify(original)};
+const source = fs.readFileSync(original, "utf8");
+const entry = "if (require.main === module)";
+if (source.split(entry).length !== 2) throw Error("Test probe entry drifted");
+const compiled = new Module(original);
+compiled.filename = original;
+compiled.paths = Module._nodeModulePaths(path.dirname(original));
+compiled._compile(source.replace(entry, ${JSON.stringify(injection)} + "\\nif (true)"), original);
+`,
+    { mode: 0o600 }
+  );
+  return wrapper;
+}
+
+function nativeFileLabelProbe(variant = "working", mutation = null, internalResume = null) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-file-label-focus-"));
   const input = `<input id="upload-input" type="${variant === "wrong-type" ? "text" : "file"}" aria-label="Supporting document"${variant === "disabled" ? " disabled" : ""}>`;
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -151,7 +215,11 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
         focusBaselinePath: path.join(directory, "focus-baseline.png"),
         focusBaselineVerificationPath: path.join(directory, "focus-baseline-verification.png"),
       },
-      mutation ? { probePath: instrumentBaselineProbe(directory, mutation) } : {}
+      mutation
+        ? { probePath: instrumentBaselineProbe(directory, mutation) }
+        : internalResume
+          ? { probePath: instrumentInternalResumeProbe(directory, internalResume) }
+          : {}
     );
     validateFileLabelBaseline(result.focus_baseline, result.page);
     const bands = result.assertion_visibility.checks.find(
@@ -167,7 +235,7 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
       ),
     };
   } catch (error) {
-    if (mutation)
+    if (mutation || internalResume)
       for (const name of [
         "capture.png",
         "verification.png",
@@ -181,7 +249,21 @@ function nativeFileLabelProbe(variant = "working", mutation = null) {
         );
     throw error;
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    try {
+      if (internalResume)
+        assert.deepEqual(
+          JSON.parse(
+            fs.readFileSync(path.join(directory, "internal-resume-injection.json"), "utf8")
+          ),
+          {
+            mode: internalResume,
+            screenshots: internalResume === "during" ? 1 : 2,
+            finalFrameCalls: internalResume === "during" ? 0 : 2,
+          }
+        );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   }
 }
 
@@ -268,6 +350,24 @@ for (const mutation of ["dom", "stylesheet", "network", "pixels"]) {
     assert.throws(
       () => nativeFileLabelProbe("working", mutation),
       /atomic capture|baseline.*pixels changed/
+    );
+  });
+}
+
+for (const mode of ["during", "barrier"]) {
+  test(`native file-label baseline drains an internal resume arriving ${mode} capture`, () => {
+    const { bandChange } = nativeFileLabelProbe("working", null, mode);
+    assert.equal(bandChange, true);
+  });
+}
+
+for (const mode of ["hang", "reject"]) {
+  test(`native file-label baseline fails closed for internal resume ${mode}`, () => {
+    assert.throws(
+      () => nativeFileLabelProbe("working", null, mode),
+      mode === "hang"
+        ? /baseline handlers did not settle/
+        : /internal target resume failed: test internal resume rejected/
     );
   });
 }
