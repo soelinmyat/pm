@@ -10417,3 +10417,23 @@ for (const version of ["1.14.46", "1.14.47", "1.14.48", "1.14.50"]) {
     assert.match(JSON.stringify(run().issues), /capture producer/);
   });
 }
+
+for (const version of ["1.14.50", "1.14.51", "999.0.0"]) {
+  test(`QA-recovery release bounds active native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.50");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, version === "1.14.50");
+    if (version !== "1.14.50") assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
+test("QA-recovery release retains frozen 1.14.49 native evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.49" });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});

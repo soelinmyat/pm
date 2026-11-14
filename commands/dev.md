@@ -20,3 +20,5 @@ QA continues authorized scoped recovery beyond three rounds without a counter-tr
 Use `dev-session recertify` for rechecked phase evidence. Its verification records take precedence at the verified commit even when that is the original commit; missing or failing replacement records never restore an older passing result. Preserve the original records and all gate-specific evidence checks.
 
 Projects requiring MCP feature coverage follow `references/mcp-feature-coverage.md`: assess agent workflows during scoping, carry contracts into implementation, and verify current coverage before completion. Dev delivery enforces the opted-in project policy through its verification gate.
+
+When Ship discovers a missing first QA phase, follow `dev-session require-qa` in `skills/dev/references/state-schema.md`. It archives predecessor evidence, preserves authority and review lineage, and requires actual QA plus fresh Review and verification before delivery.

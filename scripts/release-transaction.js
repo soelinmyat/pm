@@ -293,12 +293,21 @@ function runCommand(args, options = {}) {
       if (session.run_id !== transaction.run_id) {
         throw new Error("Dev session run_id does not match the release transaction");
       }
-      return beginEffect(transaction, {
+      const begun = beginEffect(transaction, {
         effect: args.effect,
         authority: session.authority,
         actor: args.actor,
         candidateState: session.candidate?.state,
       });
+      // beginEffect is pure. Reconciliation decisions grant no execution; every
+      // new action is checked before mutateTransaction persists the attempt.
+      if (begun.decision === "execute")
+        require("./lib/dev-qa-recovery").assertRecoveryDeliveryReady(
+          session,
+          transaction,
+          args.effect
+        );
+      return begun;
     }
     if (args.command === "reconcile") {
       const observation = readJson(

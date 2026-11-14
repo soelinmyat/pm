@@ -881,13 +881,41 @@ function validateRouting(routing, errors) {
     "decision_version",
     "decision_log",
     "reasons",
+    "qa_recovery",
   ]);
   if (!isObject(routing)) {
     errors.push(issue("$.routing", "must be an object"));
     return;
   }
   validateExactFields(routing, fields, "$.routing", errors);
-  for (const field of fields) requireField(routing, field, "$.routing", errors);
+  for (const field of fields)
+    if (field !== "qa_recovery") requireField(routing, field, "$.routing", errors);
+  if (routing.qa_recovery !== undefined) {
+    const r = routing.qa_recovery;
+    if (
+      !isObject(r) ||
+      Object.keys(r).sort().join(",") !== "archive,commit,recorded_at" ||
+      !/^[a-f0-9]{40,64}$/.test(r.commit || "") ||
+      !isIsoDate(r.recorded_at) ||
+      !isObject(r.archive) ||
+      Object.keys(r.archive).sort().join(",") !== "path,sha256" ||
+      !/^\.pm\/dev-sessions\/(?:completed\/)?[a-z0-9._/-]+\/recovery\/require-qa\/[a-f0-9]{64}\.json$/.test(
+        r.archive.path || ""
+      ) ||
+      r.archive.path.includes("..") ||
+      !/^sha256:[a-f0-9]{64}$/.test(r.archive.sha256 || "")
+    )
+      errors.push(
+        issue("$.routing.qa_recovery", "must bind an immutable first-QA recovery archive")
+      );
+    if (
+      !Array.isArray(routing.required_phases) ||
+      !routing.required_phases.includes("qa") ||
+      !Array.isArray(routing.required_gates) ||
+      !routing.required_gates.includes("qa")
+    )
+      errors.push(issue("$.routing.qa_recovery", "requires QA phase and gate"));
+  }
   if (!Array.isArray(routing.required_phases) || routing.required_phases.length === 0) {
     errors.push(issue("$.routing.required_phases", "must be a non-empty array"));
   } else {
@@ -3524,7 +3552,12 @@ function recordResult(session, result, options = {}) {
     } else {
       nextPhase = phases[currentIndex + 1];
       next.phase = nextPhase;
-      next.phase_attempt = 1;
+      next.phase_attempt = Math.max(
+        1,
+        ...next.attempts
+          .filter((entry) => entry.phase === nextPhase)
+          .map((entry) => entry.attempt + 1)
+      );
       reason = `validated ${result.status} result`;
     }
   } else if (result.status === "blocked") {

@@ -43,6 +43,11 @@ For an explicitly enrolled remote-native feature or a session with `task.native`
 8. **Complete routed gates.** Risk routing determines review depth and whether design critique/QA apply. The final ship action must still pass `scripts/dev-gate-check.js` against current HEAD. In `PM_LOOP_WORKER=1` mode, stop after the reviewed PR is opened and return the loop result; do not merge or update durable card state.
 9. **Maintain RFC execution details within approved intent.** Never edit an approved sidecar in place. Read `../rfc/references/maintenance.md`; ordinary ownership/implementation corrections use reviewed maintenance without fresh human approval. Adopt the bound current hash through `dev-session rebind-rfc`. Material product behavior/scope/significant risk still requires a user decision.
 
+For a comprehensive Ship session whose intake omitted QA, use the documented
+`dev-session require-qa` recovery in `references/state-schema.md`. It preserves
+predecessor evidence and adds real QA plus fresh downstream certification; it
+never skips a gate or resets an existing QA/Review lineage.
+
 ## Loop Worker Mode (headless)
 
 When `PM_LOOP_WORKER=1`, `dev-session init` derives headless mode from the environment and rejects a conflicting explicit mode. All TDD, review, QA, and verification gates remain in force. Stop after the reviewed PR is opened; do not merge. Do not write or update backlog/card state because the loop worker is the only canonical durable card-state writer. Atomically write the versioned result to `PM_LOOP_RESULT_FILE` with mode `0600`. Exact terminal statuses are `shipped, blocked, failed, noop`; include bounded artifacts or remediation. Never wait for user input or treat silence as approval.

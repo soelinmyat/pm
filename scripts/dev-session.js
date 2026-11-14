@@ -79,6 +79,8 @@ function main(argv) {
       return anchorQaHistoryCommand(options);
     case "record-qa-nonpassing":
       return recordQaNonPassingCommand(options);
+    case "require-qa":
+      return requireQaCommand(options);
     case "unblock":
       return unblockCommand(options);
     case "authorize":
@@ -130,6 +132,7 @@ function parseArguments(argv) {
     "facts",
     "rfc-sidecar",
     "expected-sidecar-sha256",
+    "expected-session-sha256",
     "result",
     "phases",
     "commit",
@@ -481,6 +484,7 @@ function archiveTerminalRun(sessionPath, session, result, resultPath) {
     archiveDir,
     session.source.repo_root
   );
+  require("./lib/dev-qa-recovery").relocateQaRecovery(archivedSession, activeDir, archiveDir);
   writeSession(sessionPath, archivedSession);
   rebaseKnownRunJsonArtifacts(
     activeDir,
@@ -923,6 +927,27 @@ function anchorQaHistoryCommand(options) {
   return EXIT.OK;
 }
 
+function requireQaCommand(options) {
+  requireOptions(options, ["session", "expectedSessionSha256", "commit", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  const unlock = acquireSessionLock(sessionPath);
+  try {
+    const result = require("./lib/dev-qa-recovery").requireQa({ ...options, sessionPath });
+    emit(
+      options,
+      { session_path: sessionPath, ...result },
+      result.idempotent
+        ? "QA recovery already recorded\n"
+        : "Required first QA; fresh downstream certification required\n"
+    );
+    return EXIT.OK;
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  } finally {
+    unlock();
+  }
+}
+
 function unblockCommand(options) {
   requireOptions(options, ["session", "reason"]);
   const sessionPath = path.resolve(options.session);
@@ -1231,6 +1256,7 @@ function helpText() {
     "  gate --session <path> --name <gate> [--status <passed|failed|blocked|skipped>] [--reason <text>] [--artifact <path>] [--json]",
     "  anchor-qa-history --session <path> --commit <sha> --evidence <json-path> [--json]",
     "  record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path> [--json]",
+    "  require-qa --session <path> --expected-session-sha256 <sha256:hex> --commit <sha> --reason <text> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
     "  advance-decision --session <path> --expected-version <n> --reason <direction> [--json]",

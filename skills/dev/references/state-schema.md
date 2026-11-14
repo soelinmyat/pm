@@ -16,6 +16,7 @@ dev-session prompt --session <path> --output <path>
 dev-session route --session <path> --facts <json-path> [--json]
 dev-session record --session <path> --result <path>
 dev-session rebind-rfc --session <path> --rfc-sidecar <json-path> --expected-sidecar-sha256 <sha256:hex> --reason <text>
+dev-session require-qa --session <path> --expected-session-sha256 <sha256:hex> --commit <HEAD> --reason <text>
 dev-session recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path>
 dev-session anchor-qa-history --session <path> --commit <sha> --evidence <json-path>
 dev-session record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path>
@@ -398,3 +399,45 @@ These rows document the obsolete per-task delivery shape only. Current workers r
 - After every quality gate, record its row with `dev-session.js gate` (never by hand)
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
 - After retro, retain canonical session state and evidence as the durable audit/resume record; never delete it
+
+### Requiring first QA before delivery
+
+This initial recovery supports co-located `source.repo_root` and `source.worktree`
+sessions only. Split-root sessions are rejected without mutation and require a
+separately supported migration; do not copy or edit canonical evidence to fit.
+
+`dev-session require-qa` adds actual QA to an existing comprehensive Ship session
+whose intake omitted it. Use this recovery when delivery discovers the missing
+QA requirement, including nonvisual mobile work rejected by the path-based skip
+check. It is not a skip or a reroute of approved scope.
+
+Read the canonical session, compute its exact byte SHA-256 (`sha256:<hex>`), and
+pass that digest, current feature HEAD and a concrete reason. The command accepts
+active Ship sessions or blocked Ship sessions whose only unresolved blockers are
+`missing-qa` or `pm-unrouted-mobile-qa-contract`. Completed implementation and
+Review are required. It rejects any prior QA route/evidence/attempt, optimized
+candidate, missing write authority, stale identity, unsafe path or delivery effect
+in the current or any historical transaction generation. Resolve unrelated
+product, permission or dependency blockers through their owning workflow first.
+
+Under both session and transaction locks, the runner exclusively writes
+`recovery/require-qa/<original-session-digest>.json`, preserving the exact original
+session, gate manifest and release transaction bytes. `routing.qa_recovery` binds
+that immutable archive. It retains task, authority, run/decision IDs, attempts and
+Review lineage, adds QA to the route and withdraws active downstream
+certification. An interrupted archive publication resumes from the same bytes;
+an identical immediate replay is idempotent. An advanced session or altered
+archive cannot be reset by replay.
+
+Run the QA step returned by `next`, publish the real canonical QA report and
+record it normally. Then perform fresh Review and verification; Review attempts
+continue above retained attempts. The recovered QA cannot be skipped, and release
+`begin` rechecks current canonical gates and newly bound QA/Review/verification
+before every new external action. Observe-first and already-verified decisions
+cannot execute an action. After a verified merge, tag/tracker execution retains
+all evidence checks and validates the exact prepared Review against its frozen
+base, requiring frozen-base → verified-merge → live-default ancestry and the
+same live destination. It does not require the merged feature to remain an
+unmerged branch diff.
+Recovery itself grants no passing gate or external authority. Preserve the old
+Review artifacts; this operation cannot repair or reset a separate Review lineage.
