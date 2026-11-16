@@ -766,3 +766,22 @@ test("malformed configuration declarations fail closed before heavy work", () =>
     );
   }
 });
+
+test("published preflight schema admits only bounded unique required setting names", () => {
+  const Ajv = require("ajv/dist/2020");
+  const validate = new Ajv().compile(
+    require("../skills/ship/references/repository-environment-preflight.schema.json")
+  );
+  for (const required_environment of [
+    ["DEMO_PASSWORD"],
+    [],
+    ["bad name"],
+    ["A", "A"],
+    Array.from({ length: 65 }, (_, i) => `X${i}`),
+  ]) {
+    assert.equal(
+      validate({ schema_version: 1, runtimes: [], probes: [], required_environment }),
+      required_environment.length <= 1
+    );
+  }
+});
