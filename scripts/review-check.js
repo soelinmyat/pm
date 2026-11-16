@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 // Shared wrapper: sanitizes the Git environment for every call site here,
 // including the frozen-diff re-derivation the target binding depends on.
 const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
+const { DIFF_FORMAT, matchesReviewDiff } = require("./lib/review-diff-identity");
 const { baseEquivalence } = require("./lib/review-freshness");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -504,7 +505,7 @@ function validateSource(source, label, issues) {
   if (!object(source)) return add(issues, label, "must be an object");
   closed(
     source,
-    ["commit", "base_ref", "base_commit", "remote_push_url_sha256", "diff_sha256"],
+    ["commit", "base_ref", "base_commit", "remote_push_url_sha256", "diff_sha256", "diff_format"],
     label,
     issues
   );
@@ -514,6 +515,8 @@ function validateSource(source, label, issues) {
   if (source.remote_push_url_sha256 !== undefined && !sha256(source.remote_push_url_sha256))
     add(issues, `${label}.remote_push_url_sha256`, "must be SHA-256 when present");
   if (!sha256(source.diff_sha256)) add(issues, `${label}.diff_sha256`, "must be SHA-256");
+  if (source.diff_format !== undefined && source.diff_format !== DIFF_FORMAT)
+    add(issues, `${label}.diff_format`, "must be full-index-v1 when present");
 }
 
 function validateOwnership(ownership, issues) {
@@ -633,17 +636,8 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
           })
         );
     }
-    if (
-      value &&
-      (value.run_id !== target.run_id ||
-        value.review_round !== target.review_round - 1 ||
-        value.outcome === "passed")
-    )
-      add(
-        issues,
-        "target.prior_report",
-        "must bind the immediately prior non-passing report for the same run"
-      );
+    if (value && (value.run_id !== target.run_id || value.review_round !== target.review_round - 1))
+      add(issues, "target.prior_report", "must bind the immediately prior report for the same run");
     if (value?.source?.commit) {
       if (value.source.commit === target.source.commit)
         add(issues, "target.prior_report", "later review rounds require a source mutation");
@@ -659,7 +653,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         }
       }
     }
-    if (value && object(value) && value.outcome !== "passed") {
+    if (value && object(value)) {
       try {
         const prior = checkReview(
           expandFromReport({
@@ -894,9 +888,15 @@ function validateLiveTarget(root, target, issues) {
         "target.source",
         `does not match the authoritative remote default: ${base.reason}`
       );
-    const diff = git(root, trustedDiffArgs("--binary", `${trusted.commit}...${head}`), null);
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
-    if (target.source?.diff_sha256 !== digest(diff))
+    if (
+      !matchesReviewDiff(
+        root,
+        `${trusted.commit}...${head}`,
+        target.source?.diff_sha256,
+        target.source?.diff_format
+      )
+    )
       add(issues, "target.source.diff_sha256", "does not match current diff bytes");
     const inventory = changedFileInventory(root, trusted.commit, head);
     if (JSON.stringify(target.changed_files) !== JSON.stringify(inventory))
@@ -918,12 +918,14 @@ function validateFrozenTarget(root, target, issues) {
       .toString()
       .trim();
     if (!sha(target[FROZEN_MERGE_BASE])) throw new Error("source and base have no merge base");
-    const diff = git(
-      root,
-      trustedDiffArgs("--binary", `${target.source.base_commit}...${target.source.commit}`),
-      null
-    );
-    if (target.source.diff_sha256 !== digest(diff))
+    if (
+      !matchesReviewDiff(
+        root,
+        `${target.source.base_commit}...${target.source.commit}`,
+        target.source.diff_sha256,
+        target.source.diff_format
+      )
+    )
       add(issues, "target.source.diff_sha256", "does not match frozen Git diff bytes");
     const inventory = changedFileInventory(root, target.source.base_commit, target.source.commit);
     if (JSON.stringify(target.changed_files) !== JSON.stringify(inventory))

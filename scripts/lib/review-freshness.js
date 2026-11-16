@@ -46,6 +46,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("./project-file");
 const { gitExec: git, trustedDiffArgs } = require("./git-env");
+const { DIFF_FORMAT, reviewDiffBytes, matchesReviewDiff } = require("./review-diff-identity");
 
 const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
@@ -372,7 +373,7 @@ function computeDelta(root, priorCommit, commit, readTree = treeReader(root)) {
   // relocate into tests/ unscoped; and delta_diff_sha256 is hash-bound, so the
   // same setting would drift a legitimately certified chain into a forced full
   // round on any clone configured differently.
-  const diffBytes = git(root, trustedDiffArgs("--binary", range), null);
+  const diffBytes = reviewDiffBytes(root, range);
   const numstat = parseNumstat(git(root, trustedDiffArgs("--numstat", "-z", range), null));
   let codeLines = 0;
   let ineligible = null;
@@ -421,6 +422,7 @@ function computeDelta(root, priorCommit, commit, readTree = treeReader(root)) {
   }
   return {
     delta_diff_sha256: digest(diffBytes),
+    diff_format: DIFF_FORMAT,
     code_lines: codeLines,
     files: numstat,
     ineligible,
@@ -645,7 +647,14 @@ function validateSupplementChain({
         return fail(`${name} supplement commit does not descend from its prior commit`);
       const delta = computeDelta(root, prior, commit, readTree);
       if (delta.ineligible) return fail(`${name}: ${delta.ineligible}`);
-      if (delta.delta_diff_sha256 !== value?.source?.delta_diff_sha256)
+      if (
+        !matchesReviewDiff(
+          root,
+          `${prior}...${commit}`,
+          value?.source?.delta_diff_sha256,
+          value?.source?.diff_format
+        )
+      )
         return fail(`${name} delta diff bytes drifted from the reviewed delta`);
       if (delta.code_lines > MAX_DELTA_CODE_LINES)
         return fail(

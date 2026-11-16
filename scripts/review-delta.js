@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 "use strict";
+const { matchesReviewDiff } = require("./lib/review-diff-identity");
 
 // Bounded post-pass review supplements. After a canonical passed review, a
 // small follow-up fix (<= 50 changed code lines, files inside the certified
@@ -179,6 +180,7 @@ function buildCommand(options) {
       commit: head,
       tree: commitTree(root, head),
       delta_diff_sha256: delta.delta_diff_sha256,
+      diff_format: delta.diff_format,
     },
     budget: {
       code_lines: delta.code_lines,
@@ -254,7 +256,14 @@ function recordCommand(options) {
   if (pending.canonical_report?.sha256 !== reportSha256)
     throw new Error("canonical report changed after build; rebuild the pending delta target");
   const delta = computeDelta(root, pending.prior_commit, head);
-  if (delta.delta_diff_sha256 !== pending.source?.delta_diff_sha256)
+  if (
+    !matchesReviewDiff(
+      root,
+      `${pending.prior_commit}...${head}`,
+      pending.source?.delta_diff_sha256,
+      pending.source?.diff_format
+    )
+  )
     throw new Error("delta diff bytes drifted after build; rebuild the pending delta target");
 
   const result = readContainedJson(root, options.result, "reviewer result").value;

@@ -3022,6 +3022,126 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   assert.deepEqual(capReport.auto_fix_eligible, []);
 });
 
+test("legacy Review hashes survive automatic object abbreviation changes", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const { gitExec, trustedDiffArgs } = require("../scripts/lib/git-env");
+  delete fixture.target.source.diff_format;
+  fixture.target.source.diff_sha256 = crypto
+    .createHash("sha256")
+    .update(
+      gitExec(
+        fixture.root,
+        trustedDiffArgs(
+          "--binary",
+          "--abbrev=9",
+          `${fixture.target.source.base_commit}...${fixture.target.source.commit}`
+        ),
+        null
+      )
+    )
+    .digest("hex");
+  write(fixture.root, fixture.targetPath, fixture.target);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.source = fixture.target.source;
+    result.target = binding(fixture.root, fixture.targetPath);
+    write(fixture.root, resultPath, result);
+  }
+  const checked = generate(fixture);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  const issues = [];
+  validateFrozenTarget(fixture.root, fixture.target, issues);
+  assert.deepEqual(issues, []);
+  fixture.target.source.diff_sha256 = "0".repeat(64);
+  validateFrozenTarget(fixture.root, fixture.target, issues);
+  assert.match(JSON.stringify(issues), /does not match frozen Git diff bytes/);
+});
+
+test("later rounds authenticate a passed predecessor without resetting lineage", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const first = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.roundReportPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(first.ok, true, JSON.stringify(first.issues));
+  assert.equal(first.report.outcome, "passed");
+  const priorBytes = fs.readFileSync(path.join(fixture.root, fixture.roundReportPath));
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "correct residual finding"]);
+  const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
+  const target = buildReviewTarget({
+    root: fixture.root,
+    profile: "codex-workhorse",
+    maxWorkers: 3,
+    runId: "review-test",
+    round: 2,
+    priorReportPath: fixture.roundReportPath,
+  });
+  write(fixture.root, targetPath, target);
+  const resultPaths = fixture.resultPaths.map((oldPath) => {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, oldPath), "utf8"));
+    const newPath = oldPath.replace("round-1", "round-2");
+    result.review_round = 2;
+    result.target = binding(fixture.root, targetPath);
+    result.source = target.source;
+    write(fixture.root, newPath, result);
+    return newPath;
+  });
+  const check = (writeReport = false) =>
+    checkReview({
+      root: fixture.root,
+      targetPath,
+      resultPaths,
+      writeReport,
+      reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/report.json",
+      verifyBrowser: false,
+    });
+  const checked = check(true);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.report.outcome, "passed");
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, fixture.roundReportPath)), priorBytes);
+
+  for (const [field, value, expected] of [
+    ["run_id", "foreign-run", /immediately prior report for the same run/],
+    ["review_round", 0, /immediately prior report for the same run/],
+    ["source", target.source, /later review rounds require a source mutation/],
+  ]) {
+    const altered = JSON.parse(priorBytes);
+    altered[field] = value;
+    write(fixture.root, fixture.roundReportPath, altered);
+    target.prior_report = binding(fixture.root, fixture.roundReportPath);
+    write(fixture.root, targetPath, target);
+    assert.match(JSON.stringify(check().issues), expected);
+  }
+  fs.writeFileSync(path.join(fixture.root, fixture.roundReportPath), priorBytes);
+  target.prior_report = binding(fixture.root, fixture.roundReportPath);
+  write(fixture.root, targetPath, target);
+
+  const originalResult = fs.readFileSync(path.join(fixture.root, fixture.resultPaths[0]));
+  fs.appendFileSync(path.join(fixture.root, fixture.resultPaths[0]), "\n");
+  assert.match(JSON.stringify(check().issues), /target\.prior_report.*canonical finalized/);
+  fs.writeFileSync(path.join(fixture.root, fixture.resultPaths[0]), originalResult);
+  const prior = JSON.parse(priorBytes);
+  prior.outcome = "failed";
+  write(fixture.root, fixture.roundReportPath, prior);
+  target.prior_report = binding(fixture.root, fixture.roundReportPath);
+  write(fixture.root, targetPath, target);
+  assert.match(JSON.stringify(check().issues), /target\.prior_report.*canonical finalized/);
+});
+
 test("later rounds reject a shallow hand-written prior report", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   setFindingForLens(fixture, "bug", validFinding("bug"));
