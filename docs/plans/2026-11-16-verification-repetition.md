@@ -67,3 +67,27 @@ These follow-ups require separate scoped implementation and review. This first
 release removes wasted full suites before known PM prerequisite rejection and
 prevents missing-dependency suite failures; it does not eliminate successful local,
 pre-push and CI repetitions or the consumer database/configuration failures.
+
+# CI recovery: bounded Unicode segmentation
+
+The first release candidate's independent CI aborted the unchanged proposal test
+file under Node 20.20.2 with V8 heap exhaustion inside Intl segmentation. A
+focused reproduction runs a long token and repeated words in a 96 MiB child heap;
+it fails before the repair. Consume word and grapheme iterator records immediately
+instead of spreading all records before projection. This keeps the same tokens
+and Unicode segmentation while avoiding retained input records. The full affected
+proposal and multilingual review files pass on Node 20 after this change.
+
+# Follow-through acceptance contracts
+
+Execution reuse remains a separate change: first introduce an owning runner with
+immutable actual-output receipts, before/after closure identity and explicit
+unknown-input invalidation. Keep it observation-only until forged receipt, dirty
+ignored input, command/runtime/dependency drift and service restart tests pass;
+only then wire authenticated matches to gate writers. CI remains independent.
+Consumer preflight should follow as its own change using the same owning runner:
+required config names without secret values, bounded service identity/capacity
+checks and inter-process scheduling must fail before the suite. A PM source
+release cannot safely guess a consumer's database capacity or demo credentials.
+The read-only inspection above supplies the concrete initial consumer case; no
+consumer hook or runtime changes are included in this release.

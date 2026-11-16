@@ -90,3 +90,21 @@ test("review tokenization preserves accented Latin words at the existing thresho
       "La récupération omet encore le propriétaire, l’échéance précise et la méthode de contrôle indépendante.",
   });
 });
+
+test("long review tokens and many words fit in a bounded heap without retaining Intl records", () => {
+  execFileSync(
+    process.execPath,
+    [
+      "--max-old-space-size=96",
+      "-e",
+      `const assert = require('node:assert/strict');
+       const {reviewTextTokens} = require('./scripts/lib/groom-review-contract.js');
+       const long = 'a'.repeat(30000);
+       assert.deepEqual([...reviewTextTokens(long)], [long]);
+       assert.deepEqual([...reviewTextTokens('distinct actionable context '.repeat(3000))],
+         ['distinct', 'actionable', 'context']);
+       assert.deepEqual([...reviewTextTokens('a ab abc')], ['abc']);`,
+    ],
+    { cwd: path.resolve(__dirname, ".."), timeout: 30000, stdio: "pipe" }
+  );
+});

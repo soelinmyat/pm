@@ -186,9 +186,12 @@ function createReviewSegmenter(granularity) {
 function segmentReviewWords(normalized) {
   if (!normalized) return [];
   if (REVIEW_WORD_SEGMENTER) {
-    const words = [...REVIEW_WORD_SEGMENTER.segment(normalized)]
-      .filter((entry) => entry.isWordLike && REVIEW_WORD_CHARACTER.test(entry.segment))
-      .map((entry) => entry.segment);
+    // Node 20 segment records retain large input strings. Consume each record
+    // immediately rather than retaining the complete iterator before projection.
+    const words = [];
+    for (const entry of REVIEW_WORD_SEGMENTER.segment(normalized)) {
+      if (entry.isWordLike && REVIEW_WORD_CHARACTER.test(entry.segment)) words.push(entry.segment);
+    }
     if (words.length > 1 || !REVIEW_NO_SPACE_SCRIPT.test(normalized)) return words;
   }
   return segmentReviewWordsFallback(normalized);
@@ -203,7 +206,9 @@ function segmentReviewWordsFallback(normalized) {
 
 function segmentReviewGraphemes(value) {
   if (REVIEW_GRAPHEME_SEGMENTER) {
-    return [...REVIEW_GRAPHEME_SEGMENTER.segment(value)].map((entry) => entry.segment);
+    const graphemes = [];
+    for (const entry of REVIEW_GRAPHEME_SEGMENTER.segment(value)) graphemes.push(entry.segment);
+    return graphemes;
   }
   return Array.from(value);
 }

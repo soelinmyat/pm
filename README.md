@@ -475,3 +475,7 @@ Version 1.14.54 explicitly preserves the unchanged native evidence contract from
 1.14.50–1.14.53, including supported sparse-content and file-label focus proof.
 Unknown future producer versions remain rejected; source and evidence freshness
 checks still apply.
+
+Review text segmentation consumes Unicode iterator records incrementally, keeping
+long proposal evidence within bounded memory on Node 20 while preserving token
+and multilingual review checks.
