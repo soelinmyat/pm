@@ -479,3 +479,19 @@ checks still apply.
 Review text segmentation consumes Unicode iterator records incrementally, keeping
 long proposal evidence within bounded memory on Node 20 while preserving token
 and multilingual review checks.
+
+### Authenticated baseline verification
+
+Repeated deterministic workspace-only Node baselines can use the owning
+[verification execution runner](skills/dev/references/verification-execution.md).
+It captures real output, authenticates receipts, checks complete workspace and
+installed dependency bytes, runtime and environment identities, and rejects
+changed, unknown, expired or forged evidence. This is opt-in through an audited
+owner contract; macOS system-cache-only dependencies currently force execution.
+Mandatory final suites, pre-push checks, Review authority and independent CI remain
+in place. Mutable-service, Rails and browser suites are not enrolled by this contract.
+
+Authenticated consumer policies can name required environment settings. The
+repository runner rejects missing settings before comprehensive fallback suites
+as well as optimized execution, and checks configuration identity without exposing
+values. This release does not modify or enroll installed consumer hooks.

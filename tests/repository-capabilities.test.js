@@ -553,3 +553,34 @@ function signedOptions(root, fields = {}) {
     },
   };
 }
+
+test("protected configuration declarations are preserved and malformed ones rejected", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-required-env-"));
+  try {
+    for (const required_environment of [["DEMO_PASSWORD"], ["bad name"], ["A", "A"], { A: true }]) {
+      const bytes = JSON.stringify({
+        schema_version: 1,
+        candidate_push: { permitted: false },
+        required_environment,
+      });
+      const found = discoverRepositoryCapabilities(root, {
+        policyVerifier: () => ({
+          verified: true,
+          bytes,
+          source: "git:protected:policy",
+          identity: "protected",
+        }),
+      });
+      if (
+        Array.isArray(required_environment) &&
+        required_environment.length === 1 &&
+        required_environment[0] === "DEMO_PASSWORD"
+      ) {
+        assert.equal(found.policy.provenance, "authenticated");
+        assert.deepEqual(found.policy.required_environment, ["DEMO_PASSWORD"]);
+      } else assert.equal(found.policy.provenance, "malformed");
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

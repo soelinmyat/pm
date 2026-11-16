@@ -21,7 +21,22 @@ const { stable } = require("./lib/repository-gate-plan-schema");
 const { discoverRepositoryCapabilities } = require("./lib/repository-capabilities");
 const { isGitObjectId, sameObjectIdFormat, zeroObjectIdLike } = require("./lib/git-object-id");
 
-function fallback(options, reason) {
+function fallback(options, reason, plan) {
+  // Protected/authenticated declarations remain prerequisites even when an
+  // unsupported optimized path falls back to the full consumer hook.
+  if (plan?.repository_policy?.provenance === "authenticated") {
+    const preflight = (options.preflight || verifyEnvironment)(plan, {
+      identityKey: options.identityKey || (options.env || process.env).PM_REPOSITORY_IDENTITY_KEY,
+      env: options.env || process.env,
+    });
+    if (preflight.status === "blocked")
+      return sanitizeDiagnosticValue({
+        status: "blocked",
+        exit_code: 1,
+        reason: "environment-preflight",
+        issues: preflight.issues,
+      });
+  }
   if (typeof options.comprehensivePush !== "function")
     return {
       status: "blocked",
@@ -211,19 +226,35 @@ function runRepositoryGates(plan, mode, options = {}) {
     options.expectedCapabilityIdentity !== plan.capability_identity
   )
     return { status: "blocked", reason: "expected-capability-identity-mismatch" };
-  if (plan.adapter?.supported === false || !plan.hook)
-    return fallback(options, "unsupported-or-unclear-hook-contract");
-  if (mode === "targeted" && plan.candidate_push?.permitted !== true)
-    return fallback(options, "candidate-push-not-authorized");
-  const commands = mode === "complete" ? plan.complete_commands : plan.targeted_commands;
-  if (!Array.isArray(commands) || commands.length === 0)
-    return fallback(options, "empty-command-selection");
   const liveCapabilities = (options.discoverCapabilities || discoverRepositoryCapabilities)(
     plan.repository_root,
     options.capabilityDiscovery || {}
   );
   if (!liveCapabilities || liveCapabilities.identity !== options.expectedCapabilityIdentity)
     return { status: "blocked", reason: "live-capability-identity-mismatch" };
+  const requiredEnvironment =
+    liveCapabilities.policy?.provenance === "authenticated"
+      ? liveCapabilities.policy.required_environment || []
+      : [];
+  if (
+    JSON.stringify(stable(plan.expectations?.required_environment || [])) !==
+    JSON.stringify(stable(requiredEnvironment))
+  )
+    return { status: "blocked", reason: "live-configuration-contract-mismatch" };
+  const prerequisitePlan = {
+    ...plan,
+    repository_policy: {
+      ...plan.repository_policy,
+      provenance: liveCapabilities.policy?.provenance,
+    },
+  };
+  if (plan.adapter?.supported === false || !plan.hook)
+    return fallback(options, "unsupported-or-unclear-hook-contract", prerequisitePlan);
+  if (mode === "targeted" && plan.candidate_push?.permitted !== true)
+    return fallback(options, "candidate-push-not-authorized", prerequisitePlan);
+  const commands = mode === "complete" ? plan.complete_commands : plan.targeted_commands;
+  if (!Array.isArray(commands) || commands.length === 0)
+    return fallback(options, "empty-command-selection", prerequisitePlan);
   const preflight = (options.preflight || verifyEnvironment)(plan, {
     requireIdentity: plan.environment_identity || undefined,
     identityKey: options.identityKey || (options.env || process.env).PM_REPOSITORY_IDENTITY_KEY,
@@ -241,7 +272,7 @@ function runRepositoryGates(plan, mode, options = {}) {
     return { status: "blocked", reason: "environment-identity-mismatch" };
   if (!verifyHookIdentity(plan)) return { status: "blocked", reason: "hook-identity-mismatch" };
   if (!verifyManagerIdentity(plan, options))
-    return fallback(options, "manager-identity-or-hook-contract-unsupported");
+    return fallback(options, "manager-identity-or-hook-contract-unsupported", prerequisitePlan);
   try {
     validatePlannedRefUpdate(plan, mode, options);
   } catch (error) {

@@ -430,3 +430,75 @@ test("preflight issues and uncaught CLI errors are redacted at the final boundar
   assert.doesNotMatch(cli.stderr, /cli-secret/);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("authenticated configuration prerequisites block comprehensive fallback before suites", () => {
+  const { root, plan, options } = fixture();
+  try {
+    plan.adapter.supported = false;
+    plan.repository_policy = { provenance: "authenticated" };
+    plan.expectations = { required_environment: ["DEMO_PASSWORD"] };
+    let heavy = 0;
+    const result = runRepositoryGates(plan, "complete", {
+      ...options,
+      preflight: undefined,
+      discoverCapabilities: () => ({
+        identity: "cap-v1",
+        policy: { provenance: "authenticated", required_environment: ["DEMO_PASSWORD"] },
+      }),
+      env: {},
+      comprehensivePush: () => {
+        heavy++;
+        return { status: "passed", exit_code: 0 };
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "environment-preflight");
+    assert.equal(heavy, 0);
+    assert.match(JSON.stringify(result), /DEMO_PASSWORD/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("untrusted capabilities cannot launch a comprehensive fallback", () => {
+  const { root, plan, options } = fixture();
+  try {
+    plan.adapter.supported = false;
+    let heavy = 0;
+    const result = runRepositoryGates(plan, "complete", {
+      ...options,
+      discoverCapabilities: () => ({ identity: "changed" }),
+      comprehensivePush: () => {
+        heavy++;
+        return { status: "passed" };
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(heavy, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("omitting protected required configuration from a plan cannot launch fallback", () => {
+  const { root, plan, options } = fixture();
+  try {
+    plan.adapter.supported = false;
+    let heavy = 0;
+    const result = runRepositoryGates(plan, "complete", {
+      ...options,
+      discoverCapabilities: () => ({
+        identity: "cap-v1",
+        policy: { provenance: "authenticated", required_environment: ["DEMO_PASSWORD"] },
+      }),
+      comprehensivePush: () => {
+        heavy++;
+        return { status: "passed" };
+      },
+    });
+    assert.equal(result.reason, "live-configuration-contract-mismatch");
+    assert.equal(heavy, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

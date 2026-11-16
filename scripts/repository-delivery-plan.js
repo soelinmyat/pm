@@ -211,6 +211,10 @@ function buildDeliveryPlan(input) {
     expectations: {
       runtimes: capabilities.runtimes || [],
       probes: capabilities.policy?.probes || [],
+      required_environment:
+        capabilities.policy?.provenance === "authenticated"
+          ? capabilities.policy.required_environment || []
+          : [],
     },
     targeted_commands: targeted,
     complete_commands: complete,

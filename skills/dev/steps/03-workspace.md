@@ -144,3 +144,10 @@ Record the plan, retained command outcomes, source/environment/dependency identi
 The isolated branch/worktree, repository instructions, dependency baseline, and source/session paths are recorded and verified.
 
 **Advance:** proceed to Step 04 (Groom Readiness).
+
+For repeated baseline/focused suites with a repository-owner-authenticated,
+audited deterministic workspace-only contract, read and follow
+`skills/dev/references/verification-execution.md`. The owning execution runner
+captures actual outcomes and checks identities; planner receipts alone cannot
+certify execution. Unknown external inputs or mutable services require fresh
+execution. This does not replace the mandatory fresh final suite in Step 8.

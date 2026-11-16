@@ -261,6 +261,34 @@ function verifyEnvironment(plan, options = {}) {
     probeExecutables = [],
     probeExecutableCache = new Map(),
     discoveryDeadline = now() + (options.discoveryBudgetMs ?? EXECUTABLE_DISCOVERY_BUDGET_MS);
+  const required = expectations.required_environment || [];
+  if (
+    !Array.isArray(required) ||
+    required.length > 64 ||
+    new Set(required).size !== required.length ||
+    required.some(
+      (name) => typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
+    )
+  )
+    issues.push({
+      kind: "configuration-declaration",
+      message: "Required environment declarations are invalid",
+    });
+  else
+    for (const name of required) {
+      if (typeof env[name] !== "string" || !env[name].trim())
+        issues.push({
+          kind: "missing-configuration",
+          message: `Required environment setting ${name} is missing or empty`,
+        });
+    }
+  if (issues.length)
+    return sanitizeDiagnosticValue({
+      schema_version: 1,
+      status: "blocked",
+      identity: null,
+      issues,
+    });
   const runtimeRows = expectations.runtimes || [];
   const probeRows = expectations.probes || [];
   const localByName = new Map();
@@ -387,6 +415,23 @@ function verifyEnvironment(plan, options = {}) {
   }
   const identity = identityFor(resolved, env, services, probeExecutables);
   if (
+    Array.isArray(required) &&
+    required.length &&
+    !issues.some((issue) => issue.kind === "configuration-declaration")
+  ) {
+    try {
+      identity.required_environment_digest = keyedIdentity(
+        Object.fromEntries(required.map((name) => [name, env[name] ?? null])),
+        options.identityKey
+      );
+    } catch {
+      issues.push({
+        kind: "configuration-identity",
+        message: "Machine-local identity secret is required for configuration identity",
+      });
+    }
+  }
+  if (
     options.requireIdentity &&
     JSON.stringify(stable(options.requireIdentity)) !== JSON.stringify(stable(identity))
   )
@@ -396,7 +441,7 @@ function verifyEnvironment(plan, options = {}) {
     });
   const status = issues.length
     ? "blocked"
-    : localByName.size || probeRows.length
+    : localByName.size || probeRows.length || required.length
       ? "verified"
       : "unverified";
   return sanitizeDiagnosticValue({ schema_version: 1, status, identity, issues });
