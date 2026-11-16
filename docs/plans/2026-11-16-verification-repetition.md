@@ -1,0 +1,59 @@
+---
+title: Verification repetition — bounded first release and follow-ups
+created: 2026-11-16
+updated: 2026-11-16
+---
+
+# First release: fail before expensive work
+
+The PM source pre-push hook previously ran every test in a fresh detached
+worktree before resolving remote HEAD or checking inventory, release preparation,
+and gate evidence. It did not install dependencies, although package.json requires
+AJV and AJV formats. New regression fixtures reproduce test execution before a
+prerequisite failure and missing dependencies in the committed checkout.
+
+This release checks prerequisites for every ref before any suite, then installs
+locked development dependencies inside each pushed-commit checkout. Installation
+failure blocks without starting tests. Full suites, exact pushed-source testing,
+canonical gate authority and independent CI remain mandatory. No result reuse or
+design recertification is claimed. Active consumer worktrees and caches stay unchanged.
+
+# Evidence and follow-up boundaries
+
+Read-only inspection of CleanLog's root lefthook.yml found parallel pre-push lanes,
+broad apps/api/** triggers, and rails-test invoking bin/with-api-db-lock around
+schema preparation, request specs and Rails tests. Reported database lock-memory
+exhaustion and demo-password failures therefore cannot be fixed by installing the
+PM repository's Node dependencies. No consumer hook was edited or executed.
+
+1. **Verification execution receipts.** scripts/lib/verification-plan.js already
+   matches complete supplied environment/dependency identities and retained output,
+   but is planning-only; final mandatory checks still execute. Add an owning runner
+   that records actual command outcomes and before/after input identities. Determine
+   authenticated provenance before permitting gate reuse. Include ignored/generated
+   inputs, installed dependency bytes, runtime/executable identity, exact command,
+   service/config identity, and conservative unknown-input invalidation. Do not
+   elevate hand-authored receipts into passing gates.
+2. **Consumer preflight.** repository-gate-runner.js already invokes
+   repository-environment-preflight.js for authenticated optimized plans. The
+   PostgreSQL probe establishes identity, not sufficient lock capacity or absence
+   of competing heavy suites. Comprehensive execution and consumer-specific required
+   configuration need an authenticated, bounded prerequisite contract before suites.
+   Avoid guessed settings, exposing secrets, resetting databases, or treating a
+   successful readiness probe as a test result.
+3. **Design compatibility.** Retained PDF/design evidence reportedly invalidated
+   after a runtime update despite a test-fixture-only product delta. Define an
+   explicit checker/evidence compatibility version and a reviewed dependency closure
+   for design inputs before preserving captures. Keep old evidence immutable;
+   unknown coverage, changed render inputs, checker semantics or runtime contracts
+   require fresh evidence. A blanket exclusion of tests is unsafe.
+4. **Supported report recertification.** Extend existing dev-session gate/recertify
+   and owning report writers rather than creating editable gate JSON. Recompute
+   relevant identities, preserve predecessor failure lineage and independent review
+   authority, and adversarially test forged outputs, changed commands/dependencies,
+   omitted inputs, source drift and version-incompatible evidence.
+
+These follow-ups require separate scoped implementation and review. This first
+release removes wasted full suites before known PM prerequisite rejection and
+prevents missing-dependency suite failures; it does not eliminate successful local,
+pre-push and CI repetitions or the consumer database/configuration failures.
