@@ -10732,3 +10732,34 @@ test("ownership-maintenance release retains frozen 1.14.52 native evidence uncha
   for (const [file, bytes] of retained)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
+
+for (const version of [
+  "1.14.49",
+  "1.14.50",
+  "1.14.51",
+  "1.14.52",
+  "1.14.53",
+  "1.14.54",
+  "1.14.55",
+  "999.0.0",
+]) {
+  test(`push-preflight release bounds active native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.54");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const accepted = ["1.14.50", "1.14.51", "1.14.52", "1.14.53", "1.14.54"].includes(version);
+    const result = run();
+    assert.equal(result.ok, accepted, JSON.stringify(result.issues));
+    if (!accepted) assert.match(JSON.stringify(result.issues), /capture producer/);
+  });
+}
+
+test("push-preflight release retains frozen 1.14.53 native evidence unchanged", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.53" });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
