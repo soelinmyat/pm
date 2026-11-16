@@ -531,23 +531,20 @@ test("rebind-rfc is limited to a bound sidecar path after intake", () => {
   }
 });
 
-test("rebind-rfc refuses a phase past implementation and a finished session", () => {
+test("rebind-rfc refuses retro and a finished session", () => {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
   const { sessionPath } = scenario;
   try {
     const anyHash = `sha256:${"c".repeat(64)}`;
     scenario.enterImplementation();
     const session = readSession(sessionPath);
-    session.phase = "review";
-    session.routing.required_phases = ["implementation", "review", "retro"];
+    session.phase = "retro";
+    session.routing.required_phases = ["implementation", "retro"];
     fs.writeFileSync(sessionPath, JSON.stringify(session));
     const before = fs.readFileSync(sessionPath, "utf8");
     const inReview = scenario.rebind(anyHash);
     assert.equal(inReview.status, 3, inReview.stderr);
-    assert.match(
-      inReview.stderr,
-      /rebind-rfc is limited to workspace, readiness, and implementation; session is in review/
-    );
+    assert.match(inReview.stderr, /rebind-rfc is unavailable in retro/);
     assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
 
     session.phase = "implementation";
@@ -786,3 +783,105 @@ for (const status of ["blocked", "failed"]) {
     }
   });
 }
+
+for (const phase of ["design-critique", "qa", "review", "ship"]) {
+  test(`reviewed ownership maintenance during ${phase} preserves delivery evidence and authority`, () => {
+    const scenario = boundScenario([issue(1, [], ["README.md"])]);
+    try {
+      scenario.enterImplementation();
+      const base = scenario.start("rfc-1");
+      const completed = scenario.complete(
+        "rfc-1",
+        base,
+        scenario.dev.commit({ "README.md": "done\n" }, "done")
+      );
+      assert.equal(completed.status, 0, completed.stderr);
+      const session = readSession(scenario.sessionPath);
+      session.phase = phase;
+      session.routing.required_phases = ["implementation", phase, "retro"];
+      fs.writeFileSync(scenario.sessionPath, JSON.stringify(session));
+      const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+        kind: "maintenance",
+        issues: "1",
+        reason: "Own the existing regression fixture",
+        mutate: (sidecar) => sidecar.issues[0].owns.push("tests/golden.html"),
+      });
+      copyArchives(scenario.rfc, scenario.dev);
+      const rebound = scenario.rebind(amendment.sidecarHash);
+      assert.equal(rebound.status, 0, rebound.stderr);
+      const after = readSession(scenario.sessionPath);
+      for (const key of [
+        "phase",
+        "phase_attempt",
+        "evidence",
+        "attempts",
+        "history",
+        "authority",
+        "authority_log",
+      ]) {
+        assert.deepEqual(after[key], session[key], key);
+      }
+      assert.deepEqual(after.task.work_units[0].result, session.task.work_units[0].result);
+      assert.equal(after.task.work_units[0].status, "completed");
+      assert.deepEqual(after.task.work_units[0].owns, ["README.md", "tests/golden.html"]);
+      assert.equal(after.task.rfc_contract_history.length, 1);
+      const replay = scenario.rebind(amendment.sidecarHash);
+      assert.equal(replay.status, 0, replay.stderr);
+      assert.equal(JSON.parse(replay.stdout).idempotent, true);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+}
+
+test("delivery-phase RFC rebind rejects changed execution contracts without touching session", () => {
+  const scenario = boundScenario([issue(1, [], ["README.md"])]);
+  try {
+    scenario.enterImplementation();
+    const base = scenario.start("rfc-1");
+    const completed = scenario.complete(
+      "rfc-1",
+      base,
+      scenario.dev.commit({ "README.md": "done\n" }, "done")
+    );
+    assert.equal(completed.status, 0, completed.stderr);
+    const session = readSession(scenario.sessionPath);
+    session.phase = "ship";
+    session.routing.required_phases = ["implementation", "ship", "retro"];
+    fs.writeFileSync(scenario.sessionPath, JSON.stringify(session));
+    const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+      kind: "maintenance",
+      issues: "1",
+      reason: "Correct the verification command",
+      mutate: (sidecar) => {
+        sidecar.issues[0].verification_commands = ["node --test tests/regression.test.js"];
+      },
+    });
+    copyArchives(scenario.rfc, scenario.dev);
+    const before = fs.readFileSync(scenario.sessionPath, "utf8");
+    const rebound = scenario.rebind(amendment.sidecarHash);
+    assert.equal(rebound.status, 3, rebound.stderr);
+    assert.match(rebound.stderr, /delivery-phase RFC rebind permits ownership additions only/);
+    assert.equal(fs.readFileSync(scenario.sessionPath, "utf8"), before);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("delivery-phase RFC rebind refuses incomplete work units without touching session", () => {
+  const scenario = boundScenario([issue(1, [], ["README.md"])]);
+  try {
+    scenario.enterImplementation();
+    const session = readSession(scenario.sessionPath);
+    session.phase = "ship";
+    session.routing.required_phases = ["implementation", "ship", "retro"];
+    fs.writeFileSync(scenario.sessionPath, JSON.stringify(session));
+    const before = fs.readFileSync(scenario.sessionPath, "utf8");
+    const rebound = scenario.rebind(scenario.boundHash);
+    assert.equal(rebound.status, 3, rebound.stderr);
+    assert.match(rebound.stderr, /requires all work units to remain completed/);
+    assert.equal(fs.readFileSync(scenario.sessionPath, "utf8"), before);
+  } finally {
+    scenario.cleanup();
+  }
+});
