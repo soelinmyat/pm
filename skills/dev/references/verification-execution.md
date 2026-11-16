@@ -1,5 +1,10 @@
 # Authenticated baseline execution receipts
 
+The execution adapter currently requires POSIX process groups (Linux/macOS).
+It force-terminates the owned process group on deadline/output overflow, including
+descendants retaining output pipes, before recording failure and releasing its
+store lock. Windows execution is unsupported and fails closed.
+
 Use `scripts/verification-execution.js` for repeated baseline/focused Node suites
 only after the repository owner has reviewed and authenticated the complete input
 contract. The existing planner is advisory; its unsigned prior rows do not prove

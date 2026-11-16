@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { stableObjectHmac, withoutAuthentication } = require("./lib/stable-authentication");
 const { digest } = require("./lib/repository-gate-plan-schema");
 const {
@@ -184,7 +184,63 @@ function isInside(root, candidate) {
     (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
   );
 }
-function runVerification(contract, { key, store, stage = "baseline" } = {}) {
+function executeBounded(contract, root) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(contract.executable, contract.args, {
+        cwd: root,
+        env: contract.environment,
+        shell: false,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      resolve({ error, status: null });
+      return;
+    }
+    const output = { stdout: [], stderr: [] };
+    let bytes = 0,
+      error = null;
+    const terminate = (code) => {
+      error ||= Object.assign(new Error(code), { code });
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        /* Already exited. */
+      }
+    };
+    const timer = setTimeout(() => terminate("ETIMEDOUT"), contract.timeout_ms);
+    for (const stream of ["stdout", "stderr"])
+      child[stream].on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes > OUTPUT_LIMIT) terminate("ENOBUFS");
+        else output[stream].push(chunk);
+      });
+    child.on("error", (cause) => {
+      error = cause;
+    });
+    child.on("close", (status, signal) => {
+      clearTimeout(timer);
+      // Terminate descendants even if the suite's direct process already exited.
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        /* Group is gone. */
+      }
+      resolve({
+        status,
+        signal,
+        error,
+        stdout: Buffer.concat(output.stdout).toString("utf8"),
+        stderr: Buffer.concat(output.stderr).toString("utf8"),
+      });
+    });
+  });
+}
+async function runVerification(contract, { key, store, stage = "baseline" } = {}) {
+  if (process.platform === "win32")
+    throw new Error("execution receipts require POSIX process-group termination");
   validateContract(contract, key);
   if (!["baseline", "final"].includes(stage)) throw new Error("stage must be baseline or final");
   const root = fs.realpathSync(contract.root);
@@ -228,14 +284,7 @@ function runVerification(contract, { key, store, stage = "baseline" } = {}) {
       }
     }
     const started = new Date().toISOString();
-    const result = spawnSync(contract.executable, contract.args, {
-      cwd: root,
-      env: contract.environment,
-      shell: false,
-      encoding: "utf8",
-      timeout: contract.timeout_ms,
-      maxBuffer: OUTPUT_LIMIT,
-    });
+    const result = await executeBounded(contract, root);
     const after = observeIdentity(contract);
     const passed = !result.error && result.status === 0 && !result.signal;
     const reusable = passed && before !== null && before === after;
@@ -284,7 +333,7 @@ function runVerification(contract, { key, store, stage = "baseline" } = {}) {
     release();
   }
 }
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   const args = {};
   for (let i = 0; i < argv.length; i += 2) {
     if (!["--contract", "--store", "--stage"].includes(argv[i]) || !argv[i + 1])
@@ -294,7 +343,7 @@ function main(argv = process.argv.slice(2)) {
   if (!args.contract || !args.store)
     throw new Error("contract and existing external receipt store are required");
   const contract = JSON.parse(fs.readFileSync(args.contract, "utf8"));
-  const result = runVerification(contract, {
+  const result = await runVerification(contract, {
     store: args.store,
     stage: args.stage,
     key: process.env.PM_VERIFICATION_RECEIPT_KEY,
@@ -303,11 +352,13 @@ function main(argv = process.argv.slice(2)) {
   return result.exit_code;
 }
 if (require.main === module) {
-  try {
-    process.exitCode = main();
-  } catch (error) {
-    process.stderr.write(`${error.message}\n`);
-    process.exitCode = 1;
-  }
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+    });
 }
 module.exports = { runVerification, workspaceIdentity };

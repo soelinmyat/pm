@@ -1,5 +1,5 @@
 "use strict";
-const test = require("node:test");
+const test = process.platform === "win32" ? require("node:test").skip : require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -44,16 +44,16 @@ function fixture(t) {
   return { root, store, contract, key, sign, run, receipt };
 }
 
-test("owning execution captures real output and authenticates reuse; final checks execute", (t) => {
+test("owning execution captures real output and authenticates reuse; final checks execute", async (t) => {
   const f = fixture(t),
-    first = f.run();
+    first = await f.run();
   assert.equal(first.status, "passed");
   assert.equal(first.reused, false);
   assert.equal(first.reusable, true);
   assert.match(f.receipt(first).stdout, /observed successful suite/);
-  const second = f.run();
+  const second = await f.run();
   assert.equal(second.reused, true);
-  assert.equal(f.run({ stage: "final" }).reused, false);
+  assert.equal((await f.run({ stage: "final" })).reused, false);
 });
 
 for (const mutation of [
@@ -67,10 +67,10 @@ for (const mutation of [
   "wrong key",
   "expired",
 ]) {
-  test(`successful receipt invalidates on ${mutation}`, (t) => {
+  test(`successful receipt invalidates on ${mutation}`, async (t) => {
     const f = fixture(t);
-    f.run();
-    const hit = f.run();
+    await f.run();
+    const hit = await f.run();
     assert.equal(hit.reused, true);
     const cached = path.join(f.store, hit.receipt);
     if (mutation === "source")
@@ -111,24 +111,24 @@ for (const mutation of [
       receipt.authentication = stableObjectHmac(receipt, f.key);
       fs.writeFileSync(cached, JSON.stringify(receipt));
     }
-    const next = f.run();
+    const next = await f.run();
     assert.equal(next.status, "passed");
     assert.equal(next.reused, false);
   });
 }
 
-test("changed installed dependency bytes invalidate an existing dependency inventory", (t) => {
+test("changed installed dependency bytes invalidate an existing dependency inventory", async (t) => {
   const f = fixture(t);
   fs.mkdirSync(path.join(f.root, "node_modules"));
   const dep = path.join(f.root, "node_modules", "dependency.js");
   fs.writeFileSync(dep, "version one");
-  f.run();
-  assert.equal(f.run().reused, true);
+  await f.run();
+  assert.equal((await f.run()).reused, true);
   fs.writeFileSync(dep, "version two");
-  assert.equal(f.run().reused, false);
+  assert.equal((await f.run()).reused, false);
 });
 
-test("failed, timeout and truncated executions never mint reusable success", (t) => {
+test("failed, timeout and truncated executions never mint reusable success", async (t) => {
   for (const body of [
     "process.exit(1)",
     "while (true) {}",
@@ -139,7 +139,7 @@ test("failed, timeout and truncated executions never mint reusable success", (t)
     f.contract.timeout_ms = 100;
     f.sign();
     for (let i = 0; i < 2; i++) {
-      const result = f.run();
+      const result = await f.run();
       assert.equal(result.status, "failed");
       assert.equal(result.reused, false);
       assert.equal(result.reusable, false);
@@ -147,43 +147,43 @@ test("failed, timeout and truncated executions never mint reusable success", (t)
   }
 });
 
-test("before/after drift and unknown external symlinks execute without reusable certification", (t) => {
+test("before/after drift and unknown external symlinks execute without reusable certification", async (t) => {
   const f = fixture(t);
   fs.writeFileSync(
     path.join(f.root, "suite.js"),
     'require("node:fs").writeFileSync("generated", String(Date.now()));'
   );
-  assert.equal(f.run().reusable, false);
+  assert.equal((await f.run()).reusable, false);
   fs.writeFileSync(path.join(f.root, "suite.js"), 'console.log("pass")');
   fs.symlinkSync(
     f.store,
     path.join(f.root, "external"),
     process.platform === "win32" ? "junction" : "dir"
   );
-  const result = f.run();
+  const result = await f.run();
   assert.equal(result.status, "passed");
   assert.equal(result.reusable, false);
   assert.equal(result.diagnostic, "unknown-inputs");
 });
 
-test("invalid or unknown contracts and nested stores fail before command execution", (t) => {
+test("invalid or unknown contracts and nested stores fail before command execution", async (t) => {
   const f = fixture(t);
-  assert.throws(() => f.run({ key: "short" }), /authenticated/);
+  await assert.rejects(() => f.run({ key: "short" }), /authenticated/);
   f.contract.external_service = "unbound database";
   f.sign();
-  assert.throws(() => f.run(), /authenticated/);
+  await assert.rejects(() => f.run(), /authenticated/);
   delete f.contract.external_service;
   f.sign();
-  assert.throws(() => f.run({ store: f.root }), /separate/);
+  await assert.rejects(() => f.run({ store: f.root }), /separate/);
   f.contract.environment.PM_VERIFICATION_RECEIPT_KEY = f.key;
   f.sign();
-  assert.throws(() => f.run(), /invalid/);
+  await assert.rejects(() => f.run(), /invalid/);
 });
 
 test(
   "real Linux CLI executions authenticate and reuse actual retained output",
   { skip: process.platform !== "linux" },
-  (t) => {
+  async (t) => {
     const f = fixture(t);
     process.report.getReport = nativeReport;
     const contractPath = path.join(f.store, "contract.json");
@@ -201,3 +201,27 @@ test(
     assert.equal(run().reused, true);
   }
 );
+
+for (const descendants of [false, true]) {
+  test(`timeout kills ${descendants ? "inherited-pipe descendants" : "a SIGTERM-ignoring suite"} and releases the store`, async (t) => {
+    const f = fixture(t);
+    const body = descendants
+      ? `require('node:child_process').spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{}); console.log('ready'); setInterval(()=>{},1000)"], {stdio:'inherit'}); process.exit(0);`
+      : `process.on('SIGTERM',()=>{}); console.log('ready'); setInterval(()=>{},1000);`;
+    fs.writeFileSync(path.join(f.root, "suite.js"), body);
+    f.contract.timeout_ms = 500;
+    f.sign();
+    const start = Date.now();
+    const result = await f.run();
+    assert.ok(
+      Date.now() - start < 5000,
+      "timeout must be bounded even with ignored graceful signals"
+    );
+    assert.equal(result.status, "failed");
+    assert.equal(result.reusable, false);
+    assert.equal(result.diagnostic, "ETIMEDOUT");
+    assert.match(f.receipt(result).stdout, /ready/);
+    fs.writeFileSync(path.join(f.root, "suite.js"), 'console.log("next execution acquired store")');
+    assert.equal((await f.run()).status, "passed");
+  });
+}

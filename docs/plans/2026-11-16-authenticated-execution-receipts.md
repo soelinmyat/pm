@@ -33,3 +33,9 @@ capacity requirement and bounded query; readiness and server identity alone do
 not establish available lock capacity. Do not wire arbitrary Rails/browser suites
 to this workspace-only contract. Active CleanLog deliveries and runtimes remain
 outside this change.
+
+Independent Review exposed a handled-SIGTERM timeout bug. The repaired executor
+uses an asynchronous owned POSIX process group and hard termination on deadline
+or output overflow, including inherited-pipe descendants. Regressions verify
+bounded failure and successful subsequent store acquisition. Windows execution
+is explicitly unsupported; no timeout or process-tree safety is inferred there.
