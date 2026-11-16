@@ -54,7 +54,7 @@ bytes, runner source, host build and complete workspace identity bind reuse.
 All workspace files, including ignored/generated files and actual installed
 dependency bytes, are inventoried; callers cannot exclude paths. Symlinks,
 worktree `.git` pointers, unreadable/large inputs, missing shared-library bytes,
-and inventory budget exhaustion disable reuse. macOS system-cache-only libraries
+and inventory budget exhaustion disable reuse. On supported Linux ELF64 glibc hosts, the kernel VDSO is observed through its unique read-only mapping and matching `AT_SYSINFO_EHDR` auxiliary-vector address. Its bounded ELF code bytes are read twice and hashed; unavailable, inconsistent or unrecognized kernel observations force execution. No virtual library label is ignored. macOS system-cache-only libraries
 currently force fresh execution. This first contract does not enroll Rails,
 browser, database or external-process suites.
 

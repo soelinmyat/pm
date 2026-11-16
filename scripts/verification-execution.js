@@ -7,6 +7,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { stableObjectHmac, withoutAuthentication } = require("./lib/stable-authentication");
+const { sharedObjectIdentities } = require("./lib/verification-runtime");
 const { digest } = require("./lib/repository-gate-plan-schema");
 const {
   readProjectInput,
@@ -150,10 +151,7 @@ function observeIdentity(contract) {
   const runner = workspaceIdentity(__dirname);
   let sharedObjects;
   try {
-    sharedObjects = process.report
-      .getReport()
-      .sharedObjects.sort()
-      .map((file) => [file, hash(fs.readFileSync(file))]);
+    sharedObjects = sharedObjectIdentities(process.report.getReport());
   } catch {
     return null;
   }

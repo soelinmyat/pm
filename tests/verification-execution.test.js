@@ -224,8 +224,12 @@ test(
           { env: { PM_VERIFICATION_RECEIPT_KEY: f.key }, encoding: "utf8" }
         )
       );
-    assert.equal(run().reused, false);
-    assert.equal(run().reused, true);
+    const first = run();
+    assert.equal(first.status, "passed", JSON.stringify(first));
+    assert.equal(first.reused, false, JSON.stringify(first));
+    assert.equal(first.reusable, true, JSON.stringify(first));
+    const second = run();
+    assert.equal(second.reused, true, JSON.stringify(second));
   }
 );
 

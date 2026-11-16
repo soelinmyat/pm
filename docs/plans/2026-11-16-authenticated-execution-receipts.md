@@ -74,3 +74,14 @@ Post-pass regression coverage also retains the established boundary for a later
 source correction after passing Review. That path must not enter new-decision
 reconciliation or reinterpret a replaced canonical projection as authority drift;
 the prior immutable checkpoint remains retained.
+
+A separate read-only Linux probe then proved real CLI reuse on musl, but found
+that glibc reports `linux-vdso.so.1`, a kernel object without a filesystem path.
+The prior observer conservatively executed fresh, so its required reuse assertion
+failed. The supported observer now matches a unique read-only VDSO mapping to the
+kernel auxiliary-vector address, checks its ELF64 architecture and bounded size,
+and hashes two equal reads of its actual code bytes. No library label is skipped.
+Malformed, ambiguous, changed, unavailable or oversized observations still force
+execution. Actual isolated glibc probes confirmed that the kernel image is readable
+and has the same digest across address-randomized Node processes. Other platforms
+and unreadable libraries retain their conservative fallback.
