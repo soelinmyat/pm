@@ -8077,6 +8077,9 @@ function thirdRecoveryDCFixture(
     expectCurrent = true,
     mutateCheckpoint = null,
     checkpointExpectedOK = true,
+    afterBytes = null,
+    mutateAfterDomRaw = null,
+    finalEvidenceIds = null,
   } = {}
 ) {
   const fixture = makeFixture();
@@ -8174,10 +8177,13 @@ function thirdRecoveryDCFixture(
   fixture.captures.route = binding(fixture.root, fixture.routePath);
   fixture.report.commit = newCommit;
   fixture.report.route = fixture.captures.route;
-  const bytes = validPng(1440, 1000, 29);
+  const bytes = afterBytes || validPng(1440, 1000, 29);
+  const decodedAfter = inspectPngVisualBytes(bytes);
   const after = {
     ...before,
     ...write(fixture.root, "evidence/files/ui-primary-r3.png", bytes),
+    width: decodedAfter.width,
+    height: decodedAfter.height,
     id: "capture-ui-primary-r3",
     round: 3,
     active: true,
@@ -8197,6 +8203,12 @@ function thirdRecoveryDCFixture(
     ),
     auditEvidenceFile(fixture.root, "dom-r3", "dom-audit", [after], 2, "account-detail", newCommit)
   );
+  if (mutateAfterDomRaw)
+    rewriteNormalizedAudit(
+      fixture,
+      fixture.captures.evidence.find((entry) => entry.id === "evidence-dom-r3"),
+      mutateAfterDomRaw
+    );
   let marker = 40;
   for (const capture of [...fixture.captures.captures].filter(
     (item) => item.active && item.round < 3
@@ -8296,7 +8308,9 @@ function thirdRecoveryDCFixture(
   const finalFinding = {
     ...priorReportValue.findings[0],
     after_capture_id: after.id,
-    evidence_ids: [priorReportValue.findings[0].before_capture_id, after.id],
+    evidence_ids: finalEvidenceIds
+      ? finalEvidenceIds(priorReportValue.findings[0].before_capture_id, after.id)
+      : [priorReportValue.findings[0].before_capture_id, after.id],
   };
   finalFinding.id = findingId(finalFinding);
   fixture.report.findings = [finalFinding];
@@ -8304,7 +8318,12 @@ function thirdRecoveryDCFixture(
     const changed = {
       ...row,
       final_finding_id: finalFinding.id,
-      decision_evidence_ids: [after.id],
+      decision_evidence_ids: finalEvidenceIds
+        ? finalFinding.evidence_ids.filter(
+            (id) =>
+              !priorReviewsValue.rounds[0].reviews[0].result.findings[0].evidence_ids.includes(id)
+          )
+        : [after.id],
     };
     changed.id = reconciliationId(changed);
     return changed;
@@ -8339,6 +8358,220 @@ function thirdRecoveryDCFixture(
     assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
   return { fixture, base, newCommit, after, git, successfulRecovery };
 }
+
+const OVERFLOW_BEFORE_VIEWPORT = { inner_width: 1440, client_width: 1425, scroll_width: 1432 };
+const OVERFLOW_AFTER_VIEWPORT = { inner_width: 1440, client_width: 1425, scroll_width: 1425 };
+
+// The round-1 capture overflows horizontally and is retained by a failed
+// checkpoint. The round-3 fix only removes a thin scrollbar, so its decoded
+// pixels change far below the material whole-viewport floor.
+function horizontalOverflowRecoveryFixture(
+  t,
+  {
+    overflowCaptureId = "capture-ui-primary",
+    beforeViewport = OVERFLOW_BEFORE_VIEWPORT,
+    mutateBeforeDomRaw = null,
+    afterViewport = OVERFLOW_AFTER_VIEWPORT,
+    afterBytes = validPng(1440, 1000, 0, 0, 1, 200),
+    finalEvidenceIds = (beforeId, afterId) => [
+      beforeId,
+      `evidence-dom-${beforeId}`,
+      afterId,
+      "evidence-dom-r3",
+    ],
+    expectCurrent = true,
+  } = {}
+) {
+  // A frozen checkpoint with a failing inactive audit cannot itself pass.
+  const beforeAuditFails =
+    beforeViewport.scroll_width > beforeViewport.client_width || mutateBeforeDomRaw !== null;
+  return thirdRecoveryDCFixture(t, {
+    expectCurrent,
+    checkpointExpectedOK: !beforeAuditFails,
+    mutateCheckpoint(checkpoint) {
+      checkpoint.report.outcome = "failed";
+      checkpoint.report.reason = "The page scrolls sideways at the tablet viewport.";
+      checkpoint.report.top_issue = checkpoint.report.reason;
+      const entry = checkpoint.captures.evidence.find(
+        (item) => item.id === `evidence-dom-${overflowCaptureId}`
+      );
+      rewriteNormalizedAudit(checkpoint, entry, (raw) => {
+        raw.observations.viewport = { ...beforeViewport };
+        if (mutateBeforeDomRaw) mutateBeforeDomRaw(raw);
+      });
+    },
+    afterBytes,
+    mutateAfterDomRaw(raw) {
+      raw.observations.viewport = { ...afterViewport };
+    },
+    finalEvidenceIds,
+  });
+}
+
+function checkOverflowRecovery(context) {
+  return check(context.fixture, context.newCommit, {
+    verifyGit: true,
+    baseRef: "origin/main",
+    baseCommit: context.base,
+  });
+}
+
+function assertOverflowProofRejected(context) {
+  const result = checkOverflowRecovery(context);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+  return result;
+}
+
+test("horizontal-overflow geometry proves a resolved P1 below the material pixel floor", (t) => {
+  const context = horizontalOverflowRecoveryFixture(t);
+  assert.equal(
+    context.successfulRecovery.ok,
+    true,
+    JSON.stringify(context.successfulRecovery.issues)
+  );
+  const finding = context.fixture.report.findings[0];
+  assert.equal(finding.status, "resolved");
+  assert.equal(finding.before_capture_id, "capture-ui-primary");
+  // The decoded change is a thin strip: it cannot pass either pixel floor.
+  const difference = visualDifference(
+    inspectPngVisualBytes(validPng(1440, 1000)),
+    inspectPngVisualBytes(validPng(1440, 1000, 0, 0, 1, 200))
+  );
+  assert.ok(difference.changedTileRatio <= 1 / 64, JSON.stringify(difference));
+});
+
+test("horizontal-overflow proof rejects an after capture that still overflows", (t) => {
+  const context = horizontalOverflowRecoveryFixture(t, {
+    afterViewport: OVERFLOW_BEFORE_VIEWPORT,
+    expectCurrent: false,
+  });
+  const result = assertOverflowProofRejected(context);
+  assert.match(JSON.stringify(result.issues), /requires passing overflow/);
+});
+
+test("horizontal-overflow proof rejects a different decoded viewport", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      afterBytes: validPng(1440, 999, 0, 0, 1, 200),
+      expectCurrent: false,
+    })
+  );
+});
+
+test("horizontal-overflow proof rejects a different client viewport width", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      afterViewport: { inner_width: 1440, client_width: 1440, scroll_width: 1440 },
+      expectCurrent: false,
+    })
+  );
+});
+
+test("horizontal-overflow proof rejects a non-overflow before audit failure", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      beforeViewport: OVERFLOW_AFTER_VIEWPORT,
+      mutateBeforeDomRaw(raw) {
+        raw.observations.hierarchy.push({
+          code: "competing-primary-actions",
+          locator: "main#content",
+          detail: "Two primary actions compete in the header.",
+        });
+      },
+      expectCurrent: false,
+    })
+  );
+});
+
+test("horizontal-overflow proof rejects a before audit with overflow and another failure", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      mutateBeforeDomRaw(raw) {
+        raw.observations.hierarchy.push({
+          code: "competing-primary-actions",
+          locator: "main#content",
+          detail: "Two primary actions compete in the header.",
+        });
+      },
+      expectCurrent: false,
+    })
+  );
+});
+
+test("horizontal-overflow proof rejects a before audit without overflow", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      beforeViewport: OVERFLOW_AFTER_VIEWPORT,
+      expectCurrent: false,
+    })
+  );
+});
+
+test("horizontal-overflow proof rejects an overflow audit of an unrelated capture", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      overflowCaptureId: "capture-ui-primary-after",
+      finalEvidenceIds: (beforeId, afterId) => [
+        beforeId,
+        `evidence-dom-${beforeId}`,
+        "capture-ui-primary-after",
+        "evidence-dom-capture-ui-primary-after",
+        afterId,
+        "evidence-dom-r3",
+      ],
+      expectCurrent: false,
+    })
+  );
+});
+
+for (const [name, finalEvidenceIds] of [
+  ["before", (beforeId, afterId) => [beforeId, afterId, "evidence-dom-r3"]],
+  ["after", (beforeId, afterId) => [beforeId, `evidence-dom-${beforeId}`, afterId]],
+]) {
+  test(`horizontal-overflow proof requires the finding to cite the ${name} DOM audit`, (t) => {
+    assertOverflowProofRejected(
+      horizontalOverflowRecoveryFixture(t, { finalEvidenceIds, expectCurrent: false })
+    );
+  });
+}
+
+test("horizontal-overflow proof rejects a forged normalized before audit", (t) => {
+  const context = horizontalOverflowRecoveryFixture(t, {
+    beforeViewport: OVERFLOW_AFTER_VIEWPORT,
+    expectCurrent: false,
+  });
+  const { fixture } = context;
+  const entry = fixture.captures.evidence.find(
+    (item) => item.id === "evidence-dom-capture-ui-primary"
+  );
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, entry.path), "utf8"));
+  audit.checks.overflow = false;
+  audit.findings.push({
+    check: "overflow",
+    code: "horizontal-overflow",
+    locator: "document.documentElement",
+    detail: "scroll width 1432px exceeds client width 1425px.",
+  });
+  Object.assign(
+    entry,
+    write(fixture.root, "evidence/files/forged-dom-before.json", JSON.stringify(audit))
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.captures = fixture.reviews.captures;
+  rewriteReviewsAndReport(fixture);
+  assertOverflowProofRejected(context);
+});
+
+test("horizontal-overflow proof keeps the distinct decoded-pixel rule", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      afterBytes: validPng(1440, 1000),
+      expectCurrent: false,
+    })
+  );
+});
 
 test("recovery retains failed historical visual distance without passing current failures", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, {
@@ -10424,6 +10657,29 @@ for (const version of ["1.14.50", "1.14.51", "999.0.0"]) {
     t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
     assert.equal(run().ok, version === "1.14.50");
     if (version !== "1.14.50") assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
+for (const version of ["1.14.49", "1.14.50", "1.14.51", "1.14.52", "999.0.0"]) {
+  test(`overflow-geometry release bounds active native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.51");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const accepted = ["1.14.50", "1.14.51"].includes(version);
+    assert.equal(run().ok, accepted, JSON.stringify(run().issues));
+    if (!accepted) assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
+for (const version of ["1.14.49", "1.14.50"]) {
+  test(`overflow-geometry release retains frozen ${version} native evidence unchanged`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: version });
+    const retained = recoveryDCFiles(fixture.root);
+    assert.deepEqual(
+      check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+      { ok: true, issues: [] }
+    );
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
   });
 }
 
