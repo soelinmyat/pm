@@ -772,16 +772,15 @@ test("published preflight schema admits only bounded unique required setting nam
   const validate = new Ajv().compile(
     require("../skills/ship/references/repository-environment-preflight.schema.json")
   );
-  for (const required_environment of [
-    ["DEMO_PASSWORD"],
-    [],
-    ["bad name"],
-    ["A", "A"],
-    Array.from({ length: 65 }, (_, i) => `X${i}`),
-  ]) {
+  for (const [required_environment, expected] of [
+    [["DEMO_PASSWORD"], true],
+    [[], true],
+    [["bad name"], false],
+    [["A", "A"], false],
+    [Array.from({ length: 65 }, (_, i) => `X${i}`), false],
+  ])
     assert.equal(
       validate({ schema_version: 1, runtimes: [], probes: [], required_environment }),
-      required_environment.length <= 1
+      expected
     );
-  }
 });
