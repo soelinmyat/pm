@@ -168,10 +168,9 @@ function observeIdentity(contract) {
       runtime_bytes: hash(fs.readFileSync(executable)),
       owner_arguments: process.execArgv,
       owner_bootstrap: Object.fromEntries(
-        ["NODE_OPTIONS", "NODE_PATH", "OPENSSL_CONF", "TZ", "LANG"].map((name) => [
-          name,
-          process.env[name] ?? null,
-        ])
+        ["NODE_OPTIONS", "NODE_PATH", "NODE_V8_COVERAGE", "OPENSSL_CONF", "TZ", "LANG"].map(
+          (name) => [name, process.env[name] ?? null]
+        )
       ),
       runner_bytes: runner,
       shared_objects: sharedObjects,
@@ -204,7 +203,10 @@ function executeBounded(contract, root) {
     try {
       child = spawn(contract.executable, contract.args, {
         cwd: root,
-        env: contract.environment,
+        // Node implicitly copies parent coverage into an env object unless it
+        // has this own property. Keep undeclared coverage absent in the child,
+        // and never give spawn the authenticated contract object to mutate.
+        env: { NODE_V8_COVERAGE: undefined, ...contract.environment },
         shell: false,
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],

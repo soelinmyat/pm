@@ -61,3 +61,16 @@ direction, but phase history rejected them. The phase writer now appends a bound
 `decision_boundary` after checking the canonical log and exact predecessor report
 and target. Tests retain old blocked outcomes and reject absent logs, unadvanced
 decisions, forged boundary hashes and altered predecessor evidence.
+
+Independent Linux coverage CI exposed Node's automatic propagation of
+`NODE_V8_COVERAGE` into a caller-supplied spawn environment. That mutation changed
+the signed contract after execution and introduced an undeclared child input.
+The runner now passes an isolated environment with an explicit absent value for
+undeclared coverage, while preserving declared values and binding the owner's
+coverage setting into identity. The regression checks unchanged authenticated
+contract bytes, absent child coverage, actual reuse and owner-setting invalidation.
+
+Post-pass regression coverage also retains the established boundary for a later
+source correction after passing Review. That path must not enter new-decision
+reconciliation or reinterpret a replaced canonical projection as authority drift;
+the prior immutable checkpoint remains retained.

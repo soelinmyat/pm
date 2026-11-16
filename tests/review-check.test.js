@@ -5245,6 +5245,37 @@ for (const variant of ["advanced", "unadvanced", "missing-log", "changed-predece
           .some((issue) => issue.path.includes("decision_boundary"))
       );
       assert.deepEqual(fs.readFileSync(path.join(fixture.root, old.roundReportPath)), bytes);
+      // A later source fix after a passing Review uses the existing pass boundary.
+      // Publishing its canonical report replaces the prior canonical projection;
+      // the retained immutable checkpoint still preserves the old report bytes.
+      const passedBytes = fs.readFileSync(path.join(fixture.root, fixture.reportPath));
+      write(fixture.root, next.roundReportPath, JSON.parse(passedBytes));
+      session = after;
+      session.phase = "review";
+      session.phase_attempt = 1;
+      write(fixture.root, sessionPath, session);
+      fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = {value: 4};\n");
+      git(fixture.root, ["add", "src/example.js"]);
+      git(fixture.root, ["commit", "-qm", "source correction after passing Review"]);
+      const following = makeRound("decision-after-pass");
+      const followingChecked = checkReview({
+        root: fixture.root,
+        targetPath: following.targetPath,
+        resultPaths: following.resultPaths,
+        reportPath: fixture.reportPath,
+        writeReport: true,
+        verifyBrowser: false,
+      });
+      assert.equal(followingChecked.ok, true, JSON.stringify(followingChecked.issues));
+      const completed = recordResult(session, {
+        ...result,
+        attempt: 1,
+        commit: following.target.source.commit,
+      });
+      assert.equal(completed.phase, "ship");
+      assert.equal(completed.evidence.review.recovery_history.length, 3);
+      assert.equal(completed.evidence.review.recovery_history[2].decision_boundary, undefined);
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, next.roundReportPath)), passedBytes);
     }
   });
 }

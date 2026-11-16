@@ -1542,6 +1542,7 @@ function validateScopedGateEvidence(session, result, errors) {
     let decisionBoundary = null;
     if (
       last &&
+      !startsAfterPass &&
       phase === "review" &&
       round === 1 &&
       report.run_id !== last.run_id &&

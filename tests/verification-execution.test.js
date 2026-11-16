@@ -56,6 +56,28 @@ test("owning execution captures real output and authenticates reuse; final check
   assert.equal((await f.run({ stage: "final" })).reused, false);
 });
 
+test("parent coverage cannot mutate the authenticated contract or enter the child environment", async (t) => {
+  const f = fixture(t);
+  const priorCoverage = process.env.NODE_V8_COVERAGE;
+  t.after(() => {
+    if (priorCoverage === undefined) delete process.env.NODE_V8_COVERAGE;
+    else process.env.NODE_V8_COVERAGE = priorCoverage;
+  });
+  process.env.NODE_V8_COVERAGE = path.join(f.store, "undeclared-parent-coverage");
+  fs.appendFileSync(
+    path.join(f.root, "suite.js"),
+    '\nrequire("node:assert/strict").equal(process.env.NODE_V8_COVERAGE, undefined);'
+  );
+  const original = structuredClone(f.contract);
+  const first = await f.run();
+  assert.equal(first.status, "passed");
+  assert.deepEqual(f.contract, original);
+  assert.equal((await f.run()).reused, true);
+  process.env.NODE_V8_COVERAGE = path.join(f.store, "changed-parent-coverage");
+  assert.equal((await f.run()).reused, false);
+  assert.deepEqual(f.contract, original);
+});
+
 for (const mutation of [
   "source",
   "ignored",
