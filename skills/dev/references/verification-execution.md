@@ -15,7 +15,10 @@ Step 8's full final suite, the pre-push hook and independent CI still execute.
 ## Eligible contracts
 
 `deterministic-workspace-only-v1` means the suite and all its dependencies read
-only the declared workspace and the owning Node runtime. The suite must not
+only the declared workspace and the owning Node runtime. The suite must not spawn detached process groups or escape the owned process
+session; such work is ineligible and requires separate external process cleanup.
+Deadline failure closes owned pipes without waiting for escaped descendants.
+The suite must not
 consume mutable services, network, wall clock, randomness, machine home files,
 external configuration, external executables or undeclared native addons. Signing
 is the owner's reviewed assertion of that boundary; HMAC is not a sandbox or a

@@ -201,7 +201,8 @@ function executeBounded(contract, root) {
     }
     const output = { stdout: [], stderr: [] };
     let bytes = 0,
-      error = null;
+      error = null,
+      settled = false;
     const terminate = (code) => {
       error ||= Object.assign(new Error(code), { code });
       try {
@@ -209,8 +210,23 @@ function executeBounded(contract, root) {
       } catch {
         /* Already exited. */
       }
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(null, "SIGKILL");
     };
     const timer = setTimeout(() => terminate("ETIMEDOUT"), contract.timeout_ms);
+    const finish = (status, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        status,
+        signal,
+        error,
+        stdout: Buffer.concat(output.stdout).toString("utf8"),
+        stderr: Buffer.concat(output.stderr).toString("utf8"),
+      });
+    };
     for (const stream of ["stdout", "stderr"])
       child[stream].on("data", (chunk) => {
         bytes += chunk.length;
@@ -219,22 +235,17 @@ function executeBounded(contract, root) {
       });
     child.on("error", (cause) => {
       error = cause;
+      terminate(cause.code || "EXECUTION_ERROR");
     });
     child.on("close", (status, signal) => {
-      clearTimeout(timer);
+      if (settled) return;
       // Terminate descendants even if the suite's direct process already exited.
       try {
         if (child.pid) process.kill(-child.pid, "SIGKILL");
       } catch {
         /* Group is gone. */
       }
-      resolve({
-        status,
-        signal,
-        error,
-        stdout: Buffer.concat(output.stdout).toString("utf8"),
-        stderr: Buffer.concat(output.stderr).toString("utf8"),
-      });
+      finish(status, signal);
     });
   });
 }
