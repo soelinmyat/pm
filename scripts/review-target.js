@@ -28,6 +28,7 @@ const {
 // Shared with the freshness evaluator so environment hardening cannot drift
 // between the side that freezes a hash and the side that re-derives it.
 const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
+const { DIFF_FORMAT, reviewDiffBytes } = require("./lib/review-diff-identity");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -52,7 +53,7 @@ function buildReviewTarget(options) {
     throw new Error(`base commit must equal remote default ${trusted.commit}`);
   // trustedDiffArgs pins the bytes this hash is frozen over; review-check.js
   // re-derives it with exactly the same invocation.
-  const diff = git(root, trustedDiffArgs("--binary", `${baseCommit}...${commit}`), null);
+  const diff = reviewDiffBytes(root, `${baseCommit}...${commit}`);
   const changedFiles = changedFileInventory(root, baseCommit, commit);
   if (changedFiles.length === 0) throw new Error("review target has no changed files");
   if (changedFiles.length > 500) throw new Error("review target exceeds the 500-file budget");
@@ -171,6 +172,7 @@ function buildReviewTarget(options) {
       base_commit: baseCommit,
       remote_push_url_sha256: trusted.remote_push_url_sha256,
       diff_sha256: digest(diff),
+      diff_format: DIFF_FORMAT,
     },
     changed_files: changedFiles,
     dev_context: devContext,

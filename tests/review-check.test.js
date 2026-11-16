@@ -3022,6 +3022,45 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   assert.deepEqual(capReport.auto_fix_eligible, []);
 });
 
+test("legacy Review hashes survive automatic object abbreviation changes", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const { gitExec, trustedDiffArgs } = require("../scripts/lib/git-env");
+  delete fixture.target.source.diff_format;
+  fixture.target.source.diff_sha256 = crypto
+    .createHash("sha256")
+    .update(
+      gitExec(
+        fixture.root,
+        trustedDiffArgs(
+          "--binary",
+          "--abbrev=9",
+          `${fixture.target.source.base_commit}...${fixture.target.source.commit}`
+        ),
+        null
+      )
+    )
+    .digest("hex");
+  write(fixture.root, fixture.targetPath, fixture.target);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.source = fixture.target.source;
+    result.target = binding(fixture.root, fixture.targetPath);
+    write(fixture.root, resultPath, result);
+  }
+  const checked = generate(fixture);
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  const issues = [];
+  validateFrozenTarget(fixture.root, fixture.target, issues);
+  assert.deepEqual(issues, []);
+  fixture.target.source.diff_sha256 = "0".repeat(64);
+  validateFrozenTarget(fixture.root, fixture.target, issues);
+  assert.match(JSON.stringify(issues), /does not match frozen Git diff bytes/);
+});
+
 test("later rounds authenticate a passed predecessor without resetting lineage", (t) => {
   const fixture = makeFixture({ maxWorkers: 3 });
   t.after(() => {

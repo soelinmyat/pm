@@ -126,6 +126,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // Horizontal-overflow geometry proof is checker-only. The 1.14.50 native
   // producer, raw audits, normalizer and report contracts are unchanged.
   ["1.14.51", new Set(["1.14.50"])],
+  // Review identity recovery changes no native collection or audit contract.
+  ["1.14.52", new Set(["1.14.50", "1.14.51"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -221,6 +223,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.51",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.50"), "1.14.51"])
 );
+// Review identity recovery leaves sparse pixel proof unchanged.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.52",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.51"), "1.14.52"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -270,6 +277,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   // Retain the previous release only behind immutable history checks.
   "1.14.49",
   "1.14.50",
+  "1.14.51",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2384,6 +2392,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.49",
         "1.14.50",
         "1.14.51",
+        "1.14.52",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
