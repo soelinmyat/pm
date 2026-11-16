@@ -3269,6 +3269,7 @@ function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [
 }
 
 const REBIND_RFC_PHASES = new Set(["workspace", "readiness", "implementation"]);
+const OWNERSHIP_REBIND_PHASES = new Set(["design-critique", "qa", "review", "ship"]);
 
 // Adopts exact reviewed maintenance or a historical re-approved ownership
 // amendment. Protected product contracts remain identical. Corrected execution
@@ -3286,15 +3287,19 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
       "rebind-rfc applies after intake; rerun route --rfc-sidecar while intake is active"
     );
   }
-  if (!REBIND_RFC_PHASES.has(session.phase)) {
+  const ownershipOnly = OWNERSHIP_REBIND_PHASES.has(session.phase);
+  if (!REBIND_RFC_PHASES.has(session.phase) && !ownershipOnly) {
     throw new Error(
-      `rebind-rfc is limited to workspace, readiness, and implementation; session is in ${session.phase}`
+      `rebind-rfc is unavailable in ${session.phase}; delivery phases permit reviewed ownership additions only`
     );
   }
   if (!["active", "blocked"].includes(session.status)) {
     throw new Error(
       `rebind-rfc requires an active or blocked session; status is ${session.status}`
     );
+  }
+  if (ownershipOnly && session.task.work_units.some((unit) => unit.status !== "completed")) {
+    throw new Error("delivery-phase RFC rebind requires all work units to remain completed");
   }
   if (typeof reason !== "string" || !reason.trim() || reason.length > 2000) {
     throw new Error("rebind-rfc requires a --reason of at most 2000 characters");
@@ -3368,6 +3373,11 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     const changedContractFields = ["approach", "verification_commands", "test_hooks"].filter(
       (field) => canonicalJson(unit.contract[field]) !== canonicalJson(existing.contract[field])
     );
+    if (ownershipOnly && changedContractFields.length) {
+      throw new Error(
+        "delivery-phase RFC rebind permits ownership additions only; execution changes require implementation recovery"
+      );
+    }
     const protectedContract = { ...unit.contract };
     for (const field of changedContractFields) protectedContract[field] = existing.contract[field];
     // Exact lineage verification above checks every v2 ownership or v3
