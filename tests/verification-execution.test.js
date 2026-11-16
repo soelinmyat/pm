@@ -229,7 +229,7 @@ for (const descendants of [false, true]) {
 test("escaped detached descendants cannot keep failure settlement or the store locked", async (t) => {
   const f = fixture(t),
     pidFile = path.join(f.root, "escaped.pid");
-  t.after(() => {
+  const cleanupProbe = () => {
     if (fs.existsSync(pidFile)) {
       const pid = Number(fs.readFileSync(pidFile, "utf8"));
       if (Number.isInteger(pid) && pid > 1)
@@ -239,7 +239,8 @@ test("escaped detached descendants cannot keep failure settlement or the store l
           /* Owned probe already exited. */
         }
     }
-  });
+  };
+  t.after(cleanupProbe);
   fs.writeFileSync(
     path.join(f.root, "suite.js"),
     `const cp=require('node:child_process');const child=cp.spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{detached:true,stdio:'inherit'});require('node:fs').writeFileSync('escaped.pid',String(child.pid));process.exit(0);`
@@ -247,17 +248,16 @@ test("escaped detached descendants cannot keep failure settlement or the store l
   f.contract.timeout_ms = 500;
   f.sign();
   const start = Date.now();
-  const result = await f.run();
+  let result;
+  try {
+    result = await f.run();
+  } finally {
+    cleanupProbe();
+  }
   assert.ok(Date.now() - start < 5000);
   assert.equal(result.status, "failed");
   assert.equal(result.diagnostic, "ETIMEDOUT");
   assert.equal(result.reusable, false);
-  const pid = Number(fs.readFileSync(pidFile, "utf8"));
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    /* Owned probe already exited. */
-  }
   fs.writeFileSync(
     path.join(f.root, "suite.js"),
     'console.log("store unlocked after escaped probe cleanup")'
