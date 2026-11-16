@@ -633,17 +633,8 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
           })
         );
     }
-    if (
-      value &&
-      (value.run_id !== target.run_id ||
-        value.review_round !== target.review_round - 1 ||
-        value.outcome === "passed")
-    )
-      add(
-        issues,
-        "target.prior_report",
-        "must bind the immediately prior non-passing report for the same run"
-      );
+    if (value && (value.run_id !== target.run_id || value.review_round !== target.review_round - 1))
+      add(issues, "target.prior_report", "must bind the immediately prior report for the same run");
     if (value?.source?.commit) {
       if (value.source.commit === target.source.commit)
         add(issues, "target.prior_report", "later review rounds require a source mutation");
@@ -659,7 +650,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         }
       }
     }
-    if (value && object(value) && value.outcome !== "passed") {
+    if (value && object(value)) {
       try {
         const prior = checkReview(
           expandFromReport({

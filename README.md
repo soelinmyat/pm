@@ -96,6 +96,8 @@ A resolved web P0/P1 horizontal-overflow finding can be proven fixed when only a
 
 Controlled named popups can prove small open/closed or filtered-content changes through their native dialog bounds. The visibly asserted combobox must bind the dialog through its exact expanded controls ID; visible semantic content with exact counterpart absence for content transitions, keyboard focus where applicable, meaningful changed pixels and the existing pixel-support floor remain required. This checker-only comparison preserves native 1.14.46 and 1.14.47 evidence without accepting unknown producers.
 
+Review preserves finalized passing predecessors when a corrective full-review round was started before canonical projection. Every predecessor is revalidated with its frozen source and reviewer evidence; changed source still requires a complete fresh review.
+
 ## MCP as a product surface
 
 Projects can require MCP support as part of feature completion. Add the policy
