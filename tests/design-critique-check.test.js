@@ -8484,6 +8484,21 @@ test("horizontal-overflow proof rejects a non-overflow before audit failure", (t
   );
 });
 
+test("horizontal-overflow proof rejects a before audit with overflow and another failure", (t) => {
+  assertOverflowProofRejected(
+    horizontalOverflowRecoveryFixture(t, {
+      mutateBeforeDomRaw(raw) {
+        raw.observations.hierarchy.push({
+          code: "competing-primary-actions",
+          locator: "main#content",
+          detail: "Two primary actions compete in the header.",
+        });
+      },
+      expectCurrent: false,
+    })
+  );
+});
+
 test("horizontal-overflow proof rejects a before audit without overflow", (t) => {
   assertOverflowProofRejected(
     horizontalOverflowRecoveryFixture(t, {

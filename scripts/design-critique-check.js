@@ -5509,9 +5509,10 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
 // only that floor with checker-recomputed geometry: the finding must cite the
 // normalized DOM audits of both captures, each audit must bind its capture's
 // verified raw probe and re-normalize exactly, the before probe must measure
-// scroll width above client width, and the after probe must pass the overflow
-// check at the identical viewport. Finding text, rules and caller fields never
-// identify an overflow finding; every other resolution binding still applies.
+// scroll width above client width with no other failed check, and the after
+// probe must pass the overflow check at the identical viewport. Finding text,
+// rules and caller fields never identify an overflow finding; every other
+// resolution binding still applies.
 function isHorizontalOverflowRemediation(
   root,
   finding,
@@ -5554,7 +5555,11 @@ function isHorizontalOverflowRemediation(
   return (
     beforeViewport !== null &&
     afterViewport !== null &&
-    beforeViewport.audit.findings.some(isDocumentHorizontalOverflow) &&
+    // Overflow must be the before audit's only failure, so a finding about a
+    // different check cannot ride on an audit that also happens to overflow.
+    onlyOverflowFails(beforeViewport.audit) &&
+    beforeViewport.audit.findings.length === 1 &&
+    isDocumentHorizontalOverflow(beforeViewport.audit.findings[0]) &&
     beforeViewport.viewport.scroll_width > beforeViewport.viewport.client_width &&
     afterViewport.audit.checks?.overflow === true &&
     !afterViewport.audit.findings.some(isDocumentHorizontalOverflow) &&
@@ -5562,6 +5567,14 @@ function isHorizontalOverflowRemediation(
     beforeViewport.viewport.inner_width === before.width &&
     afterViewport.viewport.inner_width === after.width &&
     beforeViewport.viewport.client_width === afterViewport.viewport.client_width
+  );
+}
+
+function onlyOverflowFails(audit) {
+  const checks = Object.entries(audit.checks || {});
+  return (
+    checks.length > 1 &&
+    checks.every(([name, passed]) => (name === "overflow" ? passed === false : passed === true))
   );
 }
 
