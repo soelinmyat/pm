@@ -4820,3 +4820,431 @@ test("a pre-report dependency block preserves attempts without inventing a Revie
   assert.equal(accepted.evidence.review.recovery_history[0].round, 1);
   assert.equal(accepted.attempts.length, 2);
 });
+
+function classificationFixture(t, variant = "valid") {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const first = { ...validFinding("bug"), severity: "medium", fix_kind: "mechanical" };
+  const second = { ...validFinding("edge"), severity: "medium", fix_kind: "behavioral" };
+  if (variant === "decision") first.decision_required = true;
+  setFindingForLens(fixture, "bug", first);
+  setFindingForLens(fixture, "edge", second);
+  const originalPaths = [...fixture.resultPaths];
+  const original = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: originalPaths,
+    reportPath: fixture.roundReportPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(original.ok, true, JSON.stringify(original.issues));
+  assert.equal(original.report.outcome, "blocked");
+  const retained = new Map(
+    [fixture.targetPath, fixture.roundReportPath, ...originalPaths].map((file) => [
+      file,
+      fs.readFileSync(path.join(fixture.root, file)),
+    ])
+  );
+  const agreement = {
+    finding_ids: [first.id, second.id].sort(),
+    remedy: "Use explicit expected validity for each input and retain strict schema validation.",
+    fix_kind: "behavioral",
+  };
+  const resultPaths = originalPaths.map((file) => {
+    const value = JSON.parse(fs.readFileSync(path.join(fixture.root, file)));
+    if (!value.findings.length) return file;
+    for (const finding of value.findings)
+      finding.remediation_agreement = structuredClone(agreement);
+    const destination = file.replace("/results/", "/clarifications/");
+    write(fixture.root, destination, value);
+    return destination;
+  });
+  return { fixture, resultPaths, retained };
+}
+
+test("frozen classification consensus preserves originals and permits a freshly reviewed successor", (t) => {
+  const {
+    createClassificationResolution,
+    verifyClassificationResolution,
+  } = require("../scripts/review-classification");
+  const { fixture, resultPaths, retained } = classificationFixture(t);
+  const resolution = createClassificationResolution({
+    root: fixture.root,
+    reportPath: fixture.roundReportPath,
+    resultPaths,
+  });
+  const material = verifyClassificationResolution(
+    fixture.root,
+    resolution,
+    binding(fixture.root, fixture.roundReportPath)
+  );
+  assert.equal(material.outcome, "passed");
+  assert.equal(material.resolved_ids.length, 2);
+  const classificationCli = path.resolve(__dirname, "../scripts/review-classification.js");
+  const observed = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        classificationCli,
+        "--root",
+        fixture.root,
+        "--report",
+        fixture.roundReportPath,
+        "--check",
+        resolution.path,
+      ],
+      { encoding: "utf8" }
+    )
+  );
+  assert.deepEqual(observed.resolved_ids, material.resolved_ids);
+  const strengthened = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths,
+    validateOnly: true,
+    verifyBrowser: false,
+  });
+  assert.deepEqual(
+    strengthened.report.auto_fix_eligible,
+    [],
+    "behavioral repair needs a bound acceptance contract"
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  assert.throws(
+    () =>
+      createClassificationResolution({
+        root: fixture.root,
+        reportPath: fixture.roundReportPath,
+        resultPaths,
+      }),
+    /exist|immutable/i
+  );
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "repair"]);
+  const next = buildReviewTarget({
+    root: fixture.root,
+    maxWorkers: 3,
+    profile: "codex-workhorse",
+    runId: "review-test",
+    round: 2,
+    priorReportPath: fixture.roundReportPath,
+    priorResolutionPath: resolution.path,
+  });
+  assert.deepEqual(next.prior_resolution, resolution);
+  const targetPath = fixture.targetPath.replace("round-1/", "round-2/");
+  write(fixture.root, targetPath, next);
+  const paths = next.allocation.map((worker) => {
+    const file = `${path.dirname(targetPath)}/results/${worker.worker_id}.json`;
+    write(fixture.root, file, {
+      schema_version: 1,
+      run_id: next.run_id,
+      review_round: 2,
+      target: binding(fixture.root, targetPath),
+      source: next.source,
+      worker_id: worker.worker_id,
+      profile: worker.profile,
+      runtime: worker.runtime,
+      lenses: worker.lenses,
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: "Current-source correction is clean.",
+      })),
+      findings: [],
+      checked_at: new Date().toISOString(),
+    });
+    return file;
+  });
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: paths,
+    reportPath: fixture.reportPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.report.outcome, "passed");
+  const cliResult = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        path.resolve(__dirname, "../scripts/review-check.js"),
+        "--root",
+        fixture.root,
+        "--from-report",
+        "--report",
+        fixture.reportPath,
+      ],
+      { encoding: "utf8" }
+    )
+  );
+  assert.equal(cliResult.ok, true, JSON.stringify(cliResult.issues));
+  const receipt = JSON.parse(fs.readFileSync(path.join(fixture.root, resolution.path)));
+  receipt.outcome = "failed";
+  write(fixture.root, resolution.path, receipt);
+  const stale = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: paths,
+    reportPath: fixture.reportPath,
+    writeReport: false,
+    verifyBrowser: false,
+  });
+  assert.equal(stale.ok, false);
+  assert.ok(stale.issues.some((issue) => issue.path.includes("prior_resolution")));
+});
+
+for (const variant of [
+  "partial",
+  "rewritten",
+  "stale",
+  "decision",
+  "forged-outcome",
+  "wrong-predecessor",
+  "changed-clarification",
+]) {
+  test(`classification resolution rejects ${variant} evidence`, (t) => {
+    const {
+      createClassificationResolution,
+      verifyClassificationResolution,
+    } = require("../scripts/review-classification");
+    const { fixture, resultPaths } = classificationFixture(t, variant);
+    const file = resultPaths.find((file) => file.includes("/clarifications/"));
+    if (["partial", "rewritten", "stale"].includes(variant)) {
+      const value = JSON.parse(fs.readFileSync(path.join(fixture.root, file)));
+      if (variant === "partial") delete value.findings[0].remediation_agreement.fix_kind;
+      if (variant === "rewritten") value.findings[0].fix_kind = "behavioral";
+      if (variant === "stale") value.target.sha256 = "f".repeat(64);
+      write(fixture.root, file, value);
+    }
+    const create = () =>
+      createClassificationResolution({
+        root: fixture.root,
+        reportPath: fixture.roundReportPath,
+        resultPaths,
+      });
+    if (["partial", "rewritten", "stale", "decision"].includes(variant)) {
+      assert.throws(create);
+      return;
+    }
+    const resolution = create();
+    const prior = binding(fixture.root, fixture.roundReportPath);
+    if (variant === "forged-outcome") {
+      const receipt = JSON.parse(fs.readFileSync(path.join(fixture.root, resolution.path)));
+      receipt.outcome = "failed";
+      write(fixture.root, resolution.path, receipt);
+      assert.throws(
+        () =>
+          verifyClassificationResolution(
+            fixture.root,
+            binding(fixture.root, resolution.path),
+            prior
+          ),
+        /does not match/
+      );
+    }
+    if (variant === "wrong-predecessor")
+      assert.throws(
+        () =>
+          verifyClassificationResolution(fixture.root, resolution, {
+            ...prior,
+            sha256: "f".repeat(64),
+          }),
+        /exact predecessor/
+      );
+    if (variant === "changed-clarification") {
+      const value = JSON.parse(fs.readFileSync(path.join(fixture.root, file)));
+      value.findings[0].remediation_agreement.remedy = "Changed after resolution";
+      write(fixture.root, file, value);
+      assert.throws(
+        () => verifyClassificationResolution(fixture.root, resolution, prior),
+        /binding changed/
+      );
+    }
+  });
+}
+
+for (const variant of ["advanced", "unadvanced", "missing-log", "changed-predecessor"]) {
+  test(`Dev phase history ${variant} decision boundary preserves prior authority`, (t) => {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    t.after(() => {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+      fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+    });
+    const sessionPath = ".pm/dev-sessions/example/session.json";
+    let session = createSession({ sourceDir: fixture.root, slug: "example" });
+    session.phase = "review";
+    write(fixture.root, sessionPath, session);
+    const makeRound = (runId) => {
+      const targetPath = `.pm/dev-sessions/example/review/runs/${runId}/round-1/target.json`;
+      const target = buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 3,
+        profile: "codex-workhorse",
+        runId,
+        mode: "full",
+        outPath: targetPath,
+        devSessionPath: path.join(fixture.root, sessionPath),
+      });
+      write(fixture.root, targetPath, target);
+      const resultPaths = target.allocation.map((worker) => {
+        const file = `${path.dirname(targetPath)}/results/${worker.worker_id}.json`;
+        write(fixture.root, file, {
+          schema_version: 1,
+          run_id: runId,
+          review_round: 1,
+          target: binding(fixture.root, targetPath),
+          source: target.source,
+          worker_id: worker.worker_id,
+          profile: worker.profile,
+          runtime: worker.runtime,
+          lenses: worker.lenses,
+          verdicts: worker.lenses.map((lens) => ({
+            lens,
+            outcome: "clean",
+            summary: "Current source reviewed.",
+          })),
+          findings: [],
+          checked_at: new Date().toISOString(),
+        });
+        return file;
+      });
+      return {
+        ...fixture,
+        target,
+        targetPath,
+        resultPaths,
+        roundReportPath: `${path.dirname(targetPath)}/report.json`,
+      };
+    };
+    const old = makeRound("decision-first");
+    setFindingForLens(old, "bug", {
+      ...validFinding("bug"),
+      severity: "medium",
+      fix_kind: "mechanical",
+    });
+    setFindingForLens(old, "edge", { ...validFinding("edge"), severity: "medium" });
+    const initial = checkReview({
+      root: fixture.root,
+      targetPath: old.targetPath,
+      resultPaths: old.resultPaths,
+      reportPath: old.roundReportPath,
+      writeReport: true,
+      verifyBrowser: false,
+    });
+    assert.equal(initial.ok, true, JSON.stringify(initial.issues));
+    assert.equal(initial.report.outcome, "blocked");
+    const bytes = fs.readFileSync(path.join(fixture.root, old.roundReportPath));
+    const runtime = { provider: "codex", model: "test-model", reasoning: "high" };
+    session = recordResult(session, {
+      schema_version: 1,
+      run_id: session.run_id,
+      phase: "review",
+      attempt: 1,
+      status: "blocked",
+      summary: "Retained metadata disagreement.",
+      commit: old.target.source.commit,
+      files_changed: [],
+      evidence: [
+        {
+          kind: "review",
+          command: "node scripts/review-check.js",
+          exit_code: 0,
+          artifact: path.join(fixture.root, old.roundReportPath),
+        },
+      ],
+      blocker: { code: "metadata", reason: "Bound peer classification disagreement." },
+      runtime,
+    });
+    session = resumeBlocked(
+      session,
+      "Externally supplied new scope explicitly requires a protocol repair and fresh certification."
+    );
+    const unadvanced = structuredClone(session);
+    session = require("../scripts/lib/dev-session-schema").advanceDecisionVersion(
+      session,
+      1,
+      "External task changes the approved approach to implement a supported protocol repair."
+    );
+    write(fixture.root, sessionPath, session);
+    fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = {value: 3};\n");
+    git(fixture.root, ["add", "src/example.js"]);
+    git(fixture.root, ["commit", "-qm", "new approved source"]);
+    const next = makeRound("decision-second");
+    const checked = checkReview({
+      root: fixture.root,
+      targetPath: next.targetPath,
+      resultPaths: next.resultPaths,
+      reportPath: fixture.reportPath,
+      writeReport: true,
+      verifyBrowser: false,
+    });
+    assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+    if (variant === "unadvanced") session = unadvanced;
+    if (variant === "missing-log") session.routing.decision_log = [];
+    if (variant === "changed-predecessor")
+      fs.appendFileSync(path.join(fixture.root, old.roundReportPath), " ");
+    const result = {
+      schema_version: 1,
+      run_id: session.run_id,
+      phase: "review",
+      attempt: session.phase_attempt,
+      status: "passed",
+      summary: "New scope reviewed and verified.",
+      commit: next.target.source.commit,
+      files_changed: [],
+      evidence: [
+        {
+          kind: "review",
+          command: "node scripts/review-check.js",
+          exit_code: 0,
+          artifact: path.join(fixture.root, fixture.reportPath),
+        },
+        {
+          kind: "test",
+          command: "node --test tests/example.test.js",
+          exit_code: 0,
+          artifact: null,
+        },
+      ],
+      blocker: null,
+      runtime,
+    };
+    if (variant !== "advanced") assert.throws(() => recordResult(session, result));
+    else {
+      const after = recordResult(session, result);
+      assert.equal(after.phase, "ship");
+      assert.equal(after.evidence.review.recovery_history.length, 2);
+      assert.equal(after.evidence.review.recovery_history[0].outcome, "blocked");
+      const boundary = after.evidence.review.recovery_history[1].decision_boundary;
+      assert.equal(boundary.from_version, 1);
+      assert.equal(boundary.to_version, 2);
+      const Ajv = require("ajv/dist/2020");
+      const schema = require("../skills/dev/references/dev-session.schema.json").$defs
+        .scoped_recovery_anchor;
+      assert.equal(
+        new Ajv({ validateFormats: false }).compile(schema)(
+          after.evidence.review.recovery_history[1]
+        ),
+        true
+      );
+      const forged = structuredClone(after);
+      forged.evidence.review.recovery_history[1].decision_boundary.predecessor_sha256 = "f".repeat(
+        64
+      );
+      assert.ok(
+        require("../scripts/lib/dev-session-schema")
+          .validateSession(forged)
+          .some((issue) => issue.path.includes("decision_boundary"))
+      );
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, old.roundReportPath)), bytes);
+    }
+  });
+}

@@ -39,3 +39,25 @@ uses an asynchronous owned POSIX process group and hard termination on deadline
 or output overflow, including inherited-pipe descendants. Regressions verify
 bounded failure and successful subsequent store acquisition. Windows execution
 is explicitly unsupported; no timeout or process-tree safety is inferred there.
+
+## Observed classification protocol gap
+
+Independent reviewers agreed that a schema regression needed explicit expected
+outcomes, but one classified the repair mechanical and another behavioral. The
+first later agreed behavioral. The old additive clarification schema could not
+preserve that agreement, and an already finalized report remained blocked. The
+new protocol requires unanimous target-bound peer remedy/classification
+agreement, preserves original bytes, and only strengthens to behavioral. A
+separate owning writer can reconcile the original frozen round; successor
+creation and checking revalidate the record and require fresh full Review.
+Actual product/authority decisions and already decision-required recovery scopes
+remain blocked. The parent's later explicit task to implement this protocol is
+recorded as new Dev work scope; earlier blocked reports are never rewritten or
+retroactively marked passed.
+
+The same recovery exposed a mismatch between target creation and phase recording:
+`advance-decision` already allowed new targets after a genuinely new external task
+direction, but phase history rejected them. The phase writer now appends a bounded
+`decision_boundary` after checking the canonical log and exact predecessor report
+and target. Tests retain old blocked outcomes and reject absent logs, unadvanced
+decisions, forged boundary hashes and altered predecessor evidence.

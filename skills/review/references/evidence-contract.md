@@ -18,7 +18,7 @@ CUA observations may supplement a narrative but do not replace the renderer's br
 
 ## Files
 
-Reviewer findings may optionally carry `remediation_agreement` with unique `finding_ids` (including the current finding) and a bounded nonempty `remedy`. All signals for every named ID must confirm exactly the same group and remedy, with at least two distinct planned reviewers. Result target/source/run/round bindings remain mandatory. This additive clarification resolves only fix-prose disagreement, not other material conflicts or decision gates. Canonical findings retain original signals and add `agreed_fix`; human reports show both. Original result files must be preserved and clarified results supplied separately before round finalization. Legacy results without this field keep conservative disagreement handling. Like reviewer results generally, these are local observations, not cryptographic identity attestations.
+Reviewer findings may optionally carry `remediation_agreement` with unique `finding_ids` (including the current finding) and a bounded nonempty `remedy`. All signals for every named ID must confirm exactly the same group and remedy, with at least two distinct planned reviewers. Result target/source/run/round bindings remain mandatory. Without a classification field this additive clarification resolves only fix-prose disagreement. On supported targets, unanimous agreements may also declare `fix_kind: behavioral`: mechanical/behavioral signals then use the stricter behavioral classification while every original signal remains intact. This never weakens a behavioral repair to mechanical or clears severity, ownership, disposition, product-decision or other authority conflicts. Canonical findings retain original signals and add `agreed_fix`; human reports show both. Original result files must be preserved and clarified results supplied separately before round finalization. Legacy results without this field keep conservative disagreement handling. Like reviewer results generally, these are local observations, not cryptographic identity attestations.
 
 Store the chain under `.pm/dev-sessions/{slug}/review/`:
 
@@ -246,3 +246,42 @@ budgets remain enforced, with at most 50 retained rounds. Resource exhaustion is
 an actual capability blocker, never fabricated product disapproval. Dev records
 checked non-passing report anchors in optional `recovery_history`; these anchors
 cannot supply passing gate evidence or permit report replay/reset.
+
+## Frozen classification reconciliation
+
+When an already finalized blocked round contains only a mechanical/behavioral
+classification disagreement, do not overwrite its report or reviewer results.
+Obtain additive `clarifications/{worker-id}.json` files from every involved
+reviewer. Each preserves every original value and adds the same
+`remediation_agreement` group, remedy and `fix_kind: behavioral`. Missing peers,
+changed original fields and any genuine decision flag remain blocked.
+
+Run the owning writer with every planned reviewer result (use the unchanged
+original for a reviewer without findings):
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/review-classification.js" \
+  --root "$PWD" --report "{round}/report.json" \
+  --result "{round}/clarifications/reviewer-1.json" \
+  --result "{round}/clarifications/reviewer-2.json"
+```
+
+It validates the frozen Git/source/evidence chain, checks the additive peer
+observations, and writes immutable `{round}/classification-resolution.json`.
+The record is a trusted-local observation, not a human approval or source pass.
+The next full target may use `--prior-report "{round}/report.json"` and
+`--prior-resolution "{round}/classification-resolution.json"`. Target creation
+and report checking independently recompute the resolution, including retained
+result bytes. They preserve every original report and require fresh complete
+review of the successor source. The old source may still have high findings;
+resolving classification never marks those findings fixed.
+
+A round with an explicit decision-required recovery or a genuine decision cannot
+be reconciled by this mechanism. Preserve that authority boundary; do not relabel
+it, omit the diagnosis, or use a new run to erase it. A genuinely new externally
+supplied task direction uses the existing Dev decision-version workflow and
+requires fresh source review and gates for the changed work.
+
+If the immutable classification record already exists, inspect it without
+replaying creation using `review-classification.js --root "$PWD" --report
+"{round}/report.json" --check "{round}/classification-resolution.json"`.

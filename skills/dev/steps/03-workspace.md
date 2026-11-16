@@ -139,15 +139,16 @@ If a check fails before implementation, preserve the baseline failure, diagnose 
 
 Record the plan, retained command outcomes, source/environment/dependency identity limits, and any known failures in the existing workspace evidence. Once the required checks pass, broaden or repeat them only for changed inputs, a mandatory later gate, or a concrete unresolved concern. Continue after repo root, branch, cwd, worktree, backlog state, and the scoped baseline are verified.
 
-## Done-when
-
-The isolated branch/worktree, repository instructions, dependency baseline, and source/session paths are recorded and verified.
-
-**Advance:** proceed to Step 04 (Groom Readiness).
-
 For repeated baseline/focused suites with a repository-owner-authenticated,
 audited deterministic workspace-only contract, read and follow
 `skills/dev/references/verification-execution.md`. The owning execution runner
 captures actual outcomes and checks identities; planner receipts alone cannot
 certify execution. Unknown external inputs or mutable services require fresh
 execution. This does not replace the mandatory fresh final suite in Step 8.
+
+
+## Done-when
+
+The isolated branch/worktree, repository instructions, dependency baseline, and source/session paths are recorded and verified.
+
+**Advance:** proceed to Step 04 (Groom Readiness).

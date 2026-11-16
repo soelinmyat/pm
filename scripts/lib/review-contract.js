@@ -218,9 +218,11 @@ function mergeSignals(signals, decisions) {
     const severity = rows
       .map((row) => row.severity)
       .sort((left, right) => severityRank(right) - severityRank(left))[0];
-    const agreedFix = agreements.get(id);
+    const agreement = agreements.get(id);
+    const agreedFix = agreement?.remedy;
+    const behavioralAgreed = agreement?.fix_kind === "behavioral";
     const disputed =
-      materialDisagreement(rows, Boolean(agreedFix)) ||
+      materialDisagreement(rows, Boolean(agreedFix), behavioralAgreed) ||
       (rows.some((row) => row.remediation_agreement !== undefined) && !agreedFix);
     const canonical = {
       id,
@@ -234,7 +236,7 @@ function mergeSignals(signals, decisions) {
       issue: lead.issue,
       impact: lead.impact,
       fix: lead.fix,
-      fix_kind: lead.fix_kind,
+      fix_kind: behavioralAgreed ? "behavioral" : lead.fix_kind,
       verify: lead.verify,
       evidence: lead.evidence,
       change_anchors: lead.change_anchors,
@@ -245,6 +247,7 @@ function mergeSignals(signals, decisions) {
       decision,
       signals: rows,
       ...(agreedFix ? { agreed_fix: agreedFix } : {}),
+      ...(behavioralAgreed ? { agreed_fix_kind: "behavioral" } : {}),
     };
     const decisionAuthoritative = applyDecision(canonical, decision);
     if (
@@ -267,7 +270,7 @@ function agreedRemedies(signals) {
       !Array.isArray(agreement.finding_ids) ||
       typeof agreement.remedy !== "string" ||
       !agreement.remedy.trim() ||
-      Object.keys(agreement).some((key) => !["finding_ids", "remedy"].includes(key))
+      Object.keys(agreement).some((key) => !["finding_ids", "remedy", "fix_kind"].includes(key))
     )
       continue;
     const ids = agreement.finding_ids;
@@ -296,21 +299,35 @@ function agreedRemedies(signals) {
     )
       continue;
     const key = JSON.stringify([...ids].sort());
+    const behavioralAgreed =
+      agreement.fix_kind === "behavioral" &&
+      group.every(
+        (row) =>
+          ["mechanical", "behavioral"].includes(row.fix_kind) && row.decision_required === false
+      );
+    if (agreement.fix_kind !== undefined && !behavioralAgreed) continue;
     if (
       group.some((row) => {
         const other = row.remediation_agreement;
         return (
           !other ||
           !Array.isArray(other.finding_ids) ||
-          Object.keys(other).some((field) => !["finding_ids", "remedy"].includes(field)) ||
+          Object.keys(other).some(
+            (field) => !["finding_ids", "remedy", "fix_kind"].includes(field)
+          ) ||
           JSON.stringify([...other.finding_ids].sort()) !== key ||
-          other.remedy !== agreement.remedy
+          other.remedy !== agreement.remedy ||
+          other.fix_kind !== agreement.fix_kind
         );
       }) ||
-      materialDisagreement(group, true)
+      materialDisagreement(group, true, behavioralAgreed)
     )
       continue;
-    for (const id of ids) remedies.set(id, agreement.remedy);
+    for (const id of ids)
+      remedies.set(id, {
+        remedy: agreement.remedy,
+        ...(behavioralAgreed ? { fix_kind: "behavioral" } : {}),
+      });
   }
   return remedies;
 }
@@ -348,7 +365,7 @@ function markCrossFindingConflicts(findings, unresolved) {
   }
 }
 
-function materialDisagreement(rows, proseAgreed = false) {
+function materialDisagreement(rows, proseAgreed = false, behavioralAgreed = false) {
   if (rows.length < 2) return false;
   const severities = rows.map((row) => severityRank(row.severity));
   const owners = new Set(rows.map((row) => row.owner));
@@ -360,7 +377,7 @@ function materialDisagreement(rows, proseAgreed = false) {
     Math.max(...severities) - Math.min(...severities) > 1 ||
     owners.size > 1 ||
     dispositions.size > 1 ||
-    fixKinds.size > 1 ||
+    (fixKinds.size > 1 && !behavioralAgreed) ||
     (!proseAgreed && fixes.size > 1) ||
     decisionRequirements.size > 1
   );

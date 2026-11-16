@@ -53,6 +53,11 @@ Execute the ordered files in `${CLAUDE_PLUGIN_ROOT}/skills/review/steps/`. Resol
 4. `04-resolve.md` — apply only safe fixes or explicit decisions; create a new complete round after mutation.
 5. `05-publish.md` — publish and check the canonical machine and human reports, then update the gate row.
 
+For a finalized mechanical/behavioral classification dispute whose reviewers now
+agree on one remedy, follow the immutable reconciliation protocol in
+`references/evidence-contract.md`; it can only strengthen the effective repair
+classification and cannot grant product-decision authority.
+
 Detailed schemas and identity rules live in `references/evidence-contract.md`. Reviewer calibration and JSON output live in `references/reviewer-briefs.md`.
 
 Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js`: a branch such as `codex/pm-dev-workflow-proposal` uses the slug `pm-dev-workflow-proposal`.

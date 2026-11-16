@@ -376,6 +376,7 @@ function validateTarget(target, issues) {
       "lenses",
       "allocation",
       "prior_report",
+      "prior_resolution",
       "recovery_policy",
       "recovery",
     ],
@@ -584,6 +585,10 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         "stored commit and outcome must match bound JSON"
       );
   }
+  if (target.prior_resolution && !target.prior_report)
+    add(issues, "target.prior_resolution", "requires an exact predecessor report");
+  if (target.prior_resolution && !boundTargetGeneratorVersion(target.generator?.version, "1.14.55"))
+    add(issues, "target.prior_resolution", "requires a supported classification-resolution target");
   if (target.prior_report) {
     if (
       reviewRoot &&
@@ -612,10 +617,26 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         );
         previousRecovery = previousTarget?.recovery;
       }
+      let priorResolved = false;
+      if (target.prior_resolution) {
+        try {
+          require("./review-classification").verifyClassificationResolution(
+            root,
+            target.prior_resolution,
+            target.prior_report
+          );
+          priorResolved = true;
+        } catch (error) {
+          add(issues, "target.prior_resolution", error.message);
+        }
+      }
       const previousDecisionRequired =
         recoveryRequiresAuthority(previousRecovery) ||
-        (value.unresolved_disagreements || []).length > 0 ||
-        (value.findings || []).some((finding) => finding.decision_required || finding.disputed);
+        (!priorResolved &&
+          ((value.unresolved_disagreements || []).length > 0 ||
+            (value.findings || []).some(
+              (finding) => finding.decision_required || finding.disputed
+            )));
       if (
         target.recovery === undefined &&
         (recoveryRequiresAuthority(previousRecovery) ||
@@ -1101,7 +1122,17 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
     const at = `${label}.remediation_agreement`;
     if (!object(agreement)) add(issues, at, "must be an object");
     else {
-      closed(agreement, ["finding_ids", "remedy"], at, issues);
+      closed(agreement, ["finding_ids", "remedy", "fix_kind"], at, issues);
+      if (
+        agreement.fix_kind !== undefined &&
+        (agreement.fix_kind !== "behavioral" ||
+          !boundTargetGeneratorVersion(target.generator?.version, "1.14.55"))
+      )
+        add(
+          issues,
+          `${at}.fix_kind`,
+          "only an explicit behavioral strengthening on a supported target is allowed"
+        );
       if (!text(agreement.remedy) || agreement.remedy.length > MAX_FINDING_PROSE_CHARS)
         add(issues, `${at}.remedy`, "requires a bounded nonempty common remedy");
       if (
@@ -2148,6 +2179,7 @@ function findingRenderChars(finding) {
     finding.fix,
     finding.fix_kind,
     finding.remediation_agreement?.remedy,
+    finding.remediation_agreement?.fix_kind,
     finding.verify,
     finding.owner,
     finding.disposition,
@@ -2226,8 +2258,6 @@ function normalizeText(value) {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
-if (require.main === module) process.exitCode = main();
-
 module.exports = {
   boundTargetGeneratorVersion,
   buildCanonicalReport,
@@ -2240,3 +2270,5 @@ module.exports = {
   validateSignal,
   validateTextLineRange,
 };
+
+if (require.main === module) process.exitCode = main();

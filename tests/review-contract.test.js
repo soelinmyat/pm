@@ -452,3 +452,43 @@ function sampleFinding() {
     decision_required: false,
   };
 }
+
+test("unanimous repair agreement can only strengthen mechanical classification to behavioral", () => {
+  const signals = agreeingSignals();
+  signals[0].fix_kind = "mechanical";
+  for (const row of signals) row.remediation_agreement.fix_kind = "behavioral";
+  const merged = mergeSignals(signals, []);
+  assert.deepEqual(merged.unresolved_disagreements, []);
+  assert.ok(
+    merged.findings.every((f) => f.fix_kind === "behavioral" && f.agreed_fix_kind === "behavioral")
+  );
+  assert.equal(signals[0].fix_kind, "mechanical", "original classification must remain intact");
+});
+
+for (const variant of [
+  "partial",
+  "weaken",
+  "decision",
+  "authority",
+  "severity",
+  "owner",
+  "disposition",
+]) {
+  test(`classification consensus preserves ${variant} barriers`, () => {
+    const signals = agreeingSignals();
+    signals[0].fix_kind = "mechanical";
+    for (const row of signals) row.remediation_agreement.fix_kind = "behavioral";
+    if (variant === "partial") delete signals[1].remediation_agreement.fix_kind;
+    if (variant === "weaken")
+      for (const row of signals) row.remediation_agreement.fix_kind = "mechanical";
+    if (variant === "decision") signals[0].fix_kind = "decision";
+    if (variant === "authority") signals[0].decision_required = true;
+    if (variant === "severity") {
+      signals[0].severity = "critical";
+      signals[1].severity = "low";
+    }
+    if (variant === "owner") signals[0].owner = "qa";
+    if (variant === "disposition") signals[0].disposition = "deferred";
+    assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0);
+  });
+}

@@ -94,7 +94,17 @@ function workspaceIdentity(root) {
     const stat = fs.lstatSync(file);
     if (stat.isSymbolicLink()) throw new Error("unknown symlink input");
     if (stat.isDirectory()) {
-      h.update(JSON.stringify([relative, "directory", stat.mode]));
+      h.update(
+        JSON.stringify([
+          relative,
+          "directory",
+          stat.mode,
+          stat.uid,
+          stat.gid,
+          stat.mtimeMs,
+          stat.ctimeMs,
+        ])
+      );
       for (const name of fs.readdirSync(file).sort()) visit(path.join(relative, name));
     } else {
       if (
@@ -171,6 +181,10 @@ function observeIdentity(contract) {
         release: os.release(),
         version: os.version(),
         hostname: os.hostname(),
+        uid: process.getuid?.() ?? null,
+        gid: process.getgid?.() ?? null,
+        groups: process.getgroups?.().sort((a, b) => a - b) ?? null,
+        umask: process.umask(),
         node: process.version,
         versions: process.versions,
       },

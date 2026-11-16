@@ -62,6 +62,7 @@ for (const mutation of [
   "dependencies",
   "environment",
   "command",
+  "directory metadata",
   "missing output",
   "forged receipt",
   "wrong key",
@@ -93,6 +94,10 @@ for (const mutation of [
     if (mutation === "command") {
       f.contract.args.push("changed");
       f.sign();
+    }
+    if (mutation === "directory metadata") {
+      const stat = fs.statSync(f.root);
+      fs.utimesSync(f.root, stat.atime, new Date(stat.mtimeMs + 2000));
     }
     if (mutation === "missing output") fs.unlinkSync(cached);
     if (mutation === "forged receipt") {
@@ -263,4 +268,17 @@ test("escaped detached descendants cannot keep failure settlement or the store l
     'console.log("store unlocked after escaped probe cleanup")'
   );
   assert.equal((await f.run()).status, "passed");
+});
+
+test("receipt identities include the process permission context", async (t) => {
+  const f = fixture(t);
+  await f.run();
+  assert.equal((await f.run()).reused, true);
+  const original = process.getuid;
+  try {
+    process.getuid = () => original() + 1;
+    assert.equal((await f.run()).reused, false);
+  } finally {
+    process.getuid = original;
+  }
 });
