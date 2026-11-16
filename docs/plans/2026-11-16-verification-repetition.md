@@ -15,8 +15,18 @@ prerequisite failure and missing dependencies in the committed checkout.
 This release checks prerequisites for every ref before any suite, then installs
 locked development dependencies inside each pushed-commit checkout. Installation
 failure blocks without starting tests. Full suites, exact pushed-source testing,
-canonical gate authority and independent CI remain mandatory. No result reuse or
-design recertification is claimed. Active consumer worktrees and caches stay unchanged.
+canonical gate authority and independent CI remain mandatory. No test-result reuse or design recertification is claimed. Active consumer
+worktrees and caches stay unchanged.
+
+Release verification reproduced a related compatibility defect: the unchanged
+checker passed native file-label and sparse-proof fixtures on main at 1.14.53,
+but rejected them after preparation of 1.14.54 because explicit version registries
+ended at 1.14.53. This release adds only the reviewed 1.14.54 registry entries.
+The native producer, audits and report contract remain byte-identical to main;
+active 1.14.50–1.14.53 evidence stays compatible, while pre-boundary 1.14.49 and
+unknown 1.14.55/999.0.0 active evidence stay rejected. Historical integrity and
+current source bindings remain mandatory. This is explicit compatibility for
+this release, not automatic acceptance of future runtime versions.
 
 # Evidence and follow-up boundaries
 

@@ -470,3 +470,8 @@ test checkouts install the pushed commit's `package-lock.json` with
 locks and failed installs stop before tests. Lifecycle scripts are disabled for
 this plugin's dependency setup. This does not replace independent CI, reuse test
 receipts, or modify consumer repository hooks or installed PM runtimes.
+
+Version 1.14.54 explicitly preserves the unchanged native evidence contract from
+1.14.50–1.14.53, including supported sparse-content and file-label focus proof.
+Unknown future producer versions remain rejected; source and evidence freshness
+checks still apply.
