@@ -123,6 +123,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.47", new Set(["1.14.46"])],
   // Controlled-popup comparison changes no native capture or audit contract.
   ["1.14.48", new Set(["1.14.46", "1.14.47"])],
+  // Horizontal-overflow geometry proof is checker-only. The 1.14.50 native
+  // producer, raw audits, normalizer and report contracts are unchanged.
+  ["1.14.51", new Set(["1.14.50"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -213,6 +216,11 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.50",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.49"), "1.14.50"])
 );
+// Horizontal-overflow geometry proof leaves sparse pixel proof unchanged.
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.51",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.50"), "1.14.51"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -261,6 +269,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.48",
   // Retain the previous release only behind immutable history checks.
   "1.14.49",
+  "1.14.50",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2374,6 +2383,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.48",
         "1.14.49",
         "1.14.50",
+        "1.14.51",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -5358,6 +5368,16 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
                 before,
                 after,
                 nativeObservations
+              ) &&
+              !isHorizontalOverflowRemediation(
+                root,
+                finding,
+                route,
+                evidenceById,
+                resolvedVisualDifference,
+                before,
+                after,
+                nativeObservations
               )))) ||
         before.coverage_id !== after.coverage_id ||
         !subjectCoverage.has(before.coverage_id) ||
@@ -5482,6 +5502,121 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
     difference !== null &&
     difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
   );
+}
+
+// A document-level horizontal-overflow fix can remove only a scrollbar strip,
+// which no decoded-pixel floor can see. For web product UI this path replaces
+// only that floor with checker-recomputed geometry: the finding must cite the
+// normalized DOM audits of both captures, each audit must bind its capture's
+// verified raw probe and re-normalize exactly, the before probe must measure
+// scroll width above client width, and the after probe must pass the overflow
+// check at the identical viewport. Finding text, rules and caller fields never
+// identify an overflow finding; every other resolution binding still applies.
+function isHorizontalOverflowRemediation(
+  root,
+  finding,
+  route,
+  evidenceById,
+  difference,
+  before,
+  after,
+  nativeObservations
+) {
+  const subject = (route.subjects || []).find((item) => item.id === finding.subject_id);
+  if (
+    subject?.platform !== "web" ||
+    difference === null ||
+    before.width !== after.width ||
+    before.height !== after.height ||
+    nativeObservations?.get(before.id)?.verified !== true ||
+    nativeObservations.get(after.id)?.verified !== true ||
+    ![before, after].every((capture) =>
+      ["accessibility-tree", "dom-audit"].every(
+        (kind) => nativeObservations.get(capture.id).normalizedAuditCounts?.get(kind) === 1
+      )
+    )
+  )
+    return false;
+  const beforeViewport = citedDomAuditViewport(
+    root,
+    finding,
+    evidenceById,
+    before,
+    nativeObservations
+  );
+  const afterViewport = citedDomAuditViewport(
+    root,
+    finding,
+    evidenceById,
+    after,
+    nativeObservations
+  );
+  return (
+    beforeViewport !== null &&
+    afterViewport !== null &&
+    beforeViewport.audit.findings.some(isDocumentHorizontalOverflow) &&
+    beforeViewport.viewport.scroll_width > beforeViewport.viewport.client_width &&
+    afterViewport.audit.checks?.overflow === true &&
+    !afterViewport.audit.findings.some(isDocumentHorizontalOverflow) &&
+    afterViewport.viewport.scroll_width === afterViewport.viewport.client_width &&
+    beforeViewport.viewport.inner_width === before.width &&
+    afterViewport.viewport.inner_width === after.width &&
+    beforeViewport.viewport.client_width === afterViewport.viewport.client_width
+  );
+}
+
+function isDocumentHorizontalOverflow(item) {
+  return (
+    item?.check === "overflow" &&
+    item.code === "horizontal-overflow" &&
+    item.locator === "document.documentElement"
+  );
+}
+
+// Returns the recomputed viewport of the one cited schema-2 DOM audit for a
+// capture, or null unless it binds that capture's trusted raw DOM probe.
+function citedDomAuditViewport(root, finding, evidenceById, capture, nativeObservations) {
+  try {
+    const trustedRaw = nativeObservations.get(capture.id)?.manifest?.raw_evidence?.dom_audit;
+    if (!object(trustedRaw)) return null;
+    const cited = [];
+    for (const id of finding.evidence_ids) {
+      const entry = evidenceById.get(id);
+      if (entry?.kind !== "dom-audit" || entry.subject_id !== finding.subject_id) continue;
+      const file = readBoundFile(root, entry.path, "overflow proof audit", []);
+      if (!file || file.sha256 !== entry.sha256 || file.bytes.length > MAX_JSON_BYTES) return null;
+      const audit = JSON.parse(file.bytes.toString("utf8"));
+      if (!Array.isArray(audit?.capture_ids) || !audit.capture_ids.includes(capture.id)) continue;
+      cited.push(audit);
+    }
+    if (cited.length !== 1) return null;
+    const [audit] = cited;
+    if (
+      audit.schema_version !== 2 ||
+      audit.subject_id !== finding.subject_id ||
+      !isDeepStrictEqual(audit.capture_ids, [capture.id]) ||
+      !isDeepStrictEqual(audit.raw, trustedRaw) ||
+      !Array.isArray(audit.findings)
+    )
+      return null;
+    const rawFile = readBoundFile(
+      root,
+      audit.raw.path,
+      "overflow proof raw audit",
+      [],
+      MAX_RAW_AUDIT_BYTES
+    );
+    if (!rawFile || rawFile.sha256 !== audit.raw.sha256) return null;
+    const recomputed = normalizeAuditBytes(rawFile.bytes, {
+      path: audit.raw.path,
+      sha256: rawFile.sha256,
+    });
+    if (!isDeepStrictEqual(audit, recomputed)) return null;
+    const viewport = JSON.parse(rawFile.bytes.toString("utf8")).observations?.viewport;
+    return object(viewport) ? { audit: recomputed, viewport } : null;
+  } catch {
+    return null;
+  }
 }
 
 function inspectMediaOnce(file, profile, inspect) {

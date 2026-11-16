@@ -10645,6 +10645,29 @@ for (const version of ["1.14.50", "1.14.51", "999.0.0"]) {
   });
 }
 
+for (const version of ["1.14.49", "1.14.50", "1.14.51", "1.14.52", "999.0.0"]) {
+  test(`overflow-geometry release bounds active native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.51");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    const accepted = ["1.14.50", "1.14.51"].includes(version);
+    assert.equal(run().ok, accepted, JSON.stringify(run().issues));
+    if (!accepted) assert.match(JSON.stringify(run().issues), /capture producer/);
+  });
+}
+
+for (const version of ["1.14.49", "1.14.50"]) {
+  test(`overflow-geometry release retains frozen ${version} native evidence unchanged`, (t) => {
+    const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: version });
+    const retained = recoveryDCFiles(fixture.root);
+    assert.deepEqual(
+      check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+      { ok: true, issues: [] }
+    );
+    for (const [file, bytes] of retained)
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+  });
+}
+
 test("QA-recovery release retains frozen 1.14.49 native evidence unchanged", (t) => {
   const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.49" });
   const retained = recoveryDCFiles(fixture.root);
