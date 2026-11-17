@@ -499,6 +499,56 @@ mandatory. Requests completing or starting during atomic capture invalidate the
 capture. Use a genuine delayed test endpoint; do not replace the response or
 manufacture loading markup to satisfy the gate.
 
+## Interrupted transport before the first report
+
+An attempted reviewer invocation is not a completed review round. If transport,
+capability or isolation failed before the first complete Primary/Fresh Eyes pair
+and no finalized report or canonical Design recovery-history anchor exists,
+the first completed review round remains round 1. Retain every blocked Dev
+attempt and preserve the original run ID; do not restart the Dev session,
+reset its attempt count, or manufacture a predecessor report or missing receipt.
+
+Check canonical `session.json` Design evidence and retained report paths first.
+This path is unavailable if a finalized report or recovery-history anchor exists:
+continue its exact immutable predecessor lineage instead. If an artifact is
+ambiguous, malformed, partially published or disagrees with canonical history,
+stop and diagnose it; absence of an anchor alone never permits discarding a
+report or unresolved decision.
+
+When source advanced during that interruption:
+
+1. Preserve the original route, captures, inputs, actual reviewer outputs,
+   runtime identities, invocation failures and timestamps at their original
+   paths. Save a private hash inventory and the observed reason for continuation.
+   A completed Primary result remains real partial evidence; an unavailable
+   Fresh Eyes invocation remains unavailable. Neither is a complete review pair.
+2. Resume the same blocked Dev session with `dev-session unblock`, retaining all
+   attempts. Put the new round-1 artifacts in a new attempt directory, such as
+   `runs/{same-run-id}/round-1/attempt-{current-attempt}/`; never overwrite the
+   interrupted files merely because their directory already says `round-1`.
+3. Recompute the route for actual current HEAD and the authoritative current
+   base. Obtain fresh current-source captures and both real reviewers with new
+   context/invocation identities, current hash-bound inputs, and actual execution
+   timestamps. Never relabel historical captures or attach a late reviewer to
+   an earlier timestamp. Reassess the current source/coverage and preserve all
+   existing permission, independence, provenance and capture requirements.
+4. Carry any observed unresolved partial-review findings or genuine decisions
+   into the current Primary context with their retained source references and
+   explicit disposition. Fresh Eyes still receives its prescribed independent
+   input. Do not hide a known blocker by treating the transport attempt as empty.
+5. Build the first complete `reviews.json` and report with round 1 and no invented
+   `previous_report`. Check the full current chain, then record the current
+   report's actual path through Dev phase evidence and the normal gate writer.
+   Missing Fresh Eyes, stale source, capture/receipt tampering and unresolved
+   blockers still fail. This procedure itself grants no passing gate.
+
+A completed non-passing review is different: its report and reviewer rows must
+remain in the successor's `previous_report` chain. The source-advancement
+checkpoint and scoped recovery requirements below apply to those completed
+rounds. Never use this interrupted-attempt path to erase a completed failure or
+restart its round count. If only the historical source can be reviewed, retain
+that limitation and remain blocked; it cannot certify the advanced source.
+
 ## Scoped recovery after two unresolved rounds
 
 New `reviews.json` documents add `recovery_policy: "scoped-diagnosis-v1"`. Preserve
