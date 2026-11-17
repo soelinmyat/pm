@@ -414,6 +414,39 @@ describe("dev runtime structured dispatch", () => {
     }
   });
 
+  it("rejects async canonical schemas before worker execution and preserves prior results", () => {
+    const fixture = createFixture("codex");
+    try {
+      const schema = path.join(fixture.tmp, "async-schema.json");
+      fs.writeFileSync(
+        schema,
+        JSON.stringify({
+          ...require("../skills/dev/references/worker-result.schema.json"),
+          $async: true,
+        })
+      );
+      const prior = JSON.stringify(validCompleted("codex", fixture.commit));
+      fs.writeFileSync(fixture.resultFile, prior);
+      const marker = path.join(fixture.tmp, "worker-started");
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          `fs.writeFileSync(${JSON.stringify(marker)},"started");`,
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({result_json:${JSON.stringify(prior)}}));`,
+        ])
+      );
+      assert.throws(
+        () => runDispatch(fixture, {}, ["--schema", schema]),
+        /asynchronous canonical result schemas are not supported/
+      );
+      assert.equal(fs.existsSync(marker), false);
+      assert.equal(fs.readFileSync(fixture.resultFile, "utf8"), prior);
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
   it("does not invent a quota blocker from telemetry when no provider error exists", () => {
     const fixture = createFixture("codex");
     try {

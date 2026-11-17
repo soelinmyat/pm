@@ -22,6 +22,7 @@ function loadCanonicalSchema(filePath) {
   }
   const schema = JSON.parse(bytes.toString("utf8"));
   const check = new Ajv2020({ strictTypes: false, allErrors: true }).compile(schema);
+  if (check.$async) throw new Error("asynchronous canonical result schemas are not supported");
   return {
     schema,
     bytes,
