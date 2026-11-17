@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const { randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
+const { StringDecoder } = require("node:string_decoder");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -403,6 +404,7 @@ function runStreaming(command, args, options) {
   const stdoutTail = new BoundedBuffer(limit);
   const stderrTail = new BoundedBuffer(limit);
   let pending = "";
+  const decoder = new StringDecoder("utf8");
   const eventsFd = secureOpen(options.eventsPath);
   const stderrFd = secureOpen(options.stderrPath);
 
@@ -416,10 +418,7 @@ function runStreaming(command, args, options) {
     child.on("error", (error) => {
       spawnError = error;
     });
-    child.stdout.on("data", (chunk) => {
-      fs.writeSync(eventsFd, chunk);
-      const text = chunk.toString("utf8");
-      stdoutTail.append(chunk);
+    const observeEventText = (text) => {
       pending = boundedTail(pending, text, lineLimit);
       const lines = pending.split("\n");
       pending = lines.pop();
@@ -442,12 +441,19 @@ function runStreaming(command, args, options) {
           // Non-JSON output remains in the bounded tail and full events file.
         }
       }
+    };
+    child.stdout.on("data", (chunk) => {
+      // Keep the exact bytes on disk while decoding event text across chunks.
+      fs.writeSync(eventsFd, chunk);
+      stdoutTail.append(chunk);
+      observeEventText(decoder.write(chunk));
     });
     child.stderr.on("data", (chunk) => {
       fs.writeSync(stderrFd, chunk);
       stderrTail.append(chunk);
     });
     child.on("close", (status, signal) => {
+      observeEventText(`${decoder.end()}\n`);
       fs.closeSync(eventsFd);
       fs.closeSync(stderrFd);
       const identity = identityEvent ? JSON.parse(identityEvent) : null;
