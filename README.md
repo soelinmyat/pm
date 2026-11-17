@@ -437,6 +437,8 @@ MIT. Copyright (c) 2026 Soe Lin Myat. See [LICENSE](./LICENSE).
 
 Design capture follows real keyboard focus, including asynchronous roving tab controls. It restores URL-backed tabs through their native handlers and requires the original URL afterward. Typography consistency is compared within semantic page regions.
 
+Known network violations complete their bounded observation with isolation still installed before capture fails. Atomic network drift also remains a failure; neither condition can certify an image.
+
 ### Reading generated artifacts
 
 Proposal and RFC HTML readers use section/subsection navigation, short decision-first prose, and expandable execution detail. Proposals place source-bound prototype links before implementation detail; absent prototypes are labeled honestly. Risks and pending decisions remain visible, and complete evidence and execution contracts remain available for review and printing.
@@ -448,6 +450,8 @@ Private runtime state stays local; connecting MCP and writer cutover remain
 separate user-coordinated steps.
 
 ### Evidence reuse and sync receipts
+
+Codex workers use a provider-compatible JSON transport while PM validates the complete canonical result locally, including conditional rules, evidence, commit identity and owned paths. Provider schema/HTTP 400 failures remain distinct from actual usage limits; unrelated telemetry cannot turn a configuration rejection into quota advice.
 
 PM separates retained feature review from integration checks when main advances. `scripts/review-impact.js` reports changed upstream paths against an explicitly complete dependency/contract closure; unknown coverage requires full validation. The report is advisory, while the existing review freshness checker and exact-head CI remain delivery gates. Identical workflow grants reuse their audit; material changes and platform permissions retain their own approval requirements.
 

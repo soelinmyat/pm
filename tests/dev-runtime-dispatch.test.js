@@ -47,7 +47,7 @@ describe("dev runtime structured dispatch", () => {
         'if (args.includes("--version")) { process.stdout.write("codex-cli 0.144.0\\n"); process.exit(0); }',
         'if (args.includes("--help")) { process.stdout.write(args.includes("resume") ? "exec resume --json --output-schema\\n" : "--sandbox --json --output-schema --output-last-message\\n"); process.exit(0); }',
         'const output = args[args.indexOf("--output-last-message") + 1];',
-        `fs.writeFileSync(output, JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
+        `fs.writeFileSync(output, JSON.stringify({result_json:JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))})}));`,
         'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-42" }) + "\\n");',
       ].join("\n");
       installStub(fixture.binDir, "codex", stub);
@@ -59,8 +59,21 @@ describe("dev runtime structured dispatch", () => {
       assert.equal(runtime.resume_id, "thread-42");
       assert.equal(runtime.model, "gpt-5.6-sol");
       assert.equal(runtime.external_effects, false);
+      assert.equal(
+        require("node:crypto")
+          .createHash("sha256")
+          .update(fs.readFileSync(runtime.canonical_schema_file))
+          .digest("hex"),
+        runtime.canonical_schema_sha256
+      );
       assert.match(fs.readFileSync(fixture.eventsFile, "utf8"), /thread\.started/);
-      for (const file of [fixture.eventsFile, fixture.logFile, `${fixture.tmp}/run.stderr.log`]) {
+      for (const file of [
+        fixture.eventsFile,
+        fixture.logFile,
+        `${fixture.tmp}/run.stderr.log`,
+        `${fixture.tmp}/run.canonical-schema.json`,
+        `${fixture.tmp}/run.output-schema.json`,
+      ]) {
         assert.equal(fs.statSync(file).mode & 0o777, 0o600);
       }
     } finally {
@@ -112,7 +125,7 @@ describe("dev runtime structured dispatch", () => {
           'if (args.includes("--help")) { process.stdout.write("--sandbox --json --output-schema --output-last-message\\n"); process.exit(0); }',
           `fs.writeFileSync(${JSON.stringify(launchFile)}, JSON.stringify(args));`,
           'const output = args[args.indexOf("--output-last-message") + 1];',
-          `fs.writeFileSync(output, JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
+          `fs.writeFileSync(output, JSON.stringify({result_json:JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))})}));`,
           'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "policy-thread" }) + "\\n");',
         ].join("\n")
       );
@@ -171,7 +184,7 @@ describe("dev runtime structured dispatch", () => {
             'if (args.includes("--version")) { console.log("codex-cli 0.144.0"); process.exit(0); }',
             'if (args.includes("--help")) { console.log("exec resume --sandbox --json --output-schema --output-last-message"); process.exit(0); }',
             `fs.writeFileSync(${JSON.stringify(launchFile)}, JSON.stringify(args));`,
-            `fs.writeFileSync(${directResult ? JSON.stringify(fixture.resultFile) : 'args[args.indexOf("--output-last-message") + 1]'}, JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
+            `fs.writeFileSync(${directResult ? JSON.stringify(fixture.resultFile) : 'args[args.indexOf("--output-last-message") + 1]'}, JSON.stringify(${JSON.stringify(directResult ? validCompleted("codex", fixture.commit) : { result_json: JSON.stringify(validCompleted("codex", fixture.commit)) })}));`,
             'console.log(JSON.stringify({ type: "thread.started", thread_id: "retained-worker" }));',
           ].join("\n")
         );
@@ -286,6 +299,238 @@ describe("dev runtime structured dispatch", () => {
       fs.rmSync(fixture.tmp, { recursive: true, force: true });
     }
   });
+  it("generates a provider-compatible schema and unwraps a canonically validated result", () => {
+    const fixture = createFixture("codex");
+    try {
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          'const schema = JSON.parse(fs.readFileSync(args[args.indexOf("--output-schema")+1], "utf8"));',
+          'if (schema.type !== "object" || schema.allOf || schema.additionalProperties !== false || JSON.stringify(schema.required)!==JSON.stringify(["result_json"])) { console.error("Invalid schema: unsupported root"); process.exit(1); }',
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1], JSON.stringify({result_json: JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))})}));`,
+        ])
+      );
+      runDispatch(fixture);
+      const result = JSON.parse(fs.readFileSync(fixture.resultFile));
+      assert.equal(result.status, "completed");
+      assert.equal(result.work_unit_id, "unit-1");
+      assert.equal(Object.hasOwn(result, "result_json"), false);
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  for (const [code, status, expected] of [
+    ["invalid_json_schema", 400, /output schema.*reject/i],
+    ["invalid_request_error", 400, /request.*reject/i],
+    ["rate_limit_exceeded", 429, /usage.*limit/i],
+    ["insufficient_quota", 429, /usage.*limit/i],
+  ]) {
+    it(`classifies actual provider ${code} independently from telemetry`, () => {
+      const fixture = createFixture("codex");
+      try {
+        const error = {
+          type: "error",
+          error: {
+            code,
+            message:
+              code === "invalid_json_schema"
+                ? "Invalid schema for response_format: allOf is unsupported"
+                : "Request failed",
+          },
+          status,
+        };
+        installStub(
+          fixture.binDir,
+          "codex",
+          codexStub([
+            'console.error("INFO feature.plan_limits.enabled=false rate_limits_snapshot=null quota=null");',
+            `console.log(JSON.stringify({type:"turn.failed",error:{message:${JSON.stringify(JSON.stringify(error))}}}));`,
+            "process.exitCode=1;",
+          ])
+        );
+        runDispatch(fixture);
+        const result = JSON.parse(fs.readFileSync(fixture.resultFile));
+        const runtime = JSON.parse(fs.readFileSync(path.join(fixture.tmp, "runtime.json")));
+        assert.equal(result.status, "blocked");
+        assert.match(result.reason, expected);
+        if (status === 400) assert.doesNotMatch(result.reason, /usage.*limit|wait for reset/i);
+        assert.equal(runtime.resume_id, "schema-thread");
+        assert.equal(runtime.exit_status, 1);
+      } finally {
+        fs.rmSync(fixture.tmp, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("resolves generated schema and last-message paths across worker cwd changes", () => {
+    const fixture = createFixture("codex");
+    try {
+      fixture.launchCwd = fixture.tmp;
+      fixture.logFile = "relative-run.log";
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          'JSON.parse(fs.readFileSync(args[args.indexOf("--output-schema")+1],"utf8"));',
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({result_json:JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))})}));`,
+        ])
+      );
+      runDispatch(fixture);
+      assert.equal(JSON.parse(fs.readFileSync(fixture.resultFile)).status, "completed");
+      assert.equal(fs.existsSync(path.join(fixture.tmp, "relative-run.last-message.json")), true);
+      assert.equal(
+        fs.existsSync(path.join(fixture.worktree, "relative-run.last-message.json")),
+        false
+      );
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("retains a deterministic provider rejection despite a prior last-message artifact", () => {
+    const fixture = createFixture("codex");
+    try {
+      fs.writeFileSync(
+        path.join(fixture.tmp, "run.last-message.json"),
+        JSON.stringify({ result_json: JSON.stringify(validCompleted("codex", fixture.commit)) })
+      );
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          'console.log(JSON.stringify({type:"turn.failed",error:{message:JSON.stringify({error:{code:"invalid_json_schema",message:"Invalid schema"},status:400})}}));',
+          "process.exitCode=1;",
+        ])
+      );
+      runDispatch(fixture);
+      const result = JSON.parse(fs.readFileSync(fixture.resultFile));
+      assert.equal(result.status, "blocked");
+      assert.match(result.reason, /output schema.*reject/i);
+      assert.ok(fs.existsSync(path.join(fixture.tmp, "run.last-message.json")));
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects async canonical schemas before worker execution and preserves prior results", () => {
+    const fixture = createFixture("codex");
+    try {
+      const schema = path.join(fixture.tmp, "async-schema.json");
+      fs.writeFileSync(
+        schema,
+        JSON.stringify({
+          ...require("../skills/dev/references/worker-result.schema.json"),
+          $async: true,
+        })
+      );
+      const prior = JSON.stringify(validCompleted("codex", fixture.commit));
+      fs.writeFileSync(fixture.resultFile, prior);
+      const marker = path.join(fixture.tmp, "worker-started");
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          `fs.writeFileSync(${JSON.stringify(marker)},"started");`,
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({result_json:${JSON.stringify(prior)}}));`,
+        ])
+      );
+      assert.throws(
+        () => runDispatch(fixture, {}, ["--schema", schema]),
+        /asynchronous canonical result schemas are not supported/
+      );
+      assert.equal(fs.existsSync(marker), false);
+      assert.equal(fs.readFileSync(fixture.resultFile, "utf8"), prior);
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invent a quota blocker from telemetry when no provider error exists", () => {
+    const fixture = createFixture("codex");
+    try {
+      installStub(
+        fixture.binDir,
+        "codex",
+        codexStub([
+          'console.error("INFO plan limits disabled; quota=unknown; rate_limit_remaining=null");',
+          "process.exitCode=1;",
+        ])
+      );
+      assert.throws(() => runDispatch(fixture), /without a valid structured result/);
+      assert.equal(fs.existsSync(fixture.resultFile), false);
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  for (const [label, mutate] of [
+    [
+      "noninteger evidence",
+      (r) => {
+        r.evidence[0].exit_code = "0";
+      },
+    ],
+    [
+      "failed evidence",
+      (r) => {
+        r.evidence[0].exit_code = 1;
+      },
+    ],
+    [
+      "wrong work unit",
+      (r) => {
+        r.work_unit_id = "foreign-unit";
+      },
+    ],
+    [
+      "wrong commit",
+      (r) => {
+        r.commit = "a".repeat(40);
+      },
+    ],
+    [
+      "unknown top-level field",
+      (r) => {
+        r.extra = true;
+      },
+    ],
+    [
+      "null optional reason",
+      (r) => {
+        r.reason = null;
+      },
+    ],
+    [
+      "mismatching blocker",
+      (r) => {
+        r.status = "blocked";
+        r.reason = "one";
+        r.blocker = { reason: "two" };
+      },
+    ],
+  ]) {
+    it(`rejects transported ${label} through canonical checks`, () => {
+      const fixture = createFixture("codex");
+      try {
+        const result = validCompleted("codex", fixture.commit);
+        mutate(result);
+        installStub(
+          fixture.binDir,
+          "codex",
+          codexStub([
+            `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({result_json:JSON.stringify(${JSON.stringify(result)})}));`,
+          ])
+        );
+        assert.throws(() => runDispatch(fixture), /without a valid structured result/);
+        assert.equal(fs.existsSync(fixture.resultFile), false);
+        assert.match(fs.readFileSync(fixture.logFile, "utf8"), /schema-thread/);
+      } finally {
+        fs.rmSync(fixture.tmp, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 function createFixture(runtime) {
@@ -362,6 +607,7 @@ function runDispatch(fixture, environment = {}, extraArgs = []) {
       ...extraArgs,
     ],
     {
+      cwd: fixture.launchCwd,
       env: {
         ...process.env,
         XDG_CONFIG_HOME: path.join(fixture.tmp, "config"),
@@ -371,4 +617,15 @@ function runDispatch(fixture, environment = {}, extraArgs = []) {
       },
     }
   );
+}
+
+function codexStub(lines) {
+  return [
+    `#!${process.execPath}`,
+    'const fs=require("node:fs"); const args=process.argv.slice(2);',
+    'if(args.includes("--version")){console.log("codex-cli 0.167.0-alpha.4.1");process.exit(0);}',
+    'if(args.includes("--help")){console.log("exec resume --sandbox --json --output-schema --output-last-message");process.exit(0);}',
+    'console.log(JSON.stringify({type:"thread.started",thread_id:"schema-thread"}));',
+    ...lines,
+  ].join("\n");
 }

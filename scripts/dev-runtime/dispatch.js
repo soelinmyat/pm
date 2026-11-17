@@ -12,13 +12,18 @@ const {
   validateWorkerResult,
 } = require(".");
 const { writeJsonAtomic } = require("./result");
+const { writeFileAtomic } = require("../lib/atomic-file");
 const { probeCapabilitiesCached } = require("./capabilities");
 const { validateOwnershipList } = require("../lib/dev-work-units");
 const { parseCliArgs } = require("../loop-args");
 const { runGit } = require("../loop-git");
 
-const USAGE_LIMIT =
-  /agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|usage credit|usage limit|plan.*limit|limit.*reached|quota|rate.?limit/i;
+const {
+  CODEX_RESULT_ENCODING,
+  loadCanonicalSchema,
+  buildCodexOutputSchema,
+} = require("./output-schema");
+const { classifyProviderFailure } = require("./failure");
 const AUTHORITY = `<worker-authority>
 Root-owned external effects: this worker may inspect, edit, test, and commit only inside its assigned worktree. Do not push, open or update a pull request, merge, or update external trackers. Report completion to the root through the structured result contract.
 </worker-authority>\n\n`;
@@ -50,7 +55,7 @@ async function main(argv = process.argv.slice(2)) {
 
   const schemaPath = options.schemaPath ?? defaultSchemaPath();
   const resultDir = path.dirname(options.resultFile);
-  const baseLog = options.logFile.replace(/\.log$/, "");
+  const baseLog = path.resolve(options.logFile).replace(/\.log$/, "");
   const eventsPath = `${baseLog}.events.jsonl`;
   const stderrPath = `${baseLog}.stderr.log`;
   const lastMessagePath = `${baseLog}.last-message.json`;
@@ -62,6 +67,10 @@ async function main(argv = process.argv.slice(2)) {
   const allowBroadPermissions = process.env.PM_DEV_ALLOW_BROAD_PERMISSIONS === "1";
   let profile;
   let launch;
+  let canonical;
+  const canonicalSnapshot = `${baseLog}.canonical-schema.json`;
+  const providerSchema = `${baseLog}.output-schema.json`;
+  const resultEncoding = options.runtime === "codex" ? CODEX_RESULT_ENCODING : undefined;
   try {
     const retained = options.resumeId
       ? retainedResumeProfile(runtimePath, options, allowBroadPermissions)
@@ -75,6 +84,10 @@ async function main(argv = process.argv.slice(2)) {
         sourceDir: options.worktree,
         overrides: { allowBroadPermissions },
       });
+    canonical = loadCanonicalSchema(schemaPath);
+    writeFileAtomic(canonicalSnapshot, canonical.bytes, { directoryMode: 0o700, fileMode: 0o600 });
+    if (options.runtime === "codex")
+      writeJsonAtomic(providerSchema, buildCodexOutputSchema(canonical.schema));
     launch = buildLaunch({
       provider: options.runtime,
       // Freeze the same resolved selection for launch and runtime.json. Do not
@@ -84,7 +97,7 @@ async function main(argv = process.argv.slice(2)) {
       worktree: options.worktree,
       resumeId: options.resumeId,
       sessionId,
-      schemaPath,
+      schemaPath: options.runtime === "codex" ? providerSchema : canonicalSnapshot,
       lastMessagePath,
       capabilities,
     });
@@ -109,9 +122,17 @@ async function main(argv = process.argv.slice(2)) {
     worktree: options.worktree,
     started_at: startedAt,
     status: "running",
+    canonical_schema_sha256: canonical.sha256,
+    canonical_schema_file: canonicalSnapshot,
+    output_schema_file: options.runtime === "codex" ? providerSchema : canonicalSnapshot,
+    result_encoding: resultEncoding ?? "canonical-object",
   });
 
-  const prompt = `${AUTHORITY}${fs.readFileSync(options.promptFile, "utf8")}`;
+  const transport =
+    options.runtime === "codex"
+      ? "Final response uses the generated result_json transport string: serialize the complete canonical worker result inside it. Any directly written result file must contain the canonical object, not the transport envelope.\n\n"
+      : "";
+  const prompt = `${AUTHORITY}${transport}${fs.readFileSync(options.promptFile, "utf8")}`;
   const execution = await runStreaming(launch.command, launch.args, {
     cwd: options.worktree,
     env: process.env,
@@ -135,7 +156,10 @@ async function main(argv = process.argv.slice(2)) {
 
   let result;
   let resumeId = execution.resumeId ?? sessionId;
+  const failure = classifyProviderFailure(execution.failureEvents || stdout, stderr);
   try {
+    // A failed provider turn cannot be certified by an older message artifact.
+    if (execution.status !== 0 && failure) throw new Error(`provider failure: ${failure}`);
     if (fs.existsSync(options.resultFile)) {
       result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"), {
         expectedWorkUnitId: options.workUnitId,
@@ -143,11 +167,13 @@ async function main(argv = process.argv.slice(2)) {
         worktree: options.worktree,
         allowLegacyMerged: process.env.PM_DEV_LEGACY_DISPATCH === "1",
       });
+      if (result.status !== "merged") canonical.validate(result);
     } else {
       const extracted = extractResult({
         provider: options.runtime,
         events: stdout,
         lastMessagePath,
+        resultEncoding,
       });
       result = extracted.result;
       validateWorkerResult(result, {
@@ -155,11 +181,21 @@ async function main(argv = process.argv.slice(2)) {
         expectedOwnership: options.owns,
         worktree: options.worktree,
       });
+      canonical.validate(result);
       resumeId = extracted.resumeId ?? resumeId;
       writeJsonAtomic(options.resultFile, result);
     }
   } catch (error) {
-    if (USAGE_LIMIT.test(`${stdout}\n${stderr}`)) {
+    if (failure === "invalid-output-schema" || failure === "provider-request-rejected") {
+      result = blockedResult(
+        options,
+        profile,
+        failure === "invalid-output-schema"
+          ? "Provider output schema was rejected. Inspect the retained canonical and transport schemas and provider error; this is a deterministic request failure. See log."
+          : "Provider request was rejected (HTTP 400). Inspect the retained provider error and request configuration. See log."
+      );
+      writeJsonAtomic(options.resultFile, result);
+    } else if (failure === "usage-limit") {
       result = blockedResult(
         options,
         profile,
@@ -325,6 +361,7 @@ function runStreaming(command, args, options) {
   const systemEvents = new BoundedBuffer(lineLimit);
   let identityEvent = "";
   let resultEvent = "";
+  let failureEvent = "";
   const stdoutTail = new BoundedBuffer(limit);
   const stderrTail = new BoundedBuffer(limit);
   let pending = "";
@@ -356,6 +393,11 @@ function runStreaming(command, args, options) {
           }
           if (event.type === "system") systemEvents.append(`${line}\n`);
           if (event.type === "result") resultEvent = boundedTail("", line, lineLimit);
+          if (
+            ["error", "turn.failed"].includes(event.type) ||
+            (event.type === "result" && event.is_error === true)
+          )
+            failureEvent = boundedTail("", line, lineLimit);
         } catch {
           // Non-JSON output remains in the bounded tail and full events file.
         }
@@ -392,6 +434,7 @@ function runStreaming(command, args, options) {
         extractionEvents,
         resumeId,
         stderrTail: stderrText,
+        failureEvents: failureEvent,
       });
     });
     child.stdin.end(options.input);

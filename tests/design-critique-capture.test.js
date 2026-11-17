@@ -3501,6 +3501,89 @@ test(
   }
 );
 
+for (const disableIsolation of [false, true]) {
+  test(
+    `late SharedWorker policy observation measures actual isolation${disableIsolation ? " with a deliberately ineffective policy" : ""}`,
+    { skip: browserSkip },
+    async (t) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-late-worker-policy-"));
+      const { server, statsPath, requestsPath, port } = await startLoopbackWebSocketServer(root);
+      t.after(async () => {
+        await stopChild(server);
+        fs.rmSync(root, { recursive: true, force: true });
+      });
+      const fixture = createBrowserFixture();
+      t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+      const pageOrigin = `http://127.0.0.1:${port}`;
+      fixture.url = `${pageOrigin}/capture?directSocket=0`;
+
+      // Test-only scheduling: start a real worker exactly inside the capture
+      // window. Do not add a runtime option or alter the production policies.
+      const original = require.resolve("../scripts/design-critique-capture-probe");
+      let source = fs.readFileSync(original, "utf8");
+      const marker = "criticalWindow = true;\n    const before = await nativeSample(";
+      assert.equal(source.split(marker).length, 2);
+      const workerSource =
+        `new WebSocket(${JSON.stringify(`ws://127.0.0.1:${port}/socket`)});` +
+        `setTimeout(()=>fetch(${JSON.stringify(`${pageOrigin}/policy-observation`)}),250);`;
+      const expression =
+        "globalThis.__pmLatePolicyWorker=new SharedWorker(URL.createObjectURL(" +
+        `new Blob([${JSON.stringify(workerSource)}],{type:"text/javascript"})));`;
+      source = source.replace(
+        marker,
+        "criticalWindow = true;\n" +
+          `    await client.send("Runtime.evaluate",{expression:${JSON.stringify(expression)},returnByValue:true});\n` +
+          "    const before = await nativeSample("
+      );
+      if (disableIsolation) {
+        // Counterfactual: the observer still reports a policy violation, but
+        // without either pre-connect policy the server must see a handshake.
+        // This proves a matching error alone cannot satisfy the safety test.
+        const policy =
+          "async function installTargetNetworkIsolation(client, allowedOrigins, sessionId) {";
+        assert.equal(source.split(policy).length, 2);
+        source = source.replace(policy, `${policy}\n  return "ordered-patterns";`);
+      }
+      const entry = "if (require.main === module)\n  main()";
+      assert.equal(source.split(entry).length, 2);
+      source = source.replace(entry, "if (true)\n  main()");
+      const probePath = path.join(root, "late-worker-probe.cjs");
+      fs.writeFileSync(
+        probePath,
+        `const Module=require("node:module");const m=new Module(${JSON.stringify(original)},module);` +
+          `m.filename=${JSON.stringify(original)};m.paths=Module._nodeModulePaths(require("node:path").dirname(m.filename));` +
+          `m._compile(${JSON.stringify(source)},m.filename);`,
+        { mode: 0o600 }
+      );
+      assert.throws(
+        () =>
+          runCaptureProbe(
+            {
+              browserPath: installedBrowser,
+              url: fixture.url,
+              expectedUrl: fixture.url,
+              viewport: { width: 1024, height: 600 },
+              stateAssertion: fixture.stateAssertion,
+              allowedOrigins: [pageOrigin],
+              readinessTimeoutMs: 15_000,
+              settleMs: 200,
+              outputPath: fixture.outputPath,
+              verificationPath: fixture.verificationPath,
+            },
+            { probePath }
+          ),
+        /network policy violation/
+      );
+      const stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+      if (disableIsolation) assert.ok(stats.handshakes > 0, JSON.stringify(stats));
+      else assert.deepEqual(stats, { handshakes: 0, frames: 0 });
+      assert.ok(JSON.parse(fs.readFileSync(requestsPath, "utf8")).includes("/policy-observation"));
+      assert.equal(fs.existsSync(fixture.outputPath), false);
+      assert.equal(fs.existsSync(fixture.verificationPath), false);
+    }
+  );
+}
+
 test(
   "browser helper terminates a ServiceWorker before its loopback WebSocket handshake",
   { skip: browserSkip },
