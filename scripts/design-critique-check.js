@@ -132,6 +132,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.53", new Set(["1.14.50", "1.14.51", "1.14.52"])],
   // Push preflight changes no native producer, audit or report contract.
   ["1.14.54", new Set(["1.14.50", "1.14.51", "1.14.52", "1.14.53"])],
+  // Execution receipts and configuration preflight do not change native evidence.
+  ["1.14.55", new Set(["1.14.50", "1.14.51", "1.14.52", "1.14.53", "1.14.54"])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -242,6 +244,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.54",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.53"), "1.14.54"])
 );
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.55",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.54"), "1.14.55"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -294,6 +300,7 @@ const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.51",
   "1.14.52",
   "1.14.53",
+  "1.14.54",
 ]);
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -2411,6 +2418,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.52",
         "1.14.53",
         "1.14.54",
+        "1.14.55",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");

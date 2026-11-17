@@ -299,7 +299,14 @@ function parsePolicy(text, provenance) {
       throw new Error("schema");
     if (
       Object.keys(parsed).some(
-        (key) => !["schema_version", "candidate_push", "probes", "delivery_bypass"].includes(key)
+        (key) =>
+          ![
+            "schema_version",
+            "candidate_push",
+            "probes",
+            "delivery_bypass",
+            "required_environment",
+          ].includes(key)
       )
     )
       throw new Error("unknown policy field");
@@ -331,6 +338,16 @@ function parsePolicy(text, provenance) {
       (!Array.isArray(parsed.probes) || parsed.probes.length > MAX_PROBE_DECLARATIONS)
     )
       throw new Error("probes must be a bounded array");
+    if (
+      parsed.required_environment !== undefined &&
+      (!Array.isArray(parsed.required_environment) ||
+        parsed.required_environment.length > 64 ||
+        new Set(parsed.required_environment).size !== parsed.required_environment.length ||
+        parsed.required_environment.some(
+          (name) => typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
+        ))
+    )
+      throw new Error("invalid required environment declarations");
     if (parsed.delivery_bypass !== undefined) {
       const bypass = parsed.delivery_bypass;
       const purposes = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);

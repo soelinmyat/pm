@@ -217,7 +217,7 @@ function validateSession(session) {
   validateAuthorityLog(session.authority_log, errors);
   validateRouting(session.routing, errors);
   validateCandidate(session.candidate, errors);
-  validateStateEvidence(session.evidence, errors);
+  validateStateEvidence(session.evidence, errors, session.routing);
   validateAttempts(session.attempts, errors);
   const currentRecovery = session.evidence?.[session.phase]?.recovery_history?.at?.(-1);
   if (
@@ -1007,7 +1007,7 @@ function validateHistory(history, errors) {
   });
 }
 
-function validateStateEvidence(evidence, errors) {
+function validateStateEvidence(evidence, errors, routing) {
   if (!isObject(evidence)) {
     errors.push(issue("$.evidence", "must be an object"));
     return;
@@ -1083,13 +1083,22 @@ function validateStateEvidence(evidence, errors) {
       else
         history.forEach((anchor, index) => {
           const at = `${evidencePath}.recovery_history[${index}]`;
-          const fields = new Set(["attempt", "round", "run_id", "commit", "outcome", "report"]);
+          const fields = new Set([
+            "attempt",
+            "round",
+            "run_id",
+            "commit",
+            "outcome",
+            "report",
+            "decision_boundary",
+          ]);
           if (!isObject(anchor)) {
             errors.push(issue(at, "must be an object"));
             return;
           }
           validateExactFields(anchor, fields, at, errors);
-          for (const field of fields) requireField(anchor, field, at, errors);
+          for (const field of fields)
+            if (field !== "decision_boundary") requireField(anchor, field, at, errors);
           for (const field of ["attempt", "round"])
             if (
               !Number.isInteger(anchor[field]) ||
@@ -1097,8 +1106,40 @@ function validateStateEvidence(evidence, errors) {
               (field === "round" && anchor.round > MAX_RECOVERY_ROUNDS)
             )
               errors.push(issue(`${at}.${field}`, "must be a bounded positive integer"));
+          const boundary = anchor.decision_boundary;
+          const previousAnchor = history[index - 1];
+          const loggedBoundary =
+            phase === "review" &&
+            index > 0 &&
+            isObject(boundary) &&
+            Object.keys(boundary).sort().join(",") ===
+              "from_version,predecessor_sha256,recorded_at,to_version" &&
+            Number.isInteger(boundary.from_version) &&
+            boundary.from_version >= 1 &&
+            Number.isInteger(boundary.to_version) &&
+            boundary.to_version > boundary.from_version &&
+            boundary.to_version <= routing?.decision_version &&
+            boundary.predecessor_sha256 === previousAnchor?.report?.sha256 &&
+            (routing?.decision_log || []).some(
+              (entry) =>
+                entry.version === boundary.to_version &&
+                entry.recorded_at === boundary.recorded_at &&
+                isIsoDate(entry.recorded_at) &&
+                entry.reason?.trim()
+            ) &&
+            anchor.run_id !== previousAnchor.run_id &&
+            anchor.round === 1 &&
+            anchor.attempt > previousAnchor.attempt;
+          if (boundary !== undefined && !loggedBoundary)
+            errors.push(
+              issue(
+                `${at}.decision_boundary`,
+                "requires the logged decision and exact predecessor binding"
+              )
+            );
           if (
             index > 0 &&
+            !loggedBoundary &&
             !(
               history[index - 1].outcome === "passed" &&
               anchor.run_id !== history[index - 1].run_id &&
@@ -1431,6 +1472,7 @@ function validateScopedGateEvidence(session, result, errors) {
     let policy;
     let round;
     let previous;
+    let reviewContext = null;
     if (phase === "review") {
       const { checkReview, expandFromReport } = require("../review-check");
       checked = checkReview(
@@ -1444,6 +1486,7 @@ function validateScopedGateEvidence(session, result, errors) {
       );
       const targetInput = readProjectInput(root, report.target?.path, 4 * 1024 * 1024);
       const target = JSON.parse(targetInput.bytes.toString("utf8"));
+      reviewContext = target.dev_context;
       policy = target.recovery_policy;
       round = report.review_round;
       previous = report.prior_report;
@@ -1492,9 +1535,57 @@ function validateScopedGateEvidence(session, result, errors) {
     const last = history.at(-1);
     const startsAfterPass =
       last?.outcome === "passed" && report.run_id !== last.run_id && round === 1;
+    // Match target creation's explicitly advanced Dev decision boundary. A new
+    // report version alone cannot reset history: re-read the exact retained
+    // predecessor target and require the runner's corresponding decision log.
+    let startsAfterNewDecision = false;
+    let decisionBoundary = null;
     if (
       last &&
       !startsAfterPass &&
+      phase === "review" &&
+      round === 1 &&
+      report.run_id !== last.run_id &&
+      reviewContext?.run_id === session.run_id &&
+      reviewContext?.slug === session.slug &&
+      reviewContext?.decision_version === session.routing.decision_version
+    ) {
+      const retained = readProjectInput(root, last.report.path, 4 * 1024 * 1024);
+      if (crypto.createHash("sha256").update(retained.bytes).digest("hex") !== last.report.sha256)
+        throw new Error("retained predecessor report binding changed");
+      const oldReport = JSON.parse(retained.bytes);
+      const oldTarget = readProjectInput(root, oldReport.target.path, 4 * 1024 * 1024);
+      if (
+        crypto.createHash("sha256").update(oldTarget.bytes).digest("hex") !==
+        oldReport.target.sha256
+      )
+        throw new Error("retained predecessor target binding changed");
+      const oldContext = JSON.parse(oldTarget.bytes).dev_context;
+      const decision = session.routing.decision_log.find(
+        (entry) =>
+          entry.version === reviewContext.decision_version &&
+          typeof entry.reason === "string" &&
+          entry.reason.trim() &&
+          isIsoDate(entry.recorded_at)
+      );
+      startsAfterNewDecision =
+        oldContext?.run_id === session.run_id &&
+        oldContext?.slug === session.slug &&
+        Number.isInteger(oldContext?.decision_version) &&
+        oldContext.decision_version < reviewContext.decision_version &&
+        Boolean(decision);
+      if (startsAfterNewDecision)
+        decisionBoundary = {
+          from_version: oldContext.decision_version,
+          to_version: reviewContext.decision_version,
+          predecessor_sha256: last.report.sha256,
+          recorded_at: decision.recorded_at,
+        };
+    }
+    if (
+      last &&
+      !startsAfterPass &&
+      !startsAfterNewDecision &&
       (report.run_id !== last.run_id ||
         round !== last.round + 1 ||
         previous?.path !== last.report.path ||
@@ -1512,6 +1603,7 @@ function validateScopedGateEvidence(session, result, errors) {
       run_id: report.run_id,
       commit,
       outcome: report.outcome,
+      ...(decisionBoundary ? { decision_boundary: decisionBoundary } : {}),
       report: {
         path: relative,
         sha256: crypto.createHash("sha256").update(input.bytes).digest("hex"),

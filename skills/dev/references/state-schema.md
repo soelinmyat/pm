@@ -441,3 +441,13 @@ same live destination. It does not require the merged feature to remain an
 unmerged branch diff.
 Recovery itself grants no passing gate or external authority. Preserve the old
 Review artifacts; this operation cannot repair or reset a separate Review lineage.
+
+### Explicit new task decisions and retained Review history
+
+`advance-decision` is for a genuine externally supplied change of direction, not
+for resetting an unresolved reviewer dispute. A fresh full Review bound to the
+new canonical decision can start a new run. The phase writer independently checks
+the logged decision, current run/slug/version and the exact retained predecessor
+report/target hashes before appending a `decision_boundary` record. The old
+anchors and outcomes remain unchanged. A higher version in a report without the
+canonical log, or a changed predecessor, cannot reset phase history.

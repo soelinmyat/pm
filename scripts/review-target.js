@@ -88,12 +88,29 @@ function buildReviewTarget(options) {
     : null;
   if (priorTarget && priorTarget.binding.sha256 !== priorLoaded.value.target.sha256)
     throw new Error("prior target bytes changed");
+  let priorResolution = null;
+  if (options.priorResolutionPath) {
+    if (!priorReport)
+      throw new Error("classification resolution requires an exact predecessor report");
+    const loaded = optionalJsonFileBinding(
+      root,
+      options.priorResolutionPath,
+      "prior classification resolution"
+    );
+    require("./review-classification").verifyClassificationResolution(
+      root,
+      loaded.binding,
+      priorReport
+    );
+    priorResolution = loaded.binding;
+  }
   const previousDecisionRequired =
     recoveryRequiresAuthority(priorTarget?.value?.recovery) ||
-    (priorLoaded?.value?.unresolved_disagreements || []).length > 0 ||
-    (priorLoaded?.value?.findings || []).some(
-      (finding) => finding.decision_required || finding.disputed
-    );
+    (!priorResolution &&
+      ((priorLoaded?.value?.unresolved_disagreements || []).length > 0 ||
+        (priorLoaded?.value?.findings || []).some(
+          (finding) => finding.decision_required || finding.disputed
+        )));
   if (previousDecisionRequired && recovery === undefined)
     throw new Error(
       "unresolved predecessor decision authority requires a retained recovery diagnosis; use the trusted product-decision boundary rather than omitting the decision"
@@ -194,6 +211,7 @@ function buildReviewTarget(options) {
     lenses,
     allocation,
     prior_report: priorReport,
+    ...(priorResolution ? { prior_resolution: priorResolution } : {}),
   };
 }
 
@@ -692,6 +710,7 @@ function parseArgs(argv) {
     "--dev-session": "devSessionPath",
     "--design-critique": "designCritiquePath",
     "--prior-report": "priorReportPath",
+    "--prior-resolution": "priorResolutionPath",
     "--recovery": "recoveryPath",
   };
   for (let index = 0; index < argv.length; index += 1) {

@@ -10763,3 +10763,22 @@ test("push-preflight release retains frozen 1.14.53 native evidence unchanged", 
   for (const [file, bytes] of retained)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
+
+for (const version of ["1.14.49", "1.14.50", "1.14.53", "1.14.54", "1.14.55", "1.14.56"]) {
+  test(`execution-receipt release bounds native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.55");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, !["1.14.49", "1.14.56"].includes(version));
+  });
+}
+
+test("execution-receipt release retains frozen 1.14.54 native bytes", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.54" });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});

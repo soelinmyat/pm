@@ -725,3 +725,62 @@ test("PATH, shim, or allowlisted env retarget after preflight blocks stale execu
   );
   assert.equal(second.status, "blocked");
 });
+
+test("declared required configuration fails early without exposing values; identity detects drift", () => {
+  const plan = {
+    expectations: { runtimes: [], probes: [], required_environment: ["DEMO_PASSWORD"] },
+  };
+  const identityKey = "configuration-identity-key-".repeat(3);
+  for (const value of [undefined, "", "   "]) {
+    const result = verifyEnvironment(plan, { env: { DEMO_PASSWORD: value }, identityKey });
+    assert.equal(result.status, "blocked");
+    assert.ok(result.issues.some((issue) => issue.kind === "missing-configuration"));
+  }
+  const first = verifyEnvironment(plan, {
+    env: { DEMO_PASSWORD: "private-value-one" },
+    identityKey,
+  });
+  assert.equal(first.status, "verified");
+  assert.doesNotMatch(JSON.stringify(first), /private-value/);
+  const changed = verifyEnvironment(plan, {
+    env: { DEMO_PASSWORD: "private-value-two" },
+    identityKey,
+    requireIdentity: first.identity,
+  });
+  assert.equal(changed.status, "blocked");
+  assert.ok(changed.issues.some((issue) => issue.kind === "environment-drift"));
+  assert.doesNotMatch(JSON.stringify(changed), /private-value/);
+  assert.equal(verifyEnvironment(plan, { env: { DEMO_PASSWORD: "private" } }).status, "blocked");
+});
+
+test("malformed configuration declarations fail closed before heavy work", () => {
+  for (const required_environment of [
+    "PASSWORD",
+    ["bad name"],
+    ["A", "A"],
+    Array.from({ length: 65 }, (_, i) => `X${i}`),
+  ]) {
+    assert.equal(
+      verifyEnvironment({ expectations: { required_environment } }, { env: {} }).status,
+      "blocked"
+    );
+  }
+});
+
+test("published preflight schema admits only bounded unique required setting names", () => {
+  const Ajv = require("ajv/dist/2020");
+  const validate = new Ajv().compile(
+    require("../skills/ship/references/repository-environment-preflight.schema.json")
+  );
+  for (const [required_environment, expected] of [
+    [["DEMO_PASSWORD"], true],
+    [[], true],
+    [["bad name"], false],
+    [["A", "A"], false],
+    [Array.from({ length: 65 }, (_, i) => `X${i}`), false],
+  ])
+    assert.equal(
+      validate({ schema_version: 1, runtimes: [], probes: [], required_environment }),
+      expected
+    );
+});

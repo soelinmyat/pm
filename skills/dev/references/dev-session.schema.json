@@ -1319,6 +1319,34 @@
         "report"
       ],
       "properties": {
+        "decision_boundary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from_version",
+            "to_version",
+            "predecessor_sha256",
+            "recorded_at"
+          ],
+          "properties": {
+            "from_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "to_version": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "predecessor_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "recorded_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
         "attempt": {
           "type": "integer",
           "minimum": 1

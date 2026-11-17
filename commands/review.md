@@ -13,3 +13,8 @@ New reviews preserve immutable upstream design snapshots. For older targets whos
 After the scoped recovery threshold, retain the same run and immutable failed reports, diagnose the failure and change the approach before fresh affected checks. A round count alone does not revoke approved scope; genuine decisions, disputes and risk changes still escalate.
 
 Projects requiring MCP feature coverage follow `references/mcp-feature-coverage.md`: assess agent workflows during scoping, carry contracts into implementation, and verify current coverage before completion. Dev delivery enforces the opted-in project policy through its verification gate.
+
+Finalized classification-only disputes can use the
+[immutable peer-consensus protocol](../skills/review/references/evidence-contract.md#frozen-classification-reconciliation).
+Original reports remain frozen; stronger behavioral safeguards and complete
+successor-source review still apply.
