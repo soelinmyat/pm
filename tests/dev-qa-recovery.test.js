@@ -5,7 +5,221 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { fixture, digest } = require("./helpers/qa-recovery-fixture");
+const { fixture, digest, publishedHistory } = require("./helpers/qa-recovery-fixture");
+
+test("require-qa recovers an already published PR without altering its historical effects or legacy QA bindings", (t) => {
+  const f = fixture(t);
+  const tr = publishedHistory(f);
+  fs.writeFileSync(f.transactionPath, JSON.stringify(tr, null, 2) + "\n");
+  const beforeTransaction = fs.readFileSync(f.transactionPath);
+  const beforeSession = fs.readFileSync(f.sessionPath);
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  const next = JSON.parse(fs.readFileSync(f.sessionPath));
+  const archive = JSON.parse(
+    fs.readFileSync(path.join(f.root, next.routing.qa_recovery.archive.path))
+  );
+  assert.equal(next.phase, "qa");
+  assert.equal(next.evidence.qa, undefined);
+  assert.equal(next.evidence.review.commit, null);
+  assert.deepEqual(next.authority, f.session.authority);
+  assert.equal(archive.session, beforeSession.toString());
+  assert.equal(archive.transaction, beforeTransaction.toString());
+  assert.deepEqual(fs.readFileSync(f.transactionPath), beforeTransaction);
+  assert.equal(f.run().status, 0);
+});
+
+test("require-qa recognizes the explicit missing-QA recovery blocker", (t) => {
+  const f = fixture(t);
+  replaceSession(f, (s) => {
+    s.blockers[0].code = "pm-missing-qa-recovery";
+  });
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const [name, edit, message] of [
+  [
+    "ambiguous publication",
+    (tr) => {
+      tr.history[0].effects.push.status = "attempting";
+    },
+    /invalid historical|unresolved/,
+  ],
+  [
+    "unresolved earlier attempt",
+    (tr) => {
+      tr.history[0].effects.push.attempts.unshift({
+        ...tr.history[0].effects.push.attempts[0],
+        status: "attempting",
+        finished_at: null,
+      });
+    },
+    /invalid historical|unresolved/,
+  ],
+  [
+    "forged receipt",
+    (tr) => {
+      tr.history[0].effects["create-pr"].verified_receipt.receipt.head_oid = "f".repeat(40);
+    },
+    /invalid historical/,
+  ],
+  [
+    "changed remote",
+    (tr) => {
+      tr.history[0].effects.push.target.remote = "other";
+    },
+    /invalid historical/,
+  ],
+  [
+    "unknown historical effect",
+    (tr) => {
+      tr.history[0].effects.merge = tr.history[0].effects.push;
+    },
+    /invalid historical|non-publication/,
+  ],
+  [
+    "canonical QA report",
+    (tr) => {
+      tr.history[0].evidence.qa.artifact = ".pm/dev-sessions/transport/qa/report.json";
+    },
+    /historical canonical QA/,
+  ],
+  [
+    "QA for another commit",
+    (tr) => {
+      tr.history[0].evidence.qa.commit = "f".repeat(40);
+    },
+    /historical canonical QA/,
+  ],
+  [
+    "merge attestation",
+    (tr) => {
+      tr.history[0].pr_body_attestation = {};
+    },
+    /invalid historical|merge attestations/,
+  ],
+  [
+    "noncontiguous history",
+    (tr) => {
+      tr.generation += 1;
+    },
+    /contiguous delivery history/,
+  ],
+]) {
+  test(`published require-qa rejects ${name} without changing evidence`, (t) => {
+    const f = fixture(t);
+    const tr = publishedHistory(f);
+    edit(tr);
+    fs.writeFileSync(f.transactionPath, JSON.stringify(tr));
+    const before = fs.readFileSync(f.transactionPath);
+    const result = f.run();
+    assert.equal(result.status, 3, result.stderr);
+    assert.match(result.stderr, message);
+    assert.deepEqual(fs.readFileSync(f.sessionPath), f.before);
+    assert.deepEqual(fs.readFileSync(f.transactionPath), before);
+    assert.equal(fs.existsSync(path.join(path.dirname(f.sessionPath), "recovery")), false);
+  });
+}
+
+test("published require-qa rejects unrelated historical ancestry", (t) => {
+  const f = fixture(t);
+  const tr = publishedHistory(f);
+  // Keep every receipt/key internally valid, but make the current branch a new
+  // root: publication history must belong to this delivery's actual ancestry.
+  assert.equal(
+    spawnSync("git", ["checkout", "--orphan", "replacement"], { cwd: f.root }).status,
+    0
+  );
+  assert.equal(spawnSync("git", ["commit", "-m", "unrelated root"], { cwd: f.root }).status, 0);
+  assert.equal(spawnSync("git", ["branch", "-M", "fix/transport"], { cwd: f.root }).status, 0);
+  const head = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: f.root,
+    encoding: "utf8",
+  }).stdout.trim();
+  tr.release.prepared_commit = head;
+  fs.writeFileSync(f.transactionPath, JSON.stringify(tr));
+  const args = [...f.args];
+  args[args.indexOf("--commit") + 1] = head;
+  const result = f.run(args);
+  assert.equal(result.status, 3, result.stderr);
+  assert.deepEqual(fs.readFileSync(f.sessionPath), f.before);
+});
+
+test("published require-qa refuses a valid planned historical merge", (t) => {
+  const f = fixture(t);
+  const tr = publishedHistory(f);
+  const generation = tr.history[0];
+  const { planEffect, transactionIssues } = require("../scripts/lib/release-transaction-schema");
+  const prior = planEffect(
+    {
+      ...tr,
+      history: [],
+      generation: 1,
+      release: { ...tr.release, prepared_commit: generation.prepared_commit },
+      evidence: generation.evidence,
+      effects: generation.effects,
+    },
+    {
+      effect: "merge",
+      target: {
+        repository: "test/repo",
+        pr_number: 42,
+        head_commit: generation.prepared_commit,
+        base: "main",
+        method: "squash",
+        body_sha256: generation.effects["create-pr"].target.body_sha256,
+      },
+    }
+  );
+  assert.deepEqual(transactionIssues(prior), []);
+  generation.effects = prior.effects;
+  fs.writeFileSync(f.transactionPath, JSON.stringify(tr));
+  const result = f.run();
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stderr, /non-publication historical delivery effects/);
+  assert.deepEqual(fs.readFileSync(f.sessionPath), f.before);
+});
+
+for (const samePr of [true, false]) {
+  test(`published require-qa ${samePr ? "preserves" : "rejects"} PR identity across historical generations`, (t) => {
+    const f = fixture(t);
+    const first = publishedHistory(f);
+    const second = publishedHistory(f, samePr ? 42 : 43).history[0];
+    second.generation = 2;
+    first.history.push(second);
+    first.generation = 3;
+    fs.writeFileSync(f.transactionPath, JSON.stringify(first));
+    const result = f.run();
+    assert.equal(result.status, samePr ? 0 : 3, result.stderr);
+    if (!samePr) {
+      assert.match(result.stderr, /one historical PR identity/);
+      assert.deepEqual(fs.readFileSync(f.sessionPath), f.before);
+    }
+  });
+}
+
+test("recovered publication cannot switch to another PR or delivery destination", (t) => {
+  const f = fixture(t);
+  const tr = publishedHistory(f);
+  fs.writeFileSync(f.transactionPath, JSON.stringify(tr));
+  assert.equal(f.run().status, 0);
+  const session = JSON.parse(fs.readFileSync(f.sessionPath));
+  session.phase = "ship";
+  const switched = publishedHistory(f, 43);
+  switched.effects = switched.history.at(-1).effects;
+  const { assertRecoveryDeliveryReady } = require("../scripts/lib/dev-qa-recovery");
+  assert.throws(
+    () => assertRecoveryDeliveryReady(session, switched, "merge"),
+    /same historical PR/
+  );
+  switched.effects = {};
+  switched.source.repository = "other/repo";
+  assert.throws(
+    () => assertRecoveryDeliveryReady(session, switched, "push"),
+    /destination changed/
+  );
+});
 test("require-qa preserves predecessor evidence and authority while withdrawing downstream certification", (t) => {
   const f = fixture(t);
   const result = f.run();

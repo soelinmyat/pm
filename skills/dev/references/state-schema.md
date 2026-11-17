@@ -414,11 +414,23 @@ check. It is not a skip or a reroute of approved scope.
 Read the canonical session, compute its exact byte SHA-256 (`sha256:<hex>`), and
 pass that digest, current feature HEAD and a concrete reason. The command accepts
 active Ship sessions or blocked Ship sessions whose only unresolved blockers are
-`missing-qa` or `pm-unrouted-mobile-qa-contract`. Completed implementation and
+`missing-qa`, `pm-unrouted-mobile-qa-contract` or `pm-missing-qa-recovery`. Completed implementation and
 Review are required. It rejects any prior QA route/evidence/attempt, optimized
 candidate, missing write authority, stale identity, unsafe path or delivery effect
-in the current or any historical transaction generation. Resolve unrelated
+in the current transaction generation. Resolve unrelated
 product, permission or dependency blockers through their owning workflow first.
+
+An already published PR can recover when the current generation has no effects
+or QA binding. Historical effects must consist exclusively of verified
+`push`, `create-pr` and optional `ready-pr` records, with verified dependencies,
+consistent receipts, the same repository/remote/branches and one PR number across
+all generations. Each published commit must be an ancestor of current HEAD.
+Unresolved attempts, incomplete publication, optimized candidates, merge/tag/
+tracker effects and merge attestations remain ineligible. A historical QA
+binding is accepted only as legacy metadata pointing to this session's exact
+`gates.json` path and that generation's commit; a canonical QA report binding
+still blocks first-QA recovery. Neither kind supplies current QA certification.
+The runner deeply validates retained generations without rewriting them.
 
 Under both session and transaction locks, the runner exclusively writes
 `recovery/require-qa/<original-session-digest>.json`, preserving the exact original
@@ -434,7 +446,12 @@ record it normally. Then perform fresh Review and verification; Review attempts
 continue above retained attempts. The recovered QA cannot be skipped, and release
 `begin` rechecks current canonical gates and newly bound QA/Review/verification
 before every new external action. Observe-first and already-verified decisions
-cannot execute an action. After a verified merge, tag/tracker execution retains
+cannot execute an action. Reconcile the existing PR through Ship's normal
+observer after fresh certification; do not create a replacement PR. Delivery
+retains the archived destination and rejects a different verified PR number.
+Recovery does not claim that a historically observed PR is still open: Ship must
+freshly observe its current head/state/body and CI before further delivery.
+After a verified merge, tag/tracker execution retains
 all evidence checks and validates the exact prepared Review against its frozen
 base, requiring frozen-base → verified-merge → live-default ancestry and the
 same live destination. It does not require the merged feature to remain an

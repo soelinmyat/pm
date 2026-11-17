@@ -3502,8 +3502,13 @@ function makeRepo() {
   };
 }
 
-test("first-QA recovery records real checked report history and continues Review attempts", (t) => {
+function checkFirstQaRecovery(t, published) {
   const f = require("./helpers/qa-recovery-fixture").fixture(t, { versioned: true });
+  if (published)
+    fs.writeFileSync(
+      f.transactionPath,
+      JSON.stringify(require("./helpers/qa-recovery-fixture").publishedHistory(f, 1))
+    );
   const recovered = f.run();
   assert.equal(recovered.status, 0, recovered.stderr);
   const session = JSON.parse(fs.readFileSync(f.sessionPath));
@@ -3779,4 +3784,8 @@ test("first-QA recovery records real checked report history and continues Review
   bad.receipts[0].output.sha256 = "0".repeat(64);
   fs.writeFileSync(reportPath, JSON.stringify(bad));
   assert.throws(() => recordResult(session, result), /QA|qa|hash|digest/);
-});
+}
+
+for (const published of [false, true])
+  test(`first-QA recovery ${published ? "with historical publication " : ""}records real checked report history and continues Review attempts`, (t) =>
+    checkFirstQaRecovery(t, published));
