@@ -10868,3 +10868,214 @@ test("provider-schema release retains frozen 1.14.57 native bytes", (t) => {
   for (const [file, bytes] of retained)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
+
+test("interrupted transport before any report can recapture advanced source in the first completed round", (t) => {
+  const interrupted = makeFixture();
+  t.after(() => fs.rmSync(interrupted.root, { recursive: true, force: true }));
+  const { git, base, oldCommit } = bindRecoveryDCSource(interrupted, t);
+  // Synthetic interrupted attempt: there was no finalized report or Fresh Eyes
+  // receipt. Keep all remaining raw inputs/captures/Primary evidence untouched.
+  const missingFresh = interrupted.reviews.rounds[0].reviews.find(
+    (review) => review.perspective === "fresh-eyes"
+  ).execution.receipt.path;
+  for (const file of [
+    interrupted.reportPath,
+    interrupted.reviewsPath,
+    interrupted.report.human_report.path,
+    missingFresh,
+  ])
+    fs.rmSync(path.join(interrupted.root, file));
+  const retained = new Map();
+  const retain = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) retain(file);
+      else retained.set(file, fs.readFileSync(file));
+    }
+  };
+  retain(path.join(interrupted.root, "evidence"));
+  fs.writeFileSync(path.join(interrupted.root, "source.txt"), "integrated current source\n");
+  git(["add", "source.txt"]);
+  git(["commit", "-qm", "advance after interrupted transport"]);
+  const currentCommit = git(["rev-parse", "HEAD"]);
+  const current = makeFixture();
+  t.after(() => fs.rmSync(current.root, { recursive: true, force: true }));
+  const currentGit = (...args) =>
+    execFileSync("git", args, {
+      cwd: current.root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  currentGit("init", "-q", "-b", "retry");
+  currentGit("remote", "add", "origin", git(["remote", "get-url", "origin"]));
+  currentGit("fetch", "-q", interrupted.root, currentCommit);
+  currentGit("checkout", "-q", "-B", "retry", oldCommit);
+  let session = createSession({ slug: "example", sourceDir: current.root });
+  session.phase = "design-critique";
+  session.routing.required_phases = ["design-critique", "review", "ship"];
+  session = recordResult(
+    session,
+    dcRunnerResult(session, {
+      status: "blocked",
+      commit: oldCommit,
+      evidence: [],
+      blocker: collectorBlocker(),
+    })
+  );
+  assert.equal(session.evidence["design-critique"]?.recovery_history, undefined);
+  currentGit("checkout", "-q", "-B", "retry", currentCommit);
+  current.route.source = {
+    commit: currentCommit,
+    base_ref: "origin/main",
+    base_commit: base,
+    diff_sha256: digest(
+      execFileSync("git", ["diff", "--binary", `${base}...${currentCommit}`], { cwd: current.root })
+    ),
+  };
+  rewrite(current.root, current.routePath, current.route);
+  current.captures.commit = currentCommit;
+  current.captures.route = binding(current.root, current.routePath);
+  for (const entry of current.captures.evidence)
+    rewriteNormalizedAudit(current, entry, (audit) => {
+      audit.commit = currentCommit;
+    });
+  refreshTrustedCaptureObservations(current);
+  rewrite(current.root, current.capturesPath, current.captures);
+  current.report.commit = currentCommit;
+  current.report.route = current.captures.route;
+  current.report.captures = binding(current.root, current.capturesPath);
+  refreshReviews(current);
+  current.reviews.recovery_policy = "scoped-diagnosis-v1";
+  for (const row of current.reviews.rounds[0].reviews) {
+    row.execution.context_id += "-current-attempt";
+    row.execution.invocation_id += "-current-attempt";
+    attachReviewReceipt(current.root, row, 1);
+  }
+  rewriteReviewsAndReport(current);
+  const options = { verifyGit: true, baseRef: "origin/main", baseCommit: base };
+  const currentChecked = check(current, currentCommit, options);
+  assert.equal(currentChecked.ok, true, JSON.stringify(currentChecked.issues));
+  assert.equal(
+    check(current, oldCommit, options).ok,
+    false,
+    "old source cannot certify current HEAD"
+  );
+  const fresh = current.reviews.rounds[0].reviews.find((r) => r.perspective === "fresh-eyes");
+  const receiptPath = path.join(current.root, fresh.execution.receipt.path);
+  const receipt = fs.readFileSync(receiptPath);
+  fs.rmSync(receiptPath);
+  assert.equal(
+    check(current, currentCommit, options).ok,
+    false,
+    "missing current Fresh Eyes stays blocked"
+  );
+  fs.writeFileSync(receiptPath, receipt);
+  session = resumeBlocked(
+    session,
+    "Transport restored; fresh captures and review at current source"
+  );
+  assert.equal(session.phase_attempt, 2);
+  const accepted = recordResult(
+    session,
+    dcRunnerResult(session, {
+      status: "passed",
+      commit: currentCommit,
+      evidence: [dcReportEvidence(current)],
+      blocker: null,
+    })
+  );
+  const anchor = accepted.evidence["design-critique"].recovery_history[0];
+  assert.equal(anchor.attempt, 2);
+  assert.equal(anchor.round, 1);
+  assert.equal(accepted.evidence["design-critique"].commit, currentCommit);
+  assert.equal(current.reviews.rounds[0].previous_report, undefined);
+  for (const [file, bytes] of retained) assert.deepEqual(fs.readFileSync(file), bytes);
+  assert.equal(fs.existsSync(path.join(interrupted.root, interrupted.reportPath)), false);
+});
+
+test("Design Critique instructions distinguish interrupted attempts from completed rounds", () => {
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  for (const required of [
+    "## Interrupted transport before the first report",
+    "first completed review round remains round 1",
+    "preserve the original run ID",
+    "fresh current-source captures and both real reviewers",
+    "This path is unavailable if a finalized report or recovery-history anchor exists",
+  ])
+    assert.equal(contract.includes(required), true, `Missing recovery instruction: ${required}`);
+});
+
+for (const version of ["1.14.49", "1.14.50", "1.14.58", "1.14.59", "1.14.60", "999.0.0"]) {
+  test(`interrupted-attempt release bounds native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.59");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, ["1.14.50", "1.14.58", "1.14.59"].includes(version));
+  });
+}
+
+test("interrupted-attempt release retains frozen 1.14.58 native bytes", (t) => {
+  const { fixture, base, newCommit } = thirdRecoveryDCFixture(t, { checkpointVersion: "1.14.58" });
+  const retained = recoveryDCFiles(fixture.root);
+  assert.deepEqual(
+    check(fixture, newCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }),
+    { ok: true, issues: [] }
+  );
+  for (const [file, bytes] of retained)
+    assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
+});
+
+test("interrupted partial findings stay retained and cannot enter a first-round prior-findings input", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const primary = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  const finding = {
+    subject_id: "account-detail",
+    region: "actions",
+    rule: "unreachable-action",
+    coverage_ids: ["ui-primary"],
+    evidence_ids: [primary.input.capture_ids[0]],
+    priority: "P1",
+    owner: "design-critique",
+    basis: "objective",
+    confidence: "high",
+    summary: "The retained partial reviewer found an unreachable action.",
+    impact: "The required action cannot be reached.",
+    remediation: "Restore the action and verify current evidence.",
+  };
+  finding.id = reviewFindingId("dc-retained-primary", finding);
+  const retained = write(
+    fixture.root,
+    "history/interrupted-primary.json",
+    JSON.stringify({
+      review_id: "dc-retained-primary",
+      result: { ...primary.result, findings: [finding] },
+    })
+  );
+  const bytes = fs.readFileSync(path.join(fixture.root, retained.path));
+  const payload = {
+    ...primary.input,
+    prior_finding_refs: [{ review_id: "dc-retained-primary", finding_id: finding.id }],
+  };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(fixture.root, primary, 1);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some((issue) => /round 1 cannot contain prior findings/.test(issue.message))
+  );
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, retained.path)), bytes);
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  assert.equal(
+    contract.includes("unresolved partial-review findings or genuine decisions remain blocked"),
+    true,
+    "Missing explicit boundary for unresolved partial findings"
+  );
+});

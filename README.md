@@ -453,6 +453,8 @@ separate user-coordinated steps.
 
 Codex workers use a provider-compatible JSON transport while PM validates the complete canonical result locally, including conditional rules, evidence, commit identity and owned paths. Provider schema/HTTP 400 failures remain distinct from actual usage limits; unrelated telemetry cannot turn a configuration rejection into quota advice.
 
+Interrupted Design Critique transport attempts retain their evidence and attempt history. Before any finalized report or recovery anchor exists, and with no retained partial findings or unresolved decisions, a restored runtime can complete the same run’s first review round using fresh current-source captures and both reviewers; completed failures keep their immutable predecessor chain.
+
 PM separates retained feature review from integration checks when main advances. `scripts/review-impact.js` reports changed upstream paths against an explicitly complete dependency/contract closure; unknown coverage requires full validation. The report is advisory, while the existing review freshness checker and exact-head CI remain delivery gates. Identical workflow grants reuse their audit; material changes and platform permissions retain their own approval requirements.
 
 QA preflights fixtures, selectors, capture names, build setup and simulator ownership, and distinguishes harness failures from product assertions. Report formatting repairs preserve acceptance evidence only when its source and run bindings remain valid. Git KB sync records a live remote acknowledgement and blocks pull with staged changes to preserve staged and working variants. Missing upstream, mixed ownership, conflicts and unavailable remotes stay explicit blockers.
