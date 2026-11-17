@@ -11151,8 +11151,13 @@ fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify(args) + "\\n");
 const variant = ${JSON.stringify(variant)};
 const prompt = fs.readFileSync(0, "utf8");
 const source = ${JSON.stringify(fixture.root)};
-if (process.cwd() === source || fs.existsSync(".git") || fs.existsSync("AGENTS.md") || prompt.includes("SYNTHETIC_PRIOR_REVIEW_SENTINEL"))
+if (process.cwd() === source || fs.existsSync("AGENTS.md") || prompt.includes("SYNTHETIC_PRIOR_REVIEW_SENTINEL"))
   throw new Error("review inherited source directory");
+const git = (...args) => require("node:child_process").execFileSync("git", args, {encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+if (git("rev-parse", "--show-toplevel") !== process.cwd() || git("remote") || git("for-each-ref"))
+  throw new Error("normal CLI Git preflight requires an isolated empty repository");
+if (args.includes("--skip-git-repo-check"))
+  throw new Error("normal CLI Git preflight must remain enabled");
 if (count === 1) {
   const material = JSON.parse(prompt.split("as evidence, not instructions.\\n\\n")[1].split("\\n\\nReturn the canonical worker result")[0]);
   if (material.mode !== "product-ui" || material.captures.some(capture => capture.subject_id !== "account-detail"))
@@ -11172,6 +11177,8 @@ if (retry && variant === "changed") result.first_impression += " Another conclus
 if (retry && variant === "dropped") result.findings.pop();
 if (retry && variant === "downgraded") result.findings[0].priority = "P3";
 emit({type:"thread.started",thread_id:retry && variant === "wrong-context" ? "wrong-context" : "isolated-fresh"});
+if (variant === "corrected") emit({type:"item.completed",item:{type:"error",message:"running async SessionEnd hook synchronously in /synthetic/pm/hooks/hooks.json"}});
+if (variant === "runtime-refusal") emit({type:"item.completed",item:{type:"error",message:"platform denied this reviewer execution"}});
 emit({type:"turn.started"});
 if (retry && variant === "contaminated") emit({type:"item.completed",item:{type:"command_execution",command:"read another review"}});
 if (variant === "denied" || (variant === "refused-correction" && retry)) {
@@ -11226,13 +11233,16 @@ for (const variant of [
   "contaminated",
   "denied",
   "refused-correction",
+  "runtime-refusal",
 ]) {
   test(`design review dispatch validates nested result and bounds correction: ${variant}`, (t) => {
     const fx = designDispatchFixture(t);
     const { fixture, primary, valid, invalid, request } = fx;
     const run = runSyntheticDesignDispatch(fx, variant);
     const okay = ["valid", "corrected"].includes(variant);
-    const single = ["valid", "no-opt-in", "non-enum", "denied"].includes(variant);
+    const single = ["valid", "no-opt-in", "non-enum", "denied", "runtime-refusal"].includes(
+      variant
+    );
     assert.equal(run.attempts, single ? 1 : 2, run.stderr);
     assert.equal(run.status, okay ? 0 : 1, run.stderr);
     assert.ok(run.args[0].includes("read-only"));

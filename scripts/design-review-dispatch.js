@@ -105,7 +105,18 @@ function observeCodex(complete, images, baseCommit, executionDirectory) {
     onEvent(event) {
       if (!event) unsafe = true;
       else if (event.type === "thread.started") threads++;
-      else if (event.type === "turn.started") started++;
+      else if (
+        threads === 1 &&
+        started === 0 &&
+        event.type === "item.completed" &&
+        event.item?.type === "error" &&
+        /^running async SessionEnd hook synchronously in .+\/hooks\/hooks\.json$/.test(
+          event.item.message
+        )
+      ) {
+        // The installed app CLI reports this benign hook scheduling notice
+        // before the turn. Every other error or unexpected item fails closed.
+      } else if (event.type === "turn.started") started++;
       else if (event.type === "turn.completed") completed++;
       else if (event.type === "item.completed" && event.item?.type === "agent_message")
         finalMessage = event.item.text;
@@ -173,6 +184,13 @@ function prepareImages(root, captures, directory) {
       throw new Error("reviewer directory inherits project instructions");
     if (path.dirname(current) === current) break;
   }
+  // Keep Codex's repository preflight intact. An empty repository supplies
+  // that boundary without discovering the consumer's project instructions.
+  if (process.env.GIT_DIR || process.env.GIT_WORK_TREE || process.env.GIT_COMMON_DIR)
+    throw new Error("cannot initialize an isolated reviewer repository with redirected Git state");
+  execFileSync("git", ["init", "--quiet", "--template="], { cwd: directory, stdio: "pipe" });
+  if (!fs.lstatSync(path.join(directory, ".git")).isDirectory())
+    throw new Error("reviewer Git state is not local to the isolated directory");
   let remaining = MAX_IMAGES;
   return captures.map((capture, index) => {
     if (capture.kind !== "screenshot" || !capture.path.endsWith(".png"))
