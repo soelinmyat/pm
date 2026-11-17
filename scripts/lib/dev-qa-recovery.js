@@ -324,6 +324,12 @@ function assertRecoveryDeliveryReady(session, transaction, effect) {
   const currentPr = transaction.effects["create-pr"]?.verified_receipt?.receipt;
   if (prNumber !== null && currentPr && (currentPr.pr_number ?? currentPr.number) !== prNumber)
     throw new Error("QA recovery must reconcile the same historical PR before delivery");
+  if (
+    prNumber !== null &&
+    effect === "create-pr" &&
+    transaction.effects["create-pr"]?.target.existing_pr_number !== prNumber
+  )
+    throw new Error("QA recovery create-pr target must bind the historical existing_pr_number");
   for (const kind of ["qa", "review", "verification"]) {
     if (!transaction.evidence[kind] || transaction.evidence[kind].checked_at < recovery.recorded_at)
       throw new Error(`QA recovery requires fresh ${kind} release binding`);
@@ -401,6 +407,7 @@ function assertRecoveryDeliveryReady(session, transaction, effect) {
     throw new Error(
       `QA recovery delivery gates failed: ${checked.issues.map((issue) => issue.message).join("; ")}`
     );
+  return prNumber;
 }
 function relocateQaRecovery(session, activeDir, archiveDir) {
   const binding = session.routing.qa_recovery?.archive;

@@ -301,12 +301,19 @@ function runCommand(args, options = {}) {
       });
       // beginEffect is pure. Reconciliation decisions grant no execution; every
       // new action is checked before mutateTransaction persists the attempt.
-      if (begun.decision === "execute")
-        require("./lib/dev-qa-recovery").assertRecoveryDeliveryReady(
+      if (begun.decision === "execute") {
+        const existingPr = require("./lib/dev-qa-recovery").assertRecoveryDeliveryReady(
           session,
           transaction,
           args.effect
         );
+        if (args.effect === "create-pr" && Number.isInteger(existingPr)) {
+          // Recovery can observe its already published PR, never authorize
+          // replacement creation if that PR is now absent or closed.
+          begun.transaction.effects["create-pr"].attempts.at(-1).classification = "observation";
+          begun.decision = "observe-first";
+        }
+      }
       return begun;
     }
     if (args.command === "reconcile") {

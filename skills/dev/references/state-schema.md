@@ -449,6 +449,11 @@ before every new external action. Observe-first and already-verified decisions
 cannot execute an action. Reconcile the existing PR through Ship's normal
 observer after fresh certification; do not create a replacement PR. Delivery
 retains the archived destination and rejects a different verified PR number.
+Bind the archived PR number as `existing_pr_number` in the new Create PR target.
+For this recovery, `begin create-pr` records an observation attempt and returns
+`observe-first`; it never grants replacement creation. Reconcile only the exact
+open PR, or block if it is closed, missing or mismatched. An absent observation
+does not turn a retry into creation authority.
 Recovery does not claim that a historically observed PR is still open: Ship must
 freshly observe its current head/state/body and CI before further delivery.
 After a verified merge, tag/tracker execution retains

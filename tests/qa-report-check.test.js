@@ -3656,9 +3656,135 @@ function checkFirstQaRecovery(t, published) {
       commit: f.head,
       draft: false,
       body_sha256: bodyHash,
+      ...(published ? { existing_pr_number: 1 } : {}),
     },
     { pr_number: 1, state: "OPEN", head_oid: f.head, draft: false, body_sha256: bodyHash }
   );
+  if (published) {
+    // The supported CLI may only observe this existing PR, even if the live PR
+    // is absent/closed. It must never grant permission to create a replacement.
+    fs.writeFileSync(path.join(root, ".pm/dev-sessions/transport/ship/pr-body.md"), body);
+    const pending = structuredClone(delivered);
+    pending.effects["create-pr"].status = "planned";
+    pending.effects["create-pr"].attempts = [];
+    pending.effects["create-pr"].verified_receipt = null;
+    fs.writeFileSync(f.transactionPath, JSON.stringify(pending));
+    const cli = (...args) =>
+      spawnSync(
+        process.execPath,
+        [
+          path.resolve(__dirname, "../scripts/release-transaction.js"),
+          ...args,
+          "--transaction",
+          f.transactionPath,
+          "--json",
+        ],
+        { cwd: root, encoding: "utf8" }
+      );
+    const unbound = structuredClone(pending);
+    const unboundTarget = { ...unbound.effects["create-pr"].target };
+    delete unboundTarget.existing_pr_number;
+    delete unbound.effects["create-pr"];
+    fs.writeFileSync(
+      f.transactionPath,
+      JSON.stringify(planEffect(unbound, { effect: "create-pr", target: unboundTarget }))
+    );
+    const unboundBytes = fs.readFileSync(f.transactionPath);
+    const rejectedBegin = cli(
+      "begin",
+      "--session",
+      f.sessionPath,
+      "--effect",
+      "create-pr",
+      "--actor",
+      "root"
+    );
+    assert.notEqual(rejectedBegin.status, 0);
+    assert.match(rejectedBegin.stderr, /historical existing_pr_number/);
+    assert.deepEqual(fs.readFileSync(f.transactionPath), unboundBytes);
+    fs.writeFileSync(f.transactionPath, JSON.stringify(pending));
+    const begin = cli(
+      "begin",
+      "--session",
+      f.sessionPath,
+      "--effect",
+      "create-pr",
+      "--actor",
+      "root"
+    );
+    assert.equal(begin.status, 0, begin.stderr);
+    assert.equal(JSON.parse(begin.stdout).decision, "observe-first");
+    const before = fs.readFileSync(f.transactionPath);
+    const observed = JSON.parse(before);
+    assert.equal(observed.effects["create-pr"].attempts.at(-1).classification, "observation");
+    const target = observed.effects["create-pr"].target;
+    for (const receipt of [
+      { pr_number: 2, state: "OPEN", head_oid: f.head, draft: false, body_sha256: bodyHash },
+      { pr_number: 1, state: "CLOSED", head_oid: f.head, draft: false, body_sha256: bodyHash },
+    ]) {
+      const receiptPath = path.join(root, ".pm/dev-sessions/transport/ship/receipt.json");
+      const observationPath = path.join(root, ".pm/dev-sessions/transport/ship/observation.json");
+      fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+      fs.writeFileSync(observationPath, JSON.stringify({ target, receipt }));
+      const rejected = cli(
+        "reconcile",
+        "--effect",
+        "create-pr",
+        "--outcome",
+        "matched",
+        "--receipt-file",
+        receiptPath,
+        "--observation-file",
+        observationPath
+      );
+      assert.notEqual(rejected.status, 0);
+      assert.deepEqual(fs.readFileSync(f.transactionPath), before);
+    }
+    const absentPath = path.join(root, ".pm/dev-sessions/transport/ship/absent.json");
+    fs.writeFileSync(
+      absentPath,
+      JSON.stringify({ target, result: "exact historical PR not found" })
+    );
+    const absent = cli(
+      "reconcile",
+      "--effect",
+      "create-pr",
+      "--outcome",
+      "absent",
+      "--observation-file",
+      absentPath
+    );
+    assert.equal(absent.status, 0, absent.stderr);
+    const retry = cli(
+      "begin",
+      "--session",
+      f.sessionPath,
+      "--effect",
+      "create-pr",
+      "--actor",
+      "root"
+    );
+    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(JSON.parse(retry.stdout).decision, "observe-first");
+    const receipt = delivered.effects["create-pr"].verified_receipt.receipt;
+    const receiptPath = path.join(root, ".pm/dev-sessions/transport/ship/receipt.json");
+    const observationPath = path.join(root, ".pm/dev-sessions/transport/ship/observation.json");
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+    fs.writeFileSync(observationPath, JSON.stringify({ target, receipt }));
+    const matched = cli(
+      "reconcile",
+      "--effect",
+      "create-pr",
+      "--outcome",
+      "matched",
+      "--receipt-file",
+      receiptPath,
+      "--observation-file",
+      observationPath
+    );
+    assert.equal(matched.status, 0, matched.stderr);
+    delivered = JSON.parse(fs.readFileSync(f.transactionPath));
+  }
   delivered = attestPrBody(delivered, {
     observation: {
       repository: "test/repo",

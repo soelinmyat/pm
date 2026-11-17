@@ -871,6 +871,11 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
   }
   if (name === "create-pr") {
+    if (
+      target.existing_pr_number !== undefined &&
+      (!Number.isInteger(target.existing_pr_number) || target.existing_pr_number < 1)
+    )
+      throw new Error("create-pr existing_pr_number must be a positive PR number");
     requireTargetMatch(target, "repository", transaction.source.repository, "repository");
     requireTargetMatch(target, "head", transaction.source.head_branch, "head branch");
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
@@ -951,6 +956,8 @@ function validateMatchedReceipt(name, target, receipt) {
     if (!Number.isInteger(number) || number < 1) {
       throw new Error("create-pr receipt requires a positive PR number");
     }
+    if (target.existing_pr_number !== undefined && number !== target.existing_pr_number)
+      throw new Error("create-pr receipt must match the bound existing PR number");
     requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
     requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
     if (target.draft !== undefined || receipt.draft !== undefined) {
