@@ -21,6 +21,66 @@ function readOptional(root, relative) {
   }
 }
 
+// A superseded publication is audit history, not current certification. Validate
+// its complete effect/receipt identity using the same rules as a live generation;
+// the transaction schema intentionally validates historical entries less deeply.
+function historicalPublication(session, transaction, commit) {
+  if (transaction.generation !== transaction.history.length + 1)
+    throw new Error("first QA recovery requires contiguous delivery history");
+  let prNumber = null;
+  for (const generation of transaction.history) {
+    const projected = {
+      ...transaction,
+      generation: generation.generation,
+      history: transaction.history.slice(0, generation.generation - 1),
+      release: { ...transaction.release, prepared_commit: generation.prepared_commit },
+      evidence: generation.evidence,
+      effects: generation.effects,
+      pr_body_attestation: generation.pr_body_attestation ?? null,
+    };
+    if (transactionIssues(projected).length)
+      throw new Error("first QA recovery refuses invalid historical delivery effects or evidence");
+    if (generation.pr_body_attestation || generation.evidence.candidate)
+      throw new Error(
+        "first QA recovery refuses historical merge attestations or optimized candidates"
+      );
+    const qa = generation.evidence.qa;
+    if (
+      qa &&
+      (qa.artifact !== `.pm/dev-sessions/${session.slug}/gates.json` ||
+        qa.commit !== generation.prepared_commit)
+    )
+      throw new Error("first QA recovery refuses historical canonical QA bindings");
+    const effects = Object.entries(generation.effects);
+    if (!effects.length) continue;
+    if (
+      effects.some(
+        ([name, effect]) =>
+          !["push", "create-pr", "ready-pr"].includes(name) ||
+          effect.status !== "verified" ||
+          effect.attempts.some((attempt) => attempt.status === "attempting") ||
+          effect.depends_on.some(
+            (dependency) => generation.effects[dependency]?.status !== "verified"
+          )
+      ) ||
+      !generation.effects["create-pr"]
+    )
+      throw new Error(
+        "first QA recovery refuses unresolved or non-publication historical delivery effects"
+      );
+    const receipt = generation.effects["create-pr"].verified_receipt.receipt;
+    const number = receipt.pr_number ?? receipt.number;
+    if (prNumber !== null && number !== prNumber)
+      throw new Error("first QA recovery requires one historical PR identity");
+    prNumber = number;
+    runGit(
+      ["merge-base", "--is-ancestor", generation.prepared_commit, commit],
+      session.source.worktree
+    );
+  }
+  return prNumber;
+}
+
 function assertEligible(session, transaction, commit) {
   const { validateSession } = require("./dev-session-schema");
   const issues = validateSession(session);
@@ -48,7 +108,9 @@ function assertEligible(session, transaction, commit) {
     blockers.some(
       (entry) =>
         entry.phase !== "ship" ||
-        !["missing-qa", "pm-unrouted-mobile-qa-contract"].includes(entry.code)
+        !["missing-qa", "pm-unrouted-mobile-qa-contract", "pm-missing-qa-recovery"].includes(
+          entry.code
+        )
     ) ||
     (session.status === "blocked" && !blockers.length)
   )
@@ -69,16 +131,14 @@ function assertEligible(session, transaction, commit) {
     transaction.release.prepared_commit !== commit
   )
     throw new Error("release transaction must match the session and current prepared HEAD");
-  for (const generation of [transaction, ...transaction.history]) {
-    if (
-      Object.keys(generation.effects || {}).length ||
-      generation.pr_body_attestation ||
-      generation.evidence?.qa
-    )
-      throw new Error(
-        "first QA recovery refuses existing delivery effects or QA bindings in any generation"
-      );
-  }
+  if (
+    Object.keys(transaction.effects).length ||
+    transaction.pr_body_attestation ||
+    transaction.evidence.qa ||
+    transaction.evidence.candidate
+  )
+    throw new Error("first QA recovery refuses current delivery effects or QA bindings");
+  historicalPublication(session, transaction, commit);
   if (transaction.release.tag_created)
     throw new Error("first QA recovery refuses an existing release tag");
 }
@@ -257,6 +317,19 @@ function assertRecoveryDeliveryReady(session, transaction, effect) {
   const archive = readProjectInput(root, recovery.archive.path, MAX_BYTES);
   if (digest(archive.bytes) !== recovery.archive.sha256)
     throw new Error("QA recovery archive hash changed");
+  const predecessor = JSON.parse(JSON.parse(archive.bytes).transaction);
+  const prNumber = historicalPublication(session, predecessor, recovery.commit);
+  if (JSON.stringify(predecessor.source) !== JSON.stringify(transaction.source))
+    throw new Error("QA recovery delivery destination changed from the archived transaction");
+  const currentPr = transaction.effects["create-pr"]?.verified_receipt?.receipt;
+  if (prNumber !== null && currentPr && (currentPr.pr_number ?? currentPr.number) !== prNumber)
+    throw new Error("QA recovery must reconcile the same historical PR before delivery");
+  if (
+    prNumber !== null &&
+    effect === "create-pr" &&
+    transaction.effects["create-pr"]?.target.existing_pr_number !== prNumber
+  )
+    throw new Error("QA recovery create-pr target must bind the historical existing_pr_number");
   for (const kind of ["qa", "review", "verification"]) {
     if (!transaction.evidence[kind] || transaction.evidence[kind].checked_at < recovery.recorded_at)
       throw new Error(`QA recovery requires fresh ${kind} release binding`);
@@ -334,6 +407,7 @@ function assertRecoveryDeliveryReady(session, transaction, effect) {
     throw new Error(
       `QA recovery delivery gates failed: ${checked.issues.map((issue) => issue.message).join("; ")}`
     );
+  return prNumber;
 }
 function relocateQaRecovery(session, activeDir, archiveDir) {
   const binding = session.routing.qa_recovery?.archive;

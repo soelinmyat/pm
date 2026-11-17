@@ -131,4 +131,64 @@ function fixture(t, options = {}) {
       spawnSync(process.execPath, [CLI, ...extra], { cwd: root, encoding: "utf8" }),
   };
 }
-module.exports = { fixture, digest };
+function publishedHistory(f, prNumber = 42) {
+  const {
+    planEffect,
+    beginEffect,
+    reconcileEffect,
+    bindReleaseEvidence,
+    advancePreparedCommit,
+  } = require("../../scripts/lib/release-transaction-schema");
+  let tr = JSON.parse(fs.readFileSync(f.transactionPath));
+  const prior = spawnSync("git", ["rev-parse", "HEAD^"], {
+    cwd: f.root,
+    encoding: "utf8",
+  }).stdout.trim();
+  tr.release.prepared_commit = prior;
+  tr = bindReleaseEvidence(tr, {
+    kind: "qa",
+    commit: prior,
+    artifact: ".pm/dev-sessions/transport/gates.json",
+    sha256: digest("legacy manifest"),
+  });
+  const bodySha256 = digest("historical reviewer handoff");
+  for (const [effect, target, receipt] of [
+    [
+      "push",
+      { remote: "origin", repository: "test/repo", branch: "fix/transport", commit: prior },
+      { remote_tip: prior },
+    ],
+    [
+      "create-pr",
+      {
+        repository: "test/repo",
+        head: "fix/transport",
+        base: "main",
+        commit: prior,
+        draft: true,
+        body_sha256: bodySha256,
+      },
+      { pr_number: prNumber, state: "OPEN", head_oid: prior, draft: true, body_sha256: bodySha256 },
+    ],
+    [
+      "ready-pr",
+      { repository: "test/repo", pr_number: prNumber, commit: prior },
+      { pr_number: prNumber, state: "OPEN", head_oid: prior, draft: false },
+    ],
+  ]) {
+    tr = planEffect(tr, { effect, target });
+    tr = beginEffect(tr, { effect, actor: "root", authority: f.session.authority }).transaction;
+    tr = reconcileEffect(tr, {
+      effect,
+      outcome: "matched",
+      receipt,
+      observation: { target, receipt },
+    }).transaction;
+  }
+  return advancePreparedCommit(tr, {
+    commit: f.head,
+    reason: "fresh correction requires canonical QA",
+  });
+}
+
+module.exports = { fixture, digest, publishedHistory };

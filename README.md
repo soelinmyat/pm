@@ -459,7 +459,7 @@ Named primary and success variants can use visibly asserted native heading or St
 
 Unsupported and fully transparent inset components do not contribute focus regions; independently supported outline and outer-shadow bands remain available. Focus fallback requires material changes on at least two native bands and at least 32 full-contrast pixel equivalents across qualifying disjoint bands. This reuses the existing absolute support floor while retaining distance, changed-tile, native provenance and resource thresholds; thin bands account for occupied grid cells. No-ring edge beacons do not qualify.
 
-A comprehensive Dev session that reaches Ship without required QA can recover through `dev-session require-qa`. The runner preserves prior evidence, adds actual QA, and requires fresh Review and verification; it cannot reset existing QA history or bypass delivery gates. See [the recovery contract](skills/dev/references/state-schema.md#requiring-first-qa-before-delivery).
+A comprehensive Dev session that reaches Ship without required QA can recover through `dev-session require-qa`, including settled historical publication of the same PR when the current generation has no delivery effects. The runner preserves prior evidence, adds actual QA, and requires fresh Review and verification; it cannot reset existing QA history or bypass delivery gates. See [the recovery contract](skills/dev/references/state-schema.md#requiring-first-qa-before-delivery).
 
 ### PM source push preflight
 

@@ -112,6 +112,17 @@ When the candidate route was not selected, follow the comprehensive PR path belo
 
 Build and plan the exact `create-pr` target with repository, head, base, prepared head commit, explicit draft state, and canonical `body_sha256`. Honor requested draft-first delivery with `draft: true`; otherwise comprehensive delivery uses `draft: false`. All comprehensive gates pass before publication. The runtime will refuse a new target without that exact body binding and will refuse `begin` until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
 
+For first-QA recovery with historical publication, read the immutable recovery
+archive and bind its single verified PR number as `existing_pr_number` in the
+new `create-pr` target. `begin` requires fresh certification and returns
+`observe-first`, recording an observation attempt without authorizing PR
+creation. Inspect that exact PR number through the repository API, even if the
+open-PR search is empty. Reconcile only the same open PR with the exact prepared
+head, draft state and canonical body. A closed, merged, missing or mismatched PR
+blocks recovery; never enter the no-PR creation path. `reconcile absent` cannot
+grant creation on retry. Any existing-PR body edit still needs the separate
+explicit authority described below.
+
 If `release-transaction.js status` reports a legacy create-PR body migration,
 first restore and validate the intended canonical `PR_BODY_FILE`, then run
 `release-transaction.js migrate-pr-body --transaction ".../release-transaction.json"`.
