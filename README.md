@@ -461,6 +461,8 @@ Unsupported and fully transparent inset components do not contribute focus regio
 
 A comprehensive Dev session that reaches Ship without required QA can recover through `dev-session require-qa`, including settled historical publication of the same PR when the current generation has no delivery effects. The runner preserves prior evidence, adds actual QA, and requires fresh Review and verification; it cannot reset existing QA history or bypass delivery gates. See [the recovery contract](skills/dev/references/state-schema.md#requiring-first-qa-before-delivery).
 
+Ship honors explicit task or standing authorization covering PR title and description updates without asking again. Missing or unclear scope still requires clarification; exact PR identity, body observation, review, CI and execution restrictions remain in force. PM cannot override a platform or tool denial.
+
 ### PM source push preflight
 
 The PM source repository checks every pushed branch's remote, inventory, release

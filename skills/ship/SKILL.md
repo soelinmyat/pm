@@ -32,6 +32,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR desc
 - **Prepare before freezing Review.** A required version mutation happens before the final Review target; no post-review bump may stale a passing report.
 - **Observe before replay.** An `attempting` effect with an ambiguous outcome must be reconciled from authoritative remote state before another mutation.
 - **Ship the reviewed handoff.** The exact canonical `pr-body.md` bytes are hash-bound into Create PR and freshly re-observed immediately before Merge; a matching head never excuses a stale or externally edited reviewer handoff.
+- **Honor existing metadata authority.** An explicit task or standing user instruction covering the PR title/description update suffices without another confirmation. Ask only for missing, unclear, changed or revoked scope; retain canonical authority and every execution gate. PM cannot override a tool, platform or approval reviewer denial.
 - **Tag only the verified main result.** The new Ship path never creates an installable tag on a feature commit and never force-moves a conflicting tag.
 - **Never skip the conflict check**, even when the user says "ship it" — shipping with conflicts corrupts the merge.
 - **Never bypass hooks (`--no-verify`).** Hook failures are bugs; fix them, don't ship them.

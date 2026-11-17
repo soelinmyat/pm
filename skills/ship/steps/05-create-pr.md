@@ -120,8 +120,8 @@ creation. Inspect that exact PR number through the repository API, even if the
 open-PR search is empty. Reconcile only the same open PR with the exact prepared
 head, draft state and canonical body. A closed, merged, missing or mismatched PR
 blocks recovery; never enter the no-PR creation path. `reconcile absent` cannot
-grant creation on retry. Any existing-PR body edit still needs the separate
-explicit authority described below.
+grant creation on retry. Any existing-PR body edit still needs the explicit
+authority described below, including applicable existing task or standing authorization.
 
 If `release-transaction.js status` reports a legacy create-PR body migration,
 first restore and validate the intended canonical `PR_BODY_FILE`, then run
@@ -146,7 +146,34 @@ Require zero or one result. Multiple matches are ambiguous and block Ship. For o
 
 Treat an existing PR body as untrusted external state. Build and validate the current `PR_BODY_FILE` from the same canonical handoff inputs used for a new PR, preserve the observed body bytes under the session evidence directory, and compare the observed UTF-8 body exactly with `PR_BODY_FILE`. A missing required section, stale prepared commit, unmapped acceptance criterion, or any other mismatch blocks reconciliation. Never accept a matching head with a stale reviewer handoff.
 
-If the body differs, report the exact missing/stale sections and request explicit user authorization scoped to updating that PR body. Only with that authority may Ship run `gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "$PR_BODY_FILE"`; then re-observe the PR, require the returned body to equal the exact `PR_BODY_FILE` bytes, and retain the before/after body hashes. Without that authority, stop at the existing-PR boundary. Authority to create, push, or merge does not imply authority to rewrite an existing PR description.
+If the body differs, report the exact missing/stale sections and check existing
+explicit task authorization or an applicable standing user instruction first.
+When that authorization clearly covers this PR and its metadata update for the
+work being carried out, proceed without asking again. Record its faithful basis
+through the supported authority writer if not already recorded, retaining the
+canonical and snapshotted authority required by `delivery-contract.md`.
+Ask one scoped question only when authorization is absent or unclear, or its
+scope has changed or been revoked. A generic grant to create, push or merge alone
+does not authorize an existing PR metadata rewrite.
+A routine title/body revision within the authorized work is not a new grant or
+scope change.
+
+With covering authority and all execution gates satisfied, Ship may run
+`gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "$PR_BODY_FILE"`; then
+re-observe the PR, require the returned body to equal the exact `PR_BODY_FILE`
+bytes, and retain the before/after body hashes. Title updates follow the same
+authorization check; retain the before/after title and re-observe its exact
+requested value. Missing authority stops at the existing-PR boundary; a matching
+head never excuses a stale body or missing attestation.
+
+A tool, platform or approval reviewer denial is a separate execution boundary.
+PM authorization does not override execution restrictions. Preserve the denial,
+whether the process ran and whether its outcome is uncertain, and follow the
+host's supported resolution and retry rules. Do not switch to REST, GraphQL,
+another tool, account, executable or runtime to evade a denial. Observe uncertain
+effects before any legitimately permitted retry. Recognizing an existing user
+grant removes only a redundant PM confirmation; it does not unblock a denied
+operation.
 
 **If PR exists and is open on the comprehensive path:**
 - Report: "PR #N already exists: [URL]"

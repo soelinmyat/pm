@@ -364,6 +364,51 @@ test("Ship binds the reviewer handoff body through Create PR and the Merge bound
   assert.match(merge, /include the independently observed live.*body_sha256.*Merge receipt/is);
 });
 
+test("loaded Ship instructions honor covering task or standing metadata authorization without asking again", () => {
+  const { pmDir, cleanup } = makeFakePmDir();
+  try {
+    const step = loadWorkflow("ship", pmDir, PLUGIN_ROOT).find((s) => s.order === 5);
+    assert.match(step.body, /existing\s+explicit task authorization.*standing user instruction/is);
+    assert.match(step.body, /covers this PR.*metadata update/is);
+    assert.match(step.body, /without asking again/i);
+    assert.match(step.body, /routine title.*body revision.*not.*scope change/is);
+    assert.match(step.body, /title.*same\s+authorization/is);
+    assert.doesNotMatch(
+      step.body,
+      /If the body differs,.*and request explicit user authorization scoped to updating that PR body\./
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("metadata authorization remains scoped, canonical and independently observed", () => {
+  const step = read("skills/ship/steps/05-create-pr.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+  assert.match(step, /absent.*unclear.*changed.*revoked/is);
+  assert.match(step, /generic.*create.*push.*merge.*does not.*metadata/is);
+  assert.match(contract, /standing.*metadata.*without asking again/is);
+  assert.match(contract, /authority_log.*supported.*authorize/is);
+  assert.match(contract, /previously.*standing authorization.*authorize/is);
+  assert.match(contract, /never permits a remote.*owner\/repo.*head.*base change/is);
+  assert.match(step, /re-observe.*exact.*PR_BODY_FILE.*before\/after body hashes/is);
+  assert.match(step, /title.*re-observe.*exact/i);
+});
+
+test("metadata workflow authorization never overrides a denied execution", () => {
+  for (const file of [
+    "skills/ship/steps/05-create-pr.md",
+    "skills/ship/references/delivery-contract.md",
+  ]) {
+    const text = read(file);
+    assert.match(text, /tool.*platform.*approval reviewer.*denial/is);
+    assert.match(text, /does not override execution restrictions/i);
+    assert.match(text, /REST.*GraphQL.*tool.*runtime.*evade/is);
+    assert.match(text, /host.*supported.*retry/is);
+    assert.match(text, /whether.*process.*ran.*uncertain/is);
+  }
+});
+
 test("comprehensive requested drafts have an explicit ready-before-merge procedure", () => {
   const step = read("skills/ship/steps/05-create-pr.md");
   assert.match(step, /comprehensive draft/i);

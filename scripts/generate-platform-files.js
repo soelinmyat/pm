@@ -376,6 +376,8 @@ Notes:
 
 After installing a release with first-QA recovery, resume a blocked comprehensive Ship session through \`dev-session require-qa\`, following [the state contract](../skills/dev/references/state-schema.md#requiring-first-qa-before-delivery). This includes an already published PR with settled historical publication and an untouched current transaction generation. No session or gate files should be edited by hand. The command adds actual QA and fresh downstream certification while retaining predecessor evidence and the same PR identity.
 
+Ship accepts an existing explicit task or standing user authorization covering PR title and description updates without asking again. Missing or unclear scope still needs clarification, and all repository and execution safeguards remain in force. PM workflow authorization cannot override a tool, platform or approval reviewer denial; follow the host's supported resolution path.
+
 ## Windows Notes
 
 If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks and immutable design-capture bundle pointers can be created successfully.
