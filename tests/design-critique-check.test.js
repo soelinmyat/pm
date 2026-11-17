@@ -11026,3 +11026,56 @@ test("interrupted-attempt release retains frozen 1.14.58 native bytes", (t) => {
   for (const [file, bytes] of retained)
     assert.deepEqual(fs.readFileSync(path.join(fixture.root, file)), bytes);
 });
+
+test("interrupted partial findings stay retained and cannot enter a first-round prior-findings input", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const primary = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "primary");
+  const finding = {
+    subject_id: "account-detail",
+    region: "actions",
+    rule: "unreachable-action",
+    coverage_ids: ["ui-primary"],
+    evidence_ids: [primary.input.capture_ids[0]],
+    priority: "P1",
+    owner: "design-critique",
+    basis: "objective",
+    confidence: "high",
+    summary: "The retained partial reviewer found an unreachable action.",
+    impact: "The required action cannot be reached.",
+    remediation: "Restore the action and verify current evidence.",
+  };
+  finding.id = reviewFindingId("dc-retained-primary", finding);
+  const retained = write(
+    fixture.root,
+    "history/interrupted-primary.json",
+    JSON.stringify({
+      review_id: "dc-retained-primary",
+      result: { ...primary.result, findings: [finding] },
+    })
+  );
+  const bytes = fs.readFileSync(path.join(fixture.root, retained.path));
+  const payload = {
+    ...primary.input,
+    prior_finding_refs: [{ review_id: "dc-retained-primary", finding_id: finding.id }],
+  };
+  delete payload.payload_sha256;
+  primary.input = withPayloadHash(payload);
+  attachReviewReceipt(fixture.root, primary, 1);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some((issue) => /round 1 cannot contain prior findings/.test(issue.message))
+  );
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, retained.path)), bytes);
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  assert.equal(
+    contract.includes("unresolved partial-review findings or genuine decisions remain blocked"),
+    true,
+    "Missing explicit boundary for unresolved partial findings"
+  );
+});

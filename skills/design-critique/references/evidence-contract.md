@@ -510,7 +510,8 @@ reset its attempt count, or manufacture a predecessor report or missing receipt.
 
 Check canonical `session.json` Design evidence and retained report paths first.
 This path is unavailable if a finalized report or recovery-history anchor exists:
-continue its exact immutable predecessor lineage instead. If an artifact is
+continue its exact immutable predecessor lineage instead. It also requires no
+findings in retained partial results and no unresolved genuine decision. If an artifact is
 ambiguous, malformed, partially published or disagrees with canonical history,
 stop and diagnose it; absence of an anchor alone never permits discarding a
 report or unresolved decision.
@@ -532,10 +533,11 @@ When source advanced during that interruption:
    timestamps. Never relabel historical captures or attach a late reviewer to
    an earlier timestamp. Reassess the current source/coverage and preserve all
    existing permission, independence, provenance and capture requirements.
-4. Carry any observed unresolved partial-review findings or genuine decisions
-   into the current Primary context with their retained source references and
-   explicit disposition. Fresh Eyes still receives its prescribed independent
-   input. Do not hide a known blocker by treating the transport attempt as empty.
+4. Any unresolved partial-review findings or genuine decisions remain blocked.
+   If any retained partial result contains a finding, stop and diagnose a supported
+   bound carry-forward path before continuing. Round 1 rejects `prior_finding_refs`;
+   do not substitute unbound finding prose, leak findings into shared Fresh Eyes
+   context, fabricate a completed predecessor, or discard the retained result.
 5. Build the first complete `reviews.json` and report with round 1 and no invented
    `previous_report`. Check the full current chain, then record the current
    report's actual path through Dev phase evidence and the normal gate writer.
