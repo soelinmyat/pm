@@ -179,6 +179,23 @@ function reviewRowFields(layout) {
   };
 }
 
+function retainedDesignPath(base, relative, basename, report) {
+  const prefix = `${base}/runs/`;
+  const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
+  const round = /^round-([1-9][0-9]*)$/.exec(parts[1] || "");
+  const attempt =
+    parts.length === 4 ? /^attempt-[1-9][0-9]{0,5}$/.test(parts[2]) : parts.length === 3;
+  if (
+    !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(parts[0] || "") ||
+    !round ||
+    Number(round[1]) > MAX_RECOVERY_ROUNDS ||
+    !attempt ||
+    parts.at(-1) !== basename
+  )
+    return false;
+  return !report || (report.run_id === parts[0] && report.rounds === Number(round[1]));
+}
+
 // The critique chain is always rerun. A fresh critique is checked at HEAD
 // against the base the enforcement context already resolved. A recertified
 // critique is bound to the commit it captured, so it is rerun at that commit
@@ -209,21 +226,12 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
       ? `${path.posix.dirname(artifactPath)}/report.json`
       : artifactPath;
     if (relative !== paths.reportPath) {
-      const prefix = `${base}/runs/`;
-      const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
-      const round = /^round-([1-9][0-9]*)$/.exec(parts[1] || "");
-      if (
-        parts.length !== 3 ||
-        !/^[a-z0-9][a-z0-9._-]*$/.test(parts[0]) ||
-        !round ||
-        Number(round[1]) > MAX_RECOVERY_ROUNDS ||
-        parts[2] !== "report.json"
-      )
+      if (!retainedDesignPath(base, relative, "report.json"))
         throw gateError(
           "design-critique phase artifact must select this session's exact bounded run/round report"
         );
       const selected = JSON.parse(readProjectInput(layout.root, relative, 4 * 1024 * 1024).bytes);
-      if (selected.run_id !== parts[0] || selected.rounds !== Number(round[1]))
+      if (!retainedDesignPath(base, relative, "report.json", selected))
         throw gateError("design-critique phase artifact run/round must match its report");
     }
     if (artifactPath !== relative) {
@@ -235,10 +243,29 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
   // The selected report binds its exact retained inputs. Restrict selection
   // to this session, then let the full checker validate every binding/hash,
   // predecessor, execution receipt and current source identity as before.
+  let reportOutcome;
+  let retainedReviewReport;
   if (fs.existsSync(path.join(layout.root, paths.reportPath))) {
-    const report = JSON.parse(
-      readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes
-    );
+    const bytes = readProjectInput(layout.root, paths.reportPath, 4 * 1024 * 1024).bytes;
+    const report = JSON.parse(bytes);
+    reportOutcome = report.outcome;
+    const anchor = evidence.phaseEvidence.recovery_history?.at(-1);
+    if (
+      anchor?.outcome === "passed" &&
+      anchor.run_id === report.run_id &&
+      anchor.round === report.rounds &&
+      anchor.commit === report.commit &&
+      anchor.commit === evidence.phaseEvidence.commit &&
+      anchor.report?.path === paths.reportPath &&
+      anchor.report.sha256 === sha256(bytes)
+    )
+      retainedReviewReport = anchor.report;
+    const reportDirectory = path.posix.dirname(paths.reportPath);
+    if (
+      /\/attempt-[1-9][0-9]*$/.test(reportDirectory) &&
+      report.human_report?.path !== `${reportDirectory}/report.html`
+    )
+      throw gateError("Design Critique HTML must belong to the selected attempt");
     if (phaseHtmlArtifact && report.human_report?.path !== phaseHtmlArtifact)
       throw gateError(
         "legacy design-critique HTML evidence must match the selected report's human artifact"
@@ -252,23 +279,13 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
       if (typeof file !== "string" || !file.trim())
         throw gateError(`design-critique report.${binding}.path must name its bound input`);
       const relative = projectRelative(layout.root, file);
-      const prefix = `${base}/runs/`;
-      if (relative !== `${base}/${binding}.json`) {
-        const parts = relative.startsWith(prefix) ? relative.slice(prefix.length).split("/") : [];
-        const round = /^round-([1-9][0-9]*)$/.exec(parts[1] || "");
-        if (
-          parts.length !== 3 ||
-          !/^[a-z0-9][a-z0-9._-]*$/.test(parts[0]) ||
-          parts[0] !== report.run_id ||
-          !round ||
-          Number(round[1]) > MAX_RECOVERY_ROUNDS ||
-          Number(round[1]) !== report.rounds ||
-          parts[2] !== `${binding}.json`
-        )
-          throw gateError(
-            `design-critique report.${binding}.path must select this session's exact bounded run/round`
-          );
-      }
+      if (
+        relative !== `${base}/${binding}.json` &&
+        !retainedDesignPath(base, relative, `${binding}.json`, report)
+      )
+        throw gateError(
+          `design-critique report.${binding}.path must select this session's exact bounded run/round`
+        );
       directories.push(path.posix.dirname(relative));
       paths[option] = relative;
     }
@@ -307,9 +324,14 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
         baseCommit: context.authoritativeBaseCommit,
         verifyRemote: false,
       };
-  const result = deps.checkDesignCritique(options);
+  const result = deps.checkDesignCritique({
+    ...options,
+    ...(retainedReviewReport ? { retainedReviewReport } : {}),
+  });
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
+  if (reportOutcome !== "passed")
+    throw gateError("Design Critique requires an explicitly passed report");
   return { artifact: `${path.posix.dirname(paths.reportPath)}/report.html` };
 }
 

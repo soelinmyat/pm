@@ -13,7 +13,7 @@ const {
 } = require(".");
 const { writeJsonAtomic } = require("./result");
 const { writeFileAtomic } = require("../lib/atomic-file");
-const { probeCapabilitiesCached } = require("./capabilities");
+const { probeCapabilities, probeCapabilitiesCached } = require("./capabilities");
 const { validateOwnershipList } = require("../lib/dev-work-units");
 const { parseCliArgs } = require("../loop-args");
 const { runGit } = require("../loop-git");
@@ -28,7 +28,7 @@ const AUTHORITY = `<worker-authority>
 Root-owned external effects: this worker may inspect, edit, test, and commit only inside its assigned worktree. Do not push, open or update a pull request, merge, or update external trackers. Report completion to the root through the structured result contract.
 </worker-authority>\n\n`;
 
-async function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2), observer) {
   let options;
   try {
     options = parseArgs(argv);
@@ -82,8 +82,18 @@ async function main(argv = process.argv.slice(2)) {
         provider: options.runtime,
         profileName: options.profileName,
         sourceDir: options.worktree,
-        overrides: { allowBroadPermissions },
+        overrides: { allowBroadPermissions, ...(observer ? { sandbox: "read-only" } : {}) },
       });
+    if (observer && (profile.sandbox !== "read-only" || profile.approvalPolicy !== "never"))
+      throw new Error(
+        "observed design review requires read-only runtime and unchanged approval policy"
+      );
+    if (
+      observer?.images?.length &&
+      !capabilities.imageInput &&
+      !probeCapabilities("codex").imageInput
+    )
+      throw new Error("Codex does not support verified image input");
     canonical = loadCanonicalSchema(schemaPath);
     writeFileAtomic(canonicalSnapshot, canonical.bytes, { directoryMode: 0o700, fileMode: 0o600 });
     if (options.runtime === "codex")
@@ -99,6 +109,7 @@ async function main(argv = process.argv.slice(2)) {
       sessionId,
       schemaPath: options.runtime === "codex" ? providerSchema : canonicalSnapshot,
       lastMessagePath,
+      images: observer?.images,
       capabilities,
     });
   } catch (error) {
@@ -108,7 +119,7 @@ async function main(argv = process.argv.slice(2)) {
 
   fs.rmSync(options.resultFile, { force: true });
   const startedAt = new Date().toISOString();
-  writeJsonAtomic(runtimePath, {
+  const runtime = {
     schema_version: 1,
     provider: options.runtime,
     profile: profile.name,
@@ -116,6 +127,7 @@ async function main(argv = process.argv.slice(2)) {
     effort: profile.effort,
     sandbox: profile.sandbox,
     permission_mode: profile.permissionMode,
+    ...(observer ? { approval_policy: profile.approvalPolicy } : {}),
     external_effects: false,
     resume_id: sessionId,
     work_unit_id: options.workUnitId,
@@ -126,7 +138,8 @@ async function main(argv = process.argv.slice(2)) {
     canonical_schema_file: canonicalSnapshot,
     output_schema_file: options.runtime === "codex" ? providerSchema : canonicalSnapshot,
     result_encoding: resultEncoding ?? "canonical-object",
-  });
+  };
+  writeJsonAtomic(runtimePath, runtime);
 
   const transport =
     options.runtime === "codex"
@@ -140,6 +153,7 @@ async function main(argv = process.argv.slice(2)) {
     eventsPath,
     stderrPath,
     logFile: options.logFile,
+    onEvent: observer?.onEvent,
   });
   if (execution.error?.code === "ENOENT") {
     finishRuntime(runtimePath, {
@@ -160,6 +174,11 @@ async function main(argv = process.argv.slice(2)) {
   try {
     // A failed provider turn cannot be certified by an older message artifact.
     if (execution.status !== 0 && failure) throw new Error(`provider failure: ${failure}`);
+    if (observer && (execution.status !== 0 || failure || execution.failureEvents))
+      throw new Error("the observed provider turn did not finish successfully");
+    if (observer && fs.existsSync(options.resultFile))
+      throw new Error("an observed worker must return its result through the provider");
+
     if (fs.existsSync(options.resultFile)) {
       result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"), {
         expectedWorkUnitId: options.workUnitId,
@@ -176,10 +195,12 @@ async function main(argv = process.argv.slice(2)) {
         resultEncoding,
       });
       result = extracted.result;
+      if (observer) observer.verifyResult(result, { resultEncoding, resumeId: execution.resumeId });
       validateWorkerResult(result, {
         expectedWorkUnitId: options.workUnitId,
         expectedOwnership: options.owns,
         worktree: options.worktree,
+        baseCommit: observer?.baseCommit,
       });
       canonical.validate(result);
       resumeId = extracted.resumeId ?? resumeId;
@@ -233,7 +254,7 @@ async function main(argv = process.argv.slice(2)) {
     writeJsonAtomic(options.resultFile, result);
   }
 
-  finishRuntime(runtimePath, {
+  const completion = {
     status: result.status,
     exit_status: execution.status,
     signal: execution.signal,
@@ -241,7 +262,13 @@ async function main(argv = process.argv.slice(2)) {
     events_file: eventsPath,
     stderr_file: stderrPath,
     result_file: options.resultFile,
-  });
+  };
+  const completedAt = new Date().toISOString();
+  if (observer) {
+    const record = { ...runtime, ...completion, completed_at: completedAt };
+    writeJsonAtomic(runtimePath, record);
+    observer.complete(result, record);
+  } else finishRuntime(runtimePath, completion);
   return 0;
 }
 
@@ -388,6 +415,7 @@ function runStreaming(command, args, options) {
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
+          options.onEvent?.(event);
           if (["thread.started", "system"].includes(event.type) && !identityEvent) {
             identityEvent = line;
           }
@@ -399,6 +427,7 @@ function runStreaming(command, args, options) {
           )
             failureEvent = boundedTail("", line, lineLimit);
         } catch {
+          if (line.trim()) options.onEvent?.(null);
           // Non-JSON output remains in the bounded tail and full events file.
         }
       }

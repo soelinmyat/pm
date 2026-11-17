@@ -21,24 +21,7 @@ const SCORE_KEYS = Object.freeze({
     "print-navigation",
   ]),
 });
-const RAW_FINDING_FIELDS = Object.freeze([
-  "subject_id",
-  "region",
-  "rule",
-  "coverage_ids",
-  "evidence_ids",
-  "priority",
-  "owner",
-  "basis",
-  "confidence",
-  "summary",
-  "impact",
-  "remediation",
-]);
-const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
-const OWNERS = new Set(["design-critique", "qa", "review"]);
-const BASES = new Set(["objective", "craft", "uncertain"]);
-const CONFIDENCE = new Set(["high", "medium", "low"]);
+const { FINDING_FIELDS: RAW_FINDING_FIELDS, findingEnums } = require("./design-review-schema");
 
 function normalizePrimaryReviewResult(rawResult, context) {
   const issues = validatePrimaryRawReviewResult(rawResult, context);
@@ -158,10 +141,8 @@ function validateFindings(findings, context, issues) {
       )
         issues.push(`${at}.evidence_ids must belong to the finding subject`);
     }
-    if (!PRIORITIES.has(finding.priority)) issues.push(`${at}.priority is invalid`);
-    if (!OWNERS.has(finding.owner)) issues.push(`${at}.owner is invalid`);
-    if (!BASES.has(finding.basis)) issues.push(`${at}.basis is invalid`);
-    if (!CONFIDENCE.has(finding.confidence)) issues.push(`${at}.confidence is invalid`);
+    for (const [field, values] of Object.entries(findingEnums("primary")))
+      if (!values.includes(finding[field])) issues.push(`${at}.${field} is invalid`);
     for (const key of ["summary", "impact", "remediation"])
       if (!boundedText(finding[key], 10_000))
         issues.push(`${at}.${key} must contain 1 to 10000 UTF-8 bytes`);

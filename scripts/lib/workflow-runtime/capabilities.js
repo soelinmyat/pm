@@ -17,6 +17,7 @@ function detectCapabilities(provider, { help = "", resumeHelp = "", version = ""
       eventStream: help.includes("--json"),
       resume: resumeHelp.includes("exec resume") && resumeHelp.includes("--output-schema"),
       safePermissions: help.includes("--sandbox"),
+      ...(help.includes("--image") ? { imageInput: true } : {}),
     };
   }
   if (provider === "claude") {
