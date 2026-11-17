@@ -18,6 +18,7 @@ For a standalone Ship invocation, map the user's request narrowly:
 |---|---|
 | push only | `push_feature_branch` |
 | open/create a PR | `push_feature_branch,create_pr` |
+| update a PR title or description | `create_pr`, with explicit metadata scope |
 | merge, land, or complete the full Ship lifecycle | `push_feature_branch,create_pr,merge` |
 
 `preferences.ship.auto_merge` is a behavior preference, never authority. It cannot grant `merge`. Do not infer merge authority from a request to push or create a PR. If the request is ambiguous, ask one action-specific question and stop before Push; after the answer, persist only the granted actions through the session writer:
@@ -32,15 +33,40 @@ node "$PM_PLUGIN_ROOT/scripts/dev-session.js" authorize \
 
 Never edit `authority` or `authority_log` by hand. Existing authority from a Dev-routed session remains valid only for actions actually requested by the user; workers and preferences cannot broaden it.
 
-If the user grants an additional action after the contract was created (for example, reruns Ship to merge a green PR), run `dev-session authorize` first, revalidate every frozen identity field, then atomically replace only the contract's copied `authorization` booleans and `recorded_at`. This explicit grant path is the sole allowed authority-snapshot update; it never permits a remote, owner/repo, head, or base change.
+An existing explicit task request or applicable standing user instruction can
+authorize PR metadata updates without asking again, when it clearly covers the
+specific PR, work and requested title/description change. If its basis is not yet
+in `authority_log`, use the supported `dev-session authorize` writer to record
+that existing grant faithfully; do not invent or broaden its scope. Maintain the
+required canonical and snapshotted `create_pr` authority. That boolean alone,
+or a generic create/push/merge request, does not establish metadata scope.
+Ask only for absent or unclear authorization, changed scope or a revoked grant.
+Routine title/body revisions within the covered work do not change that scope.
+
+When recording an applicable user grant not yet persisted, including previously
+supplied task or standing authorization, or when the user grants an additional
+action after contract creation, run `dev-session authorize` first. Revalidate
+every frozen identity field, then atomically replace only the contract's copied
+`authorization` booleans and `recorded_at`. This explicit grant path is the sole
+allowed authority-snapshot update; it never permits a remote, owner/repo, head,
+or base change. Recording a previously supplied grant does not require the user
+to repeat it and does not resolve a separate execution denial.
 
 Before each mutation, enforce its independent boolean:
 
 - `git push` requires `push_feature_branch: true`.
-- Creating or externally commenting on a PR requires `create_pr: true`.
+- Creating, updating metadata or externally commenting on a PR requires `create_pr: true`, with the user's explicit scope covering the particular action.
 - Arming auto-merge or invoking any merge command requires `merge: true`.
 
 If the required boolean is false, stop at the last authorized boundary and name the exact grant required. Read-only PR and CI inspection may continue when useful.
+
+A tool, platform or approval reviewer denial remains binding independently of
+user and PM workflow authority. PM does not override execution restrictions.
+Retain the stated reason, whether the process ran and whether the outcome is
+uncertain, then follow the host's supported resolution and retry rules. Do not
+use REST, GraphQL, another tool, account, executable or runtime to evade the
+denial. Re-observe ambiguous effects before any permitted retry. An already
+covering metadata grant removes a repeat question, not an execution restriction.
 
 ## 2. Freeze the delivery identity for Review
 
