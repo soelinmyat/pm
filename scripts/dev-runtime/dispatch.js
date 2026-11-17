@@ -73,7 +73,12 @@ async function main(argv = process.argv.slice(2), observer) {
   const resultEncoding = options.runtime === "codex" ? CODEX_RESULT_ENCODING : undefined;
   try {
     const retained = options.resumeId
-      ? retainedResumeProfile(runtimePath, options, allowBroadPermissions)
+      ? retainedResumeProfile(
+          runtimePath,
+          options,
+          allowBroadPermissions,
+          observer?.executionDirectory
+        )
       : null;
     const capabilities = probeCapabilitiesCached(options.runtime);
     profile =
@@ -104,7 +109,7 @@ async function main(argv = process.argv.slice(2), observer) {
       // reread policy between selecting the receipt identity and dispatching.
       profileName: profile.name,
       profileOverrides: { ...profile, allowBroadPermissions },
-      worktree: options.worktree,
+      worktree: observer?.executionDirectory ?? options.worktree,
       resumeId: options.resumeId,
       sessionId,
       schemaPath: options.runtime === "codex" ? providerSchema : canonicalSnapshot,
@@ -127,7 +132,12 @@ async function main(argv = process.argv.slice(2), observer) {
     effort: profile.effort,
     sandbox: profile.sandbox,
     permission_mode: profile.permissionMode,
-    ...(observer ? { approval_policy: profile.approvalPolicy } : {}),
+    ...(observer
+      ? {
+          approval_policy: profile.approvalPolicy,
+          execution_directory: observer.executionDirectory,
+        }
+      : {}),
     external_effects: false,
     resume_id: sessionId,
     work_unit_id: options.workUnitId,
@@ -147,7 +157,7 @@ async function main(argv = process.argv.slice(2), observer) {
       : "";
   const prompt = `${AUTHORITY}${transport}${fs.readFileSync(options.promptFile, "utf8")}`;
   const execution = await runStreaming(launch.command, launch.args, {
-    cwd: options.worktree,
+    cwd: observer?.executionDirectory ?? options.worktree,
     env: process.env,
     input: prompt,
     eventsPath,
@@ -272,7 +282,7 @@ async function main(argv = process.argv.slice(2), observer) {
   return 0;
 }
 
-function retainedResumeProfile(runtimePath, options, allowBroadPermissions) {
+function retainedResumeProfile(runtimePath, options, allowBroadPermissions, executionDirectory) {
   let fd;
   try {
     fd = fs.openSync(runtimePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -288,6 +298,7 @@ function retainedResumeProfile(runtimePath, options, allowBroadPermissions) {
       recorded.provider !== options.runtime ||
       recorded.resume_id !== options.resumeId ||
       recorded.external_effects !== false ||
+      (executionDirectory && recorded.execution_directory !== executionDirectory) ||
       typeof recorded.worktree !== "string" ||
       fs.realpathSync(recorded.worktree) !== fs.realpathSync(options.worktree) ||
       (recorded.work_unit_id !== undefined && recorded.work_unit_id !== options.workUnitId) ||

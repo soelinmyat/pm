@@ -80,6 +80,7 @@ function checkCorrectionProof(proof, { review, inspect, commit }) {
     !isDeepStrictEqual(first.scope, next.scope) ||
     first.scope.commit !== commit ||
     first.scope.provider !== "codex" ||
+    typeof first.scope.execution_directory !== "string" ||
     first.scope.sandbox !== "read-only" ||
     first.scope.approval_policy !== "never" ||
     first.scope.external_effects !== false ||

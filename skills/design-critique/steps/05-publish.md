@@ -1,7 +1,7 @@
 ---
 name: Publish
 order: 5
-description: Publish checked structured and HTML reports and record only the Design Critique gate row through dev-session gate
+description: Publish checked structured and HTML reports and certify the Design Critique phase
 ---
 
 ## Goal

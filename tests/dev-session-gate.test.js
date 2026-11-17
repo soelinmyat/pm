@@ -1540,6 +1540,29 @@ test("attempt-path Design gate retains the original report paths and rejects cro
   assert.equal(fx.calls.designCritique.reportPath, report);
   assert.equal(fx.calls.designCritique.routePath, fx.report.route.path);
   assert.equal(fx.calls.designCritique.capturesPath, fx.report.captures.path);
+  const phase = fx.session.evidence["design-critique"];
+  fx.report.commit = phase.commit;
+  refresh();
+  const anchor = {
+    outcome: "passed",
+    run_id: fx.report.run_id,
+    round: fx.report.rounds,
+    commit: fx.report.commit,
+    report: {
+      path: report,
+      sha256: crypto.createHash("sha256").update(fs.readFileSync(reportFile)).digest("hex"),
+    },
+  };
+  phase.recovery_history = [anchor];
+  planGateWrite(options, fx.deps);
+  assert.deepEqual(fx.calls.designCritique.retainedReviewReport, anchor.report);
+  fx.report.next_action = "Changed after the original phase.";
+  refresh();
+  assert.throws(
+    () => planGateWrite(options, fx.deps),
+    /retained passing Design Critique report binding changed/
+  );
+  delete phase.recovery_history;
   fx.report.outcome = "blocked";
   refresh();
   assert.throws(() => planGateWrite(options, fx.deps), /explicitly passed report/);

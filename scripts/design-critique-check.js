@@ -4030,7 +4030,10 @@ function validateReviewInput(
         );
       });
     const compatibleLegacy =
-      perspective === "primary" && input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT && !containsPdf;
+      frozenPrompt &&
+      perspective === "primary" &&
+      input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT &&
+      !containsPdf;
     const retained = frozenPrompt && input.prompt_sha256 === PRIOR_REVIEW_PROMPT[perspective];
     if (input.prompt_sha256 !== expectedHash && !compatibleLegacy && !retained)
       add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");

@@ -3,6 +3,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { createHash, generateKeyPairSync, randomUUID } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { execFileSync } = require("node:child_process");
@@ -32,6 +33,7 @@ const {
 const { compareRfc3339DateTimes } = require("./lib/iso-time");
 
 const MAX_INPUT = 4 * 1024 * 1024;
+const MAX_IMAGES = 64 * 1024 * 1024;
 const NAMESPACE = /^\.pm\/dev-sessions\/[a-z0-9-]+\/design-critique(?:\/[a-zA-Z0-9_-]+)+$/;
 const NO_WRITES = "Read only. Do not write files, change worktree state, or take external action.";
 
@@ -48,6 +50,7 @@ function reviewPrompt(root, request, packet) {
       return {
         id: capture.id,
         coverage_id: row.id,
+        subject_id: row.subject_id,
         state: row.state,
         viewport: row.viewport,
         reason: row.reason,
@@ -55,6 +58,7 @@ function reviewPrompt(root, request, packet) {
     });
   const material = {
     round,
+    mode: packet.route.mode,
     shared_context: packet.context,
     captures,
     ...(perspective === "primary"
@@ -88,7 +92,7 @@ function correctionPrompt(perspective, fields) {
   ].join("\n\n");
 }
 
-function observeCodex(complete, images, baseCommit) {
+function observeCodex(complete, images, baseCommit, executionDirectory) {
   let finalMessage;
   let started = 0;
   let completed = 0;
@@ -97,6 +101,7 @@ function observeCodex(complete, images, baseCommit) {
   return {
     baseCommit,
     images,
+    executionDirectory,
     onEvent(event) {
       if (!event) unsafe = true;
       else if (event.type === "thread.started") threads++;
@@ -148,6 +153,45 @@ function makeStore(root, namespace) {
 }
 
 async function runDesignReview(root, request, { correctEnums = false } = {}) {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-isolated-design-")));
+  try {
+    return await reviewInIsolatedDirectory(root, request, correctEnums, directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function prepareImages(root, captures, directory) {
+  // Discover no repository instruction hierarchy in the reviewer workspace.
+  // Managed/user configuration and permission checks still apply normally.
+  for (let current = directory; ; current = path.dirname(current)) {
+    if (
+      [".git", "AGENTS.md", "AGENTS.override.md"].some((name) =>
+        fs.existsSync(path.join(current, name))
+      )
+    )
+      throw new Error("reviewer directory inherits project instructions");
+    if (path.dirname(current) === current) break;
+  }
+  let remaining = MAX_IMAGES;
+  return captures.map((capture, index) => {
+    if (capture.kind !== "screenshot" || !capture.path.endsWith(".png"))
+      throw new Error(
+        "read-only Codex controller requires bound PNG captures; use the native isolated reviewer flow for other formats"
+      );
+    const file = readProjectInput(root, capture.path, remaining, {
+      allowManagedDirectoryPointers: true,
+    });
+    if (hash(file.bytes) !== capture.sha256)
+      throw new Error("selected PNG changed before dispatch");
+    remaining -= file.bytes.length;
+    const image = path.join(directory, `capture-${index + 1}.png`);
+    fs.writeFileSync(image, file.bytes, { mode: 0o400, flag: "wx" });
+    return image;
+  });
+}
+
+async function reviewInIsolatedDirectory(root, request, correctEnums, executionDirectory) {
   const { perspective, review_id: reviewId, input, output, round, profile } = request;
   if (
     !["primary", "fresh-eyes"].includes(perspective) ||
@@ -170,13 +214,7 @@ async function runDesignReview(root, request, { correctEnums = false } = {}) {
   };
   const packet = loadDesignReviewPacket(packetInput);
   const captures = packet.assets.filter((capture) => input.capture_ids.includes(capture.id));
-  if (captures.some((capture) => capture.kind !== "screenshot" || !capture.path.endsWith(".png")))
-    throw new Error(
-      "read-only Codex controller requires bound PNG captures; use the native isolated reviewer flow for other formats"
-    );
-  const images = captures.map((capture) => path.join(root, capture.path));
-  if (images.some((image) => image.includes(",")))
-    throw new Error("Codex image paths cannot contain commas");
+  const images = prepareImages(root, captures, executionDirectory);
   const commit = packet.route.source.commit;
   assertCurrentSource(root, commit);
   const readInputs = () => {
@@ -244,7 +282,8 @@ async function runDesignReview(root, request, { correctEnums = false } = {}) {
           observed = { worker, runtime };
         },
         original ? [] : images,
-        commit
+        commit,
+        executionDirectory
       )
     );
     if (code !== 0 || observed?.worker.status !== "completed")
@@ -262,6 +301,7 @@ async function runDesignReview(root, request, { correctEnums = false } = {}) {
       entry.exit_code !== 0 ||
       !Object.hasOwn(entry, "review_result") ||
       !/^[a-z0-9][a-z0-9._:-]{2,127}$/.test(runtime.resume_id || "") ||
+      runtime.execution_directory !== executionDirectory ||
       runtime.exit_status !== 0 ||
       runtime.signal !== null ||
       runtime.external_effects !== false
@@ -289,6 +329,7 @@ async function runDesignReview(root, request, { correctEnums = false } = {}) {
     retained.push(...artifacts);
     const scope = {
       worktree: root,
+      execution_directory: executionDirectory,
       commit,
       input_payload_sha256: input.payload_sha256,
       prompt_sha256: input.prompt_sha256,

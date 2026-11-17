@@ -250,16 +250,17 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     const report = JSON.parse(bytes);
     reportOutcome = report.outcome;
     const anchor = evidence.phaseEvidence.recovery_history?.at(-1);
-    if (
-      anchor?.outcome === "passed" &&
-      anchor.run_id === report.run_id &&
-      anchor.round === report.rounds &&
-      anchor.commit === report.commit &&
-      anchor.commit === evidence.phaseEvidence.commit &&
-      anchor.report?.path === paths.reportPath &&
-      anchor.report.sha256 === sha256(bytes)
-    )
+    if (anchor?.outcome === "passed" && anchor.report?.path === paths.reportPath) {
+      if (
+        anchor.run_id !== report.run_id ||
+        anchor.round !== report.rounds ||
+        anchor.commit !== report.commit ||
+        anchor.commit !== evidence.phaseEvidence.commit ||
+        anchor.report.sha256 !== sha256(bytes)
+      )
+        throw gateError("retained passing Design Critique report binding changed");
       retainedReviewReport = anchor.report;
+    }
     const reportDirectory = path.posix.dirname(paths.reportPath);
     if (
       /\/attempt-[1-9][0-9]*$/.test(reportDirectory) &&
