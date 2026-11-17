@@ -4630,11 +4630,19 @@ async function main() {
       violations.push(request);
       firstViolationAt = Date.now();
     };
-    const assertNetworkHealthy = () => {
+    const assertNetworkHealthy = async () => {
       if (handlerError) throw new Error(`network policy handler failed: ${handlerError}`);
       if (networkOverflow) throw new Error(networkOverflow);
-      if (violations.length && Date.now() - firstViolationAt >= NETWORK_POLICY_OBSERVATION_MS)
+      if (violations.length) {
+        // Keep the pre-connect policies installed for the complete observation
+        // window. A known violation must finish that check before atomic drift
+        // can terminate it; neither condition can produce successful evidence.
+        const remaining = NETWORK_POLICY_OBSERVATION_MS - (Date.now() - firstViolationAt);
+        if (remaining > 0) await sleep(remaining);
+        if (handlerError) throw new Error(`network policy handler failed: ${handlerError}`);
+        if (networkOverflow) throw new Error(networkOverflow);
         throw new Error(`network policy violation: ${violations[0].origin}`);
+      }
       if (criticalDrift) throw new Error(`page changed during atomic capture: ${criticalDrift}`);
     };
     client.on("Page.loadEventFired", (_event, sessionId) => {
@@ -4936,10 +4944,10 @@ async function main() {
       (!mainTargetPolicyReady || activeTargetHandlers.size > 0) &&
       Date.now() < initialPolicyDeadline
     ) {
-      assertNetworkHealthy();
+      await assertNetworkHealthy();
       await sleep(10);
     }
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
     if (!mainTargetPolicyReady || activeTargetHandlers.size > 0)
       throw new Error("browser target auto-attach policy did not become ready");
 
@@ -4978,7 +4986,7 @@ async function main() {
     const readyDeadline = Date.now() + readinessTimeoutMs;
     let readyAt = null;
     while (Date.now() < readyDeadline) {
-      assertNetworkHealthy();
+      await assertNetworkHealthy();
       if (
         loadFired &&
         violations.length === 0 &&
@@ -5084,7 +5092,7 @@ async function main() {
       const actions = config.stateAssertion.before_capture || [];
       const lastTab = actions.findLastIndex((action) => action.kind === "tab");
       for (const [actionIndex, action] of actions.entries()) {
-        assertNetworkHealthy();
+        await assertNetworkHealthy();
         if (config.stateAssertion.focus_label && actionIndex === lastTab) {
           // Earlier native preparation can trigger loading or animation. The
           // unfocused reference gets the same settled event/identity barrier as
@@ -5092,7 +5100,7 @@ async function main() {
           const baselineReadyDeadline = Date.now() + readinessTimeoutMs;
           const baselinePrepareStartedAt = Date.now();
           while (Date.now() < baselineReadyDeadline) {
-            assertNetworkHealthy();
+            await assertNetworkHealthy();
             if (
               requestsReady() &&
               pendingWebSockets.size === 0 &&
@@ -5111,7 +5119,7 @@ async function main() {
           await client.send("DOM.getDocument", { depth: -1, pierce: true });
           const baselineReadyEpoch = networkEpoch;
           await crossTargetBarrier();
-          assertNetworkHealthy();
+          await assertNetworkHealthy();
           if (
             networkEpoch !== baselineReadyEpoch ||
             !requestsReady() ||
@@ -5206,10 +5214,10 @@ async function main() {
           // retaining the critical window so real network/document drift fails.
           const baselineSettleDeadline = Date.now() + Math.max(1_000, settleMs * 4);
           while (true) {
-            assertNetworkHealthy();
+            await assertNetworkHealthy();
             const baselineBarrierEpoch = networkEpoch;
             await crossTargetBarrier();
-            assertNetworkHealthy();
+            await assertNetworkHealthy();
             if (networkEpoch !== baselineBarrierEpoch)
               throw new Error("network activity crossed native file label baseline atomic capture");
             if (
@@ -5376,7 +5384,7 @@ async function main() {
       const actionDeadline = Date.now() + readinessTimeoutMs;
       const actionsFinishedAt = Date.now();
       while (Date.now() < actionDeadline) {
-        assertNetworkHealthy();
+        await assertNetworkHealthy();
         if (
           requestsReady() &&
           pendingWebSockets.size === 0 &&
@@ -5447,12 +5455,12 @@ async function main() {
       canonicalSample(middle) !== canonicalSample(after)
     )
       throw new Error("page observations changed during atomic capture");
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
 
     const finalSettleStartedAt = Date.now();
     const finalSettleDeadline = finalSettleStartedAt + Math.max(1_000, settleMs * 4);
     while (Date.now() < finalSettleDeadline) {
-      assertNetworkHealthy();
+      await assertNetworkHealthy();
       if (
         violations.length === 0 &&
         requestsReady() &&
@@ -5465,7 +5473,7 @@ async function main() {
         break;
       await sleep(25);
     }
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
     if (
       !requestsReady() ||
       pendingWebSockets.size > 0 ||
@@ -5476,7 +5484,7 @@ async function main() {
 
     const barrierEpoch = networkEpoch;
     await crossTargetBarrier();
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
     if (networkEpoch !== barrierEpoch)
       throw new Error("network activity crossed the final protocol barrier");
 
@@ -5523,7 +5531,7 @@ async function main() {
     const probeSettleStartedAt = Date.now();
     const probeSettleDeadline = probeSettleStartedAt + Math.max(1_000, settleMs * 4);
     while (Date.now() < probeSettleDeadline) {
-      assertNetworkHealthy();
+      await assertNetworkHealthy();
       if (
         violations.length === 0 &&
         requestsReady() &&
@@ -5535,7 +5543,7 @@ async function main() {
         break;
       await sleep(25);
     }
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
     if (
       !requestsReady() ||
       pendingWebSockets.size > 0 ||
@@ -5545,7 +5553,7 @@ async function main() {
       throw new Error("network did not settle after composite keyboard probing");
     const probeBarrierEpoch = networkEpoch;
     await crossTargetBarrier();
-    assertNetworkHealthy();
+    await assertNetworkHealthy();
     if (networkEpoch !== probeBarrierEpoch)
       throw new Error("network activity crossed the composite keyboard protocol barrier");
     const postProbeFrameTree = await client.send("Page.getFrameTree");

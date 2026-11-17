@@ -141,7 +141,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
     "1.14.57",
     new Set(["1.14.50", "1.14.51", "1.14.52", "1.14.53", "1.14.54", "1.14.55", "1.14.56"]),
   ],
-  // Provider result transport/classification changes no native capture or audit contract.
+  // Provider transport and awaited failure observation preserve the successful
+  // native contract: pre-connect isolation, samples and audit checks are unchanged.
   [
     "1.14.58",
     new Set([
