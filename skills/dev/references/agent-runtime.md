@@ -70,6 +70,22 @@ Invoke `scripts/dev-runtime/dispatch.js` with runtime, worktree, prompt file, re
 - persists the runtime session/thread ID for safe resumption;
 - classifies missing CLI, malformed output, crash, and quota conditions without claiming success.
 
+Codex dispatch generates a closed provider transport schema with one `result_json`
+string. That string contains the complete canonical worker result; the final
+result file remains the canonical object. The adapter retains both schema
+artifacts, validates the decoded object against the captured canonical schema,
+and then enforces work-unit, commit and ownership rules. Conditional constraints
+and open evidence/runtime fields are preserved locally rather than removed to
+fit the provider subset. Structured dispatch requires the existing locked npm
+dependencies, including AJV; missing dependencies stop configuration before the
+worker starts. See [OpenAI's supported schema contract](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Provider schema rejection and HTTP 400 request errors are deterministic blocked
+results, with raw errors and thread identity retained. Usage-limit classification
+requires an actual provider error or explicit CLI error line; incidental quota or
+rate-limit telemetry does not establish a usage limit. Do not retry a real usage
+limit or change managed configuration, trust, hooks or permissions to evade it.
+
 `scripts/dispatch-issue.sh` is the legacy-compatible shell entry point. New code should use the Node adapter directly.
 
 ## Authority

@@ -1,5 +1,5 @@
 const fs = require("node:fs");
-const { parseJson } = require("./result");
+const { decodeCodexResult } = require("./output-schema");
 
 function buildCodexLaunch({ profile, worktree, resumeId, schemaPath, lastMessagePath }) {
   requirePath(schemaPath, "schemaPath");
@@ -28,7 +28,7 @@ function buildCodexLaunch({ profile, worktree, resumeId, schemaPath, lastMessage
   return { command: "codex", args, input: "stdin", eventFormat: "jsonl" };
 }
 
-function extractCodexResult({ events, lastMessage, lastMessagePath }) {
+function extractCodexResult({ events, lastMessage, lastMessagePath, resultEncoding }) {
   const parsedEvents = parseJsonLines(events);
   const started = parsedEvents.find((event) => event.type === "thread.started");
   const finalValue =
@@ -38,7 +38,7 @@ function extractCodexResult({ events, lastMessage, lastMessagePath }) {
       : undefined);
   return {
     resumeId: started?.thread_id ?? started?.threadId ?? null,
-    result: parseJson(finalValue, "Codex structured result"),
+    result: decodeCodexResult(finalValue, resultEncoding),
     events: parsedEvents,
   };
 }

@@ -303,6 +303,15 @@ The instructions below install PM for your user account. If you prefer a repo-lo
 
 - Codex installed and authenticated
 - Git
+- Node.js and npm for local runtime scripts
+
+Structured subprocess workers require PM's locked Node dependencies, including
+AJV for canonical result validation. In a source/vendor checkout, install them
+before dispatch with \`npm ci --include=dev --ignore-scripts --no-audit --no-fund\`.
+Missing dependencies stop before worker execution. Codex dispatch retains a
+provider-compatible transport schema and the complete canonical schema; local
+validation still checks the decoded result, conditional rules, evidence and
+owned commit. Schema/HTTP 400 rejection is distinct from a real usage limit.
 
 ## Install
 
