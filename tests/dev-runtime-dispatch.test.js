@@ -37,6 +37,32 @@ describe("dev runtime structured dispatch", () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  it("observes intact UTF-8 across output chunks and an unterminated final event", async (t) => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pm-observed-utf8-"));
+    t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+    const event = { type: "item.completed", item: { type: "agent_message", text: "Save café" } };
+    const finalEvent = { type: "turn.completed" };
+    const program = [
+      `const first=Buffer.from(${JSON.stringify(JSON.stringify(event) + "\n")});`,
+      'const boundary=first.indexOf(Buffer.from("é"))+1; process.stdout.write(first.subarray(0,boundary));',
+      `setTimeout(()=>{process.stdout.write(first.subarray(boundary));process.stdout.write(${JSON.stringify(JSON.stringify(finalEvent))});},60);`,
+    ].join("\n");
+    const observed = [];
+    const eventsPath = path.join(tmp, "events.jsonl");
+    const result = await runStreaming(process.execPath, ["-e", program], {
+      cwd: tmp,
+      env: process.env,
+      input: "",
+      eventsPath,
+      stderrPath: path.join(tmp, "stderr.log"),
+      logFile: path.join(tmp, "run.log"),
+      onEvent: (value) => observed.push(value),
+    });
+    assert.equal(result.status, 0);
+    const lines = fs.readFileSync(eventsPath, "utf8").split("\n");
+    assert.deepEqual(lines.map(JSON.parse), [event, finalEvent]);
+    assert.deepEqual(observed, [event, finalEvent]);
+  });
   it("captures Codex JSONL identity and promotes the schema-constrained final message", () => {
     const fixture = createFixture("codex");
     try {

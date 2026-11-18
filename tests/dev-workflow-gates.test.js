@@ -60,7 +60,7 @@ test("separate quality phases record gate evidence and run the checker", () => {
   );
   assert.match(text, /never hand-edit the gate manifest/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
-  assert.match(text, /design-critique: passed/);
+  assert.match(text, /writes the validated gate before advancing the session/);
   assert.match(text, /qa: passed/);
   assert.match(text, /review` and `verification` rows/);
 });
@@ -133,10 +133,10 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(publish, /map `deferred` to `blocked`/);
   assert.match(
     publish,
-    /dev-session\.js" gate --session <absolute session\.json> --name design-critique/
+    /dev-session\.js gate --session <absolute session\.json> --name design-critique/
   );
-  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
-  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
+  assert.match(publish, /run.*round-.*attempt-/);
+  assert.match(publish, /under the session lock/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(contract, /canonical decoded RGBA pixels/);
   assert.match(contract, /clean tracked source identity before\/after/);
@@ -147,10 +147,7 @@ test("design critique uses the bound two-mode evidence contract", () => {
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
   assert.match(devDesign, /viewport/);
-  assert.match(
-    publish,
-    /Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows/
-  );
+  assert.match(publish, /reruns the full checker, writes the passing gate and then advances state/);
 });
 
 test("review skip requires a current checked report and gate row", () => {
@@ -1025,10 +1022,7 @@ test("gate writes follow the recorded phase result they certify", () => {
 });
 
 test("embedded publish steps leave the record and gate write to the calling Dev step", () => {
-  for (const [file, step] of [
-    ["skills/review/steps/05-publish.md", "Dev step 08"],
-    ["skills/design-critique/steps/05-publish.md", "Dev step 06"],
-  ]) {
+  for (const [file, step] of [["skills/review/steps/05-publish.md", "Dev step 08"]]) {
     const text = read(file);
     assert.match(text, new RegExp(`Inside Dev, ${step} records`), `${file} defers to ${step}`);
     const record = text.search(/dev-session\.js"? record\b/);
@@ -1053,6 +1047,13 @@ test("embedded publish steps leave the record and gate write to the calling Dev 
       `${file} Done-when defers to ${step}`
     );
   }
+});
+
+test("embedded Design publication delegates checked gate and state recording", () => {
+  const text = read("skills/design-critique/steps/05-publish.md");
+  assert.match(text, /In Dev, return that checked artifact to Dev step 06/);
+  assert.match(text, /dev-session\.js record/);
+  assert.match(text, /writes the passing gate and then advances state under the session lock/);
 });
 
 test("ship push recovers stale gate rows through the session writer", () => {

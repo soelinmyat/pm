@@ -432,6 +432,21 @@ function recordCommand(options) {
     } catch (error) {
       throw cliError(error.message, EXIT.RESULT_INVALID);
     }
+    if (result.phase === "design-critique" && result.status === "passed") {
+      try {
+        const plan = require("./lib/dev-gate-writer").planGateWrite({
+          sessionPath,
+          session: updated,
+          name: "design-critique",
+        });
+        // Persist the gate first under the session lock. Until the state
+        // write, delivery still requires current passing session evidence.
+        // A crash here can safely revalidate and replay the same result.
+        writeJsonAtomic(plan.manifestPath, plan.manifest);
+      } catch (error) {
+        throw cliError(`Design Critique was not recorded: ${error.message}`, EXIT.PRECONDITION);
+      }
+    }
     let persistedPath = sessionPath;
     if (["complete", "handoff"].includes(updated.status)) {
       persistedPath = archiveTerminalRun(sessionPath, updated, result, resultPath);

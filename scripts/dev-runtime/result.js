@@ -29,6 +29,7 @@ function validateWorkerResult(input, options = {}) {
     expectedWorkUnitId: options.expectedWorkUnitId,
     expectedOwnership: options.expectedOwnership,
     worktree: options.worktree,
+    baseCommit: options.baseCommit,
   });
 }
 

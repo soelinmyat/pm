@@ -34,6 +34,8 @@ const {
   normalizePrimaryReviewResult,
   reviewFindingId,
 } = require("./lib/design-critique-review-result");
+const { checkCorrectionProof } = require("./lib/design-review-correction");
+const { FINDING_FIELDS, findingEnums, findingVocabulary } = require("./lib/design-review-schema");
 const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
@@ -171,6 +173,7 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
       "1.14.58",
     ]),
   ],
+  ["1.14.60", new Set([...Array.from({ length: 10 }, (_, i) => `1.14.${50 + i}`)])],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -301,6 +304,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.59",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.58"), "1.14.59"])
 );
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.60",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.59"), "1.14.60"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -364,8 +371,6 @@ const PRIORITY_RANK = Object.freeze({ P0: 0, P1: 1, P2: 2, P3: 3 });
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const REVIEW_PERSPECTIVES = new Set(["primary", "fresh-eyes"]);
 const REVIEW_EXECUTION_MODES = new Set(["delegated", "same-runtime-isolated"]);
-const REVIEW_BASES = new Set(["objective", "craft", "uncertain"]);
-const REVIEW_CONFIDENCE = new Set(["high", "medium", "low"]);
 const FRESH_INTERFACE_TERM = new RegExp(
   String.raw`\b(?:badge|banner|breadcrumb|button|card|chart|column|dialog|field|footer|form|header|heading|icon|image|input|label|link|list|menu|message|modal|navigation|panel|row|sidebar|tab|table|title)s?\b`,
   "i"
@@ -432,6 +437,20 @@ const REVIEW_PROMPTS = Object.freeze({
 });
 // Exact v1.14.41 Primary instructions; compatible only with non-PDF inputs.
 const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
+
+// The preceding released prompts are readable only through frozen lineage.
+const PRIOR_REVIEW_PROMPT = Object.freeze({
+  primary: "5af260f855339f2622f05a5ccb7ed154942859101bc1226b624e52769e96f401",
+  "fresh-eyes": "09592a72677b36fd504f1cd5dcf28c195a629878d5c21c2ae6b48e321f61bc68",
+});
+
+function designReviewInstructions(perspective) {
+  if (!Object.hasOwn(REVIEW_PROMPTS, perspective)) throw new Error("unknown design reviewer");
+  return `${fs.readFileSync(REVIEW_PROMPTS[perspective].path, "utf8").trimEnd()}
+
+${findingVocabulary(perspective)}
+`;
+}
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
@@ -2476,6 +2495,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.57",
         "1.14.58",
         "1.14.59",
+        "1.14.60",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -3517,7 +3537,11 @@ function validateReport(
         capturesFile,
         report,
         issues,
-        options.designHistory
+        options.designHistory,
+        options.frozenPredecessor ||
+          (report.outcome === "passed" &&
+            reportFile.relative === options.retainedReviewReport?.path &&
+            reportFile.sha256 === options.retainedReviewReport?.sha256)
       );
     }
   }
@@ -3726,7 +3750,8 @@ function validateReviews(
   capturesFile,
   report,
   issues,
-  history
+  history,
+  frozenPredecessor
 ) {
   const state = {
     reviews: new Map(),
@@ -3873,7 +3898,13 @@ function validateReviews(
         captureById,
         evidenceById,
         at,
-        issues
+        issues,
+        frozenPredecessor === true ||
+          historical?.reviews?.rounds?.some(
+            (row) =>
+              row.round === roundRow.round &&
+              row.reviews?.some((retained) => isDeepStrictEqual(retained, review))
+          ) === true
       );
       const executionState = validateReviewExecution(
         root,
@@ -3895,6 +3926,8 @@ function validateReviews(
         at,
         issues
       );
+      if (Object.hasOwn(review.execution || {}, "correction"))
+        validateReviewCorrection(root, review, roundRoute, roundCaptures, at, issues);
       const row = {
         review,
         round: roundRow.round,
@@ -3939,7 +3972,8 @@ function validateReviewInput(
   captureById,
   evidenceById,
   at,
-  issues
+  issues,
+  frozenPrompt = false
 ) {
   const label = `${at}.input`;
   const state = {
@@ -3985,7 +4019,7 @@ function validateReviewInput(
   if (!prompt || input.prompt_profile !== prompt.profile)
     add(issues, `${label}.prompt_profile`, `must equal ${prompt?.profile || "a known profile"}`);
   else {
-    const expectedHash = digest(fs.readFileSync(prompt.path));
+    const expectedHash = digest(Buffer.from(designReviewInstructions(perspective)));
     const containsPdf =
       Array.isArray(input.capture_ids) &&
       input.capture_ids.some((id) => {
@@ -3996,8 +4030,12 @@ function validateReviewInput(
         );
       });
     const compatibleLegacy =
-      perspective === "primary" && input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT && !containsPdf;
-    if (input.prompt_sha256 !== expectedHash && !compatibleLegacy)
+      frozenPrompt &&
+      perspective === "primary" &&
+      input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT &&
+      !containsPdf;
+    const retained = frozenPrompt && input.prompt_sha256 === PRIOR_REVIEW_PROMPT[perspective];
+    if (input.prompt_sha256 !== expectedHash && !compatibleLegacy && !retained)
       add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");
   }
   const contextState = validateReviewContextSource(
@@ -4358,6 +4396,7 @@ function validateReviewExecution(
       "receipt",
       "started_at",
       "completed_at",
+      "correction",
     ],
     label,
     issues
@@ -4424,6 +4463,41 @@ function validateReviewExecution(
     issues
   );
   return state;
+}
+
+function validateReviewCorrection(root, review, route, captures, at, issues) {
+  const label = `${at}.execution.correction`;
+  const binding = review.execution.correction;
+  if (!object(binding)) return add(issues, label, "requires a correction proof binding");
+  closed(binding, ["path", "sha256"], label, issues);
+  const file = readJsonFile(root, binding.path, label, issues);
+  if (!file) return;
+  validateBinding(binding, file, label, issues);
+  try {
+    checkCorrectionProof(file.value, {
+      review,
+      commit: route.source.commit,
+      inspect: (raw) =>
+        inspectDesignReviewResult(raw, {
+          perspective: review.perspective,
+          reviewId: review.review_id,
+          route,
+          captures,
+          input: review.input,
+        }),
+    });
+    for (const observation of [file.value.original, file.value.corrected]) {
+      const artifacts = observation.body.artifacts;
+      if (!Array.isArray(artifacts) || artifacts.length !== 9)
+        throw new Error("correction observation must bind its original artifacts");
+      for (const item of artifacts) {
+        const retained = readBoundFile(root, item.path, label, issues, 4 * 1024 * 1024);
+        if (retained) validateBinding(item, retained, label, issues);
+      }
+    }
+  } catch (error) {
+    add(issues, label, error.message);
+  }
 }
 
 function validateReviewReceipt(root, binding, review, inputState, reviewsCheckedAt, label, issues) {
@@ -4583,6 +4657,95 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
     }
   }
   return state;
+}
+
+function loadDesignReviewPacket({ root, routePath, capturesPath, input, perspective, round }) {
+  const issues = [];
+  const routeFile = readJsonFile(root, routePath, "route", issues);
+  const capturesFile = readJsonFile(root, capturesPath, "captures", issues);
+  if (!routeFile || !capturesFile) throw new Error(JSON.stringify(issues));
+  const route = routeFile.value;
+  const captures = capturesFile.value;
+  validateRawCollectionCardinality(route, captures, issues);
+  validateBinding(captures.route, routeFile, "captures.route", issues);
+  if (issues.length) throw new Error(JSON.stringify(issues));
+  const captureById = new Map(captures.captures.map((capture) => [capture.id, capture]));
+  const evidenceById = new Map(
+    (captures.evidence || []).map((evidence) => [evidence.id, evidence])
+  );
+  if (input?.prompt_sha256 !== digest(Buffer.from(designReviewInstructions(perspective))))
+    throw new Error("new review dispatch requires the current generated instruction bytes");
+  const state = validateReviewInput(
+    root,
+    input,
+    perspective,
+    round,
+    route,
+    routeFile,
+    captures,
+    captureById,
+    evidenceById,
+    "review",
+    issues
+  );
+  const inputs = [
+    ...state.captureIds.map((id) => captureById.get(id)),
+    ...state.evidenceIds.map((id) => evidenceById.get(id)),
+  ];
+  for (const item of inputs) {
+    if (!item) continue;
+    const file = readBoundFile(root, item.path, `review asset ${item.id}`, issues);
+    if (file) validateBinding(item, file, `review asset ${item.id}`, issues);
+  }
+  const context = readJsonFile(root, input.context_source?.path, "context", issues);
+  if (context) validateBinding(input.context_source, context, "context", issues);
+  const prior = input.prior_findings_source
+    ? readJsonFile(root, input.prior_findings_source.path, "prior findings", issues)
+    : null;
+  if (prior) validateBinding(input.prior_findings_source, prior, "prior findings", issues);
+  if (issues.length) throw new Error(JSON.stringify(issues));
+  return {
+    route,
+    captures,
+    identity: [routeFile.sha256, capturesFile.sha256, state.payloadSha256],
+    inputCreatedAt: [
+      state.contextCreatedAt,
+      state.captureManifestCreatedAt,
+      state.priorFindingsCreatedAt,
+    ].filter(Boolean),
+    assets: inputs,
+    context: context?.value,
+    prior: prior?.value,
+  };
+}
+
+// Run the same nested semantic validation used by the owning report checker
+// immediately, before any review record is eligible for reconciliation.
+function inspectDesignReviewResult(raw, { perspective, reviewId: id, route, captures, input }) {
+  const issues = [];
+  if (!reviewId(id)) add(issues, "review_id", "must be a bounded review identity");
+  if (!REVIEW_PERSPECTIVES.has(perspective)) throw new Error("unknown design reviewer");
+  const normalized = Array.isArray(raw?.findings)
+    ? {
+        ...raw,
+        findings: raw.findings.map((finding, index) => {
+          if (!object(finding)) return finding;
+          if (Object.hasOwn(finding, "id"))
+            add(issues, `review.result.findings[${index}].id`, "raw findings must omit the ID");
+          return { ...finding, id: reviewFindingId(id, finding) };
+        }),
+      }
+    : raw;
+  validateReviewResult(
+    { review_id: id, perspective, result: normalized },
+    { captureIds: input.capture_ids, evidenceIds: input.evidence_ids || [] },
+    route,
+    new Map(captures.captures.map((capture) => [capture.id, capture])),
+    new Map((captures.evidence || []).map((evidence) => [evidence.id, evidence])),
+    "review",
+    issues
+  );
+  return { issues, result: normalized };
 }
 
 function validateFreshObservations(observations, inputState, route, captureById, label, issues) {
@@ -4792,26 +4955,7 @@ function validateReviewFinding(
   issues
 ) {
   if (!object(finding)) return add(issues, at, "must be an object");
-  closed(
-    finding,
-    [
-      "id",
-      "subject_id",
-      "region",
-      "rule",
-      "coverage_ids",
-      "evidence_ids",
-      "priority",
-      "owner",
-      "basis",
-      "confidence",
-      "summary",
-      "impact",
-      "remediation",
-    ],
-    at,
-    issues
-  );
+  closed(finding, ["id", ...FINDING_FIELDS], at, issues);
   const expectedId = reviewFindingId(review.review_id, finding);
   if (finding.id !== expectedId || ids.has(finding.id))
     add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
@@ -4843,7 +4987,7 @@ function validateReviewFinding(
         ? "Fresh Eyes findings must cite supplied rendered captures only"
         : "must cite supplied Primary evidence"
     );
-  for (const id of finding.evidence_ids || []) {
+  for (const id of Array.isArray(finding.evidence_ids) ? finding.evidence_ids : []) {
     const capture = captureById.get(id);
     const evidence = evidenceById.get(id);
     if (capture) {
@@ -4853,13 +4997,15 @@ function validateReviewFinding(
     } else if (evidence?.subject_id !== finding.subject_id)
       add(issues, `${at}.evidence_ids`, `evidence ${id} belongs to another subject`);
   }
-  if (!PRIORITIES.has(finding.priority)) add(issues, `${at}.priority`, "is invalid");
-  if (review.perspective === "fresh-eyes" && finding.priority === "P3")
-    add(issues, `${at}.priority`, "Fresh Eyes findings are limited to P0-P2");
-  if (!["design-critique", "qa", "review"].includes(finding.owner))
-    add(issues, `${at}.owner`, "is invalid");
-  if (!REVIEW_BASES.has(finding.basis)) add(issues, `${at}.basis`, "is invalid");
-  if (!REVIEW_CONFIDENCE.has(finding.confidence)) add(issues, `${at}.confidence`, "is invalid");
+  for (const [field, values] of Object.entries(findingEnums(review.perspective)))
+    if (!values.includes(finding[field]))
+      add(
+        issues,
+        `${at}.${field}`,
+        field === "priority" && review.perspective === "fresh-eyes"
+          ? "Fresh Eyes findings are limited to P0-P2"
+          : "is invalid"
+      );
   for (const key of ["summary", "impact", "remediation"])
     if (!boundedText(finding[key], 10_000)) add(issues, `${at}.${key}`, "is required");
 }
@@ -6585,6 +6731,9 @@ if (require.main === module) main();
 
 module.exports = {
   checkDesignCritique,
+  designReviewInstructions,
+  inspectDesignReviewResult,
+  loadDesignReviewPacket,
   findingId,
   hasBoundNativeModalTitle,
   reconciliationId,

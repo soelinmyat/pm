@@ -1,7 +1,7 @@
 ---
 name: Publish
 order: 5
-description: Publish checked structured and HTML reports and record only the Design Critique gate row through dev-session gate
+description: Publish checked structured and HTML reports and certify the Design Critique phase
 ---
 
 ## Goal
@@ -29,15 +29,15 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
 
 The checker resolves Chromium automatically. If the project uses a nonstandard browser binary, add `--browser "{CHROMIUM_PATH}"` or set `PM_ARTIFACT_BROWSER`. Remote-base verification is noninteractive and bounded; a timeout is a blocked gate, not permission to trust a stale local ref.
 
-6. Never hand-edit the gate manifest `.pm/dev-sessions/{slug}/gates.json`. Inside Dev, Dev step 06 records a passed result's phase evidence and then writes the passed `design-critique` row; return the checked outcome to it and do not write a passed row here. Failed, blocked, and deferred rows are still written here as described below. Outside Dev, record the passing `design-critique` phase evidence at current HEAD with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" record`, using the final retained round's absolute `report.json` as its review artifact, then run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name design-critique`. It reruns this checker chain against the phase-bound report and its exact session/run/round inputs, writes only the `design-critique` row with that retained report's project-relative `report.html` artifact (`.pm/dev-sessions/{slug}/design-critique/report.html` for the initial canonical layout), preserves every other row, and writes nothing if any check fails. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows; never write the flat legacy sidecar when the canonical session directory exists. For `failed`, `blocked`, or `deferred`, run the same command with `--status failed|blocked --reason "<concrete reason>"`; map `deferred` to `blocked` because the Dev schema has no deferred status.
-7. Keep the task-level assessment and accepted tradeoffs visible in the existing perspective summaries; link to the observed journey and comparison evidence. Report entry/return gaps honestly. Coverage and a passing checker certify the evidence contract, not usability by themselves. Outside Dev, run `dev-gate-check.js --require design-critique` only for a passed outcome, after the gate write. Inside Dev, Dev step 06 runs the gate command, which checks the candidate manifest with `dev-gate-check.js` before writing; do not run the check here, because the passed row does not exist yet. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
+6. Pass the final immutable machine report as the phase's absolute `review` evidence artifact. In Dev, return that checked artifact to Dev step 06. The caller records the phase using `dev-session.js record`. It reruns the full checker, writes the passing gate and then advances state under the session lock. The same contract applies when a standalone critique records passing evidence in an active Dev session. An interrupted attempt's report may remain under its original `runs/{run}/round-{N}/attempt-{A}/` path, with its route, captures and HTML in that same attempt. Preserve original receipt, capture and reviewer bindings. For an already recorded passing phase missing its gate, run `dev-session.js gate --session <absolute session.json> --name design-critique` against the recorded artifact. That command revalidates it with the current checker. If the original prompt or other active evidence is stale, retain it and use the supported recertification path. For `failed`, `blocked`, or `deferred`, use `gate --status failed|blocked --reason "<concrete reason>"`; map `deferred` to `blocked`. Never hand-edit `gates.json`.
+7. Keep the task-level assessment and accepted tradeoffs visible in the existing perspective summaries; link to the observed journey and comparison evidence. Report entry/return gaps honestly. Coverage and a passing checker certify the evidence contract, not usability by themselves. Outside Dev, run `dev-gate-check.js --require design-critique` only for a passed outcome, after the gate write. Inside Dev, the phase recorder checks the candidate manifest before writing and advancing. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
 
 ## Done-when
 
 - `route.json`, `captures.json`, `reviews.json`, `report.json`, and `report.html` are saved and mutually hash-bound.
 - Every review and reconciliation row is visibly represented in the human report.
 - The artifact checker and design-critique checker pass for a `passed` outcome.
-- The preserved Dev gate sidecar reflects the exact outcome and current commit; for a passed outcome inside Dev, Dev step 06 writes that row.
+- The preserved Dev gate sidecar reflects the exact outcome and current commit; for a passed outcome inside Dev, the phase recorder writes that row.
 - The user or calling phase has the report location and next action.
 
 **Advance:** return to the caller. In Dev, continue to QA only when the Design Critique gate is passed; otherwise stop at the recorded outcome.

@@ -444,6 +444,15 @@ test("design-critique rows rerun the full critique chain before writing", () => 
       JSON.stringify({ source: { base_commit: "a".repeat(40) } })
     );
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fs.writeFileSync(
+      path.join(dc, "report.json"),
+      JSON.stringify({
+        outcome: "passed",
+        rounds: 1,
+        route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+        captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+      })
+    );
     const plan = planGateWrite(
       { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
       fx.deps
@@ -807,6 +816,15 @@ test("recertified design-critique rows rerun the critique at the critiqued commi
       JSON.stringify({ source: { commit: "e".repeat(40), base_commit: "a".repeat(40) } })
     );
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fs.writeFileSync(
+      path.join(dc, "report.json"),
+      JSON.stringify({
+        outcome: "passed",
+        rounds: 1,
+        route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+        captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+      })
+    );
     const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
     const plan = planGateWrite(request, fx.deps);
     assert.equal(plan.row.commit, "e".repeat(40));
@@ -855,6 +873,15 @@ test("recertified design-critique re-captured at HEAD reruns the full HEAD-bound
       JSON.stringify({ source: { commit: "c".repeat(40), base_commit: "b".repeat(40) } })
     );
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fs.writeFileSync(
+      path.join(dc, "report.json"),
+      JSON.stringify({
+        outcome: "passed",
+        rounds: 1,
+        route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+        captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+      })
+    );
     const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
     const plan = planGateWrite(request, fx.deps);
     assert.equal(plan.row.commit, "e".repeat(40));
@@ -894,6 +921,15 @@ test("recertified design-critique re-captured after the critiqued commit reruns 
       JSON.stringify({ source: { commit: "d".repeat(40), base_commit: "a".repeat(40) } })
     );
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fs.writeFileSync(
+      path.join(dc, "report.json"),
+      JSON.stringify({
+        outcome: "passed",
+        rounds: 1,
+        route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+        captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+      })
+    );
     const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
     const plan = planGateWrite(request, fx.deps);
     assert.equal(plan.row.commit, "e".repeat(40));
@@ -940,6 +976,15 @@ test("recertified design-critique without a route source reruns at the critiqued
     fs.mkdirSync(dc);
     fs.writeFileSync(path.join(dc, "route.json"), JSON.stringify({ source: {} }));
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fs.writeFileSync(
+      path.join(dc, "report.json"),
+      JSON.stringify({
+        outcome: "passed",
+        rounds: 1,
+        route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+        captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+      })
+    );
     planGateWrite(
       { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
       fx.deps
@@ -1021,6 +1066,15 @@ test("gate writer proves a re-captured critique's ancestry with real Git in orde
       fs.mkdirSync(dc);
       const route = path.join(dc, "route.json");
       fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+      fs.writeFileSync(
+        path.join(dc, "report.json"),
+        JSON.stringify({
+          outcome: "passed",
+          rounds: 1,
+          route: { path: ".pm/dev-sessions/unit/design-critique/route.json" },
+          captures: { path: ".pm/dev-sessions/unit/design-critique/captures.json" },
+        })
+      );
       const { isAncestor } = require("../scripts/lib/dev-gate-writer").defaultDeps();
       fx.deps.head = () => head;
       fx.deps.isAncestor = (_root, ancestor, descendant) => isAncestor(repo, ancestor, descendant);
@@ -1052,6 +1106,7 @@ function selectedReportFixture() {
     JSON.stringify({ source: { commit: "c".repeat(40) } })
   );
   const report = {
+    outcome: "passed",
     run_id: "dc_selected",
     rounds: 3,
     route: { path: `${selected}/route.json`, sha256: "d".repeat(64) },
@@ -1461,4 +1516,131 @@ test("completion rechecks policy skips against current source and commit", () =>
   } finally {
     repo.cleanup();
   }
+});
+
+test("attempt-path Design gate retains the original report paths and rejects cross-attempt inputs", (t) => {
+  const fx = selectedReportFixture();
+  t.after(() => fx.cleanup());
+  const round = path.posix.dirname(fx.report.route.path);
+  const selected = `${round}/attempt-4`;
+  fs.mkdirSync(path.join(fx.root, selected));
+  fx.report.route.path = `${selected}/route.json`;
+  fx.report.captures.path = `${selected}/captures.json`;
+  fx.report.human_report = { path: `${selected}/report.html` };
+  const report = `${selected}/report.json`;
+  const reportFile = path.join(fx.root, report);
+  const options = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+  const refresh = () => fs.writeFileSync(reportFile, JSON.stringify(fx.report));
+  refresh();
+  const bytes = fs.readFileSync(reportFile);
+  fx.session.evidence["design-critique"].records[0].artifact = reportFile;
+  const plan = planGateWrite(options, fx.deps);
+  assert.deepEqual(fs.readFileSync(reportFile), bytes);
+  assert.equal(plan.row.artifact, `${selected}/report.html`);
+  assert.equal(fx.calls.designCritique.reportPath, report);
+  assert.equal(fx.calls.designCritique.routePath, fx.report.route.path);
+  assert.equal(fx.calls.designCritique.capturesPath, fx.report.captures.path);
+  const phase = fx.session.evidence["design-critique"];
+  fx.report.commit = phase.commit;
+  refresh();
+  const anchor = {
+    outcome: "passed",
+    run_id: fx.report.run_id,
+    round: fx.report.rounds,
+    commit: fx.report.commit,
+    report: {
+      path: report,
+      sha256: crypto.createHash("sha256").update(fs.readFileSync(reportFile)).digest("hex"),
+    },
+  };
+  phase.recovery_history = [anchor];
+  planGateWrite(options, fx.deps);
+  assert.deepEqual(fx.calls.designCritique.retainedReviewReport, anchor.report);
+  fx.report.next_action = "Changed after the original phase.";
+  refresh();
+  assert.throws(
+    () => planGateWrite(options, fx.deps),
+    /retained passing Design Critique report binding changed/
+  );
+  delete phase.recovery_history;
+  fx.report.outcome = "blocked";
+  refresh();
+  assert.throws(() => planGateWrite(options, fx.deps), /explicitly passed report/);
+  fx.report.outcome = "passed";
+  fx.report.captures.path = `${round}/attempt-3/captures.json`;
+  refresh();
+  assert.throws(() => planGateWrite(options, fx.deps), /must select the same run\/round/);
+  fx.report.captures.path = `${selected}/captures.json`;
+  fx.report.human_report.path = `${round}/attempt-3/report.html`;
+  refresh();
+  assert.throws(() => planGateWrite(options, fx.deps), /HTML must belong to the selected attempt/);
+});
+
+test("Design phase recording refuses to advance or publish if the attempt cannot be certified", (t) => {
+  const repo = makeRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  session.phase = "design-critique";
+  repo.saveSession(session);
+  repo.recordEvidence("implementation", passingTest);
+  assert.equal(repo.gate(["--name", "tdd"]).status, 0);
+  const before = fs.readFileSync(repo.sessionPath);
+  const priorGate = fs.readFileSync(repo.gatesPath);
+  const resultFile = path.join(path.dirname(repo.sessionPath), "design-attempt-result.json");
+  const artifact = path.join(
+    path.dirname(repo.sessionPath),
+    "design-critique/runs/synthetic/round-1/attempt-4/report.json"
+  );
+  fs.mkdirSync(path.dirname(artifact), { recursive: true });
+  fs.writeFileSync(
+    artifact,
+    JSON.stringify({
+      schema_version: 2,
+      run_id: "synthetic",
+      rounds: 1,
+      outcome: "passed",
+      commit: repo.head(),
+      route: { path: path.relative(repo.root, path.join(path.dirname(artifact), "route.json")) },
+      captures: {
+        path: path.relative(repo.root, path.join(path.dirname(artifact), "captures.json")),
+      },
+      human_report: {
+        path: path.relative(repo.root, path.join(path.dirname(artifact), "report.html")),
+      },
+    })
+  );
+  fs.writeFileSync(
+    resultFile,
+    JSON.stringify({
+      schema_version: 1,
+      run_id: session.run_id,
+      phase: session.phase,
+      attempt: session.phase_attempt,
+      status: "passed",
+      summary: "Claimed passing synthetic design evidence with missing inputs.",
+      commit: repo.head(),
+      files_changed: [],
+      evidence: [
+        {
+          kind: "review",
+          command: "node scripts/design-critique-check.js",
+          exit_code: 0,
+          artifact,
+        },
+      ],
+      blocker: null,
+      runtime: { provider: "inline", model: "inherit", reasoning: "inherit", session_id: null },
+    })
+  );
+  const result = repo.run([
+    "record",
+    "--session",
+    repo.sessionPath,
+    "--result",
+    resultFile,
+    "--json",
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(fs.readFileSync(repo.sessionPath), before);
+  assert.deepEqual(fs.readFileSync(repo.gatesPath), priorGate);
 });

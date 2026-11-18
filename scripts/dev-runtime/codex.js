@@ -1,7 +1,14 @@
 const fs = require("node:fs");
 const { decodeCodexResult } = require("./output-schema");
 
-function buildCodexLaunch({ profile, worktree, resumeId, schemaPath, lastMessagePath }) {
+function buildCodexLaunch({
+  profile,
+  worktree,
+  resumeId,
+  schemaPath,
+  lastMessagePath,
+  images = [],
+}) {
   requirePath(schemaPath, "schemaPath");
   requirePath(lastMessagePath, "lastMessagePath");
   const args = ["exec"];
@@ -24,6 +31,7 @@ function buildCodexLaunch({ profile, worktree, resumeId, schemaPath, lastMessage
     args.push("--sandbox", profile.sandbox, "-C", worktree);
   }
 
+  for (const image of images) args.push("--image", image);
   args.push("--json", "--output-schema", schemaPath, "--output-last-message", lastMessagePath, "-");
   return { command: "codex", args, input: "stdin", eventFormat: "jsonl" };
 }
