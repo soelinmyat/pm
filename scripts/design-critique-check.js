@@ -5819,6 +5819,8 @@ function hasNativeElementRegionRemediation(root, finding, before, after, nativeO
   if (
     !a ||
     !b ||
+    // Both captures read one canonical coverage assertion, so valid evidence
+    // cannot disagree here. Keep the guard in case that binding ever changes.
     a.locator !== b.locator ||
     a.bounds.x !== b.bounds.x ||
     a.bounds.y !== b.bounds.y ||
@@ -6267,9 +6269,7 @@ function validateHumanReport(
     const visibleText = normalizeVisible(marker?.text || "");
     if (
       !marker ||
-      ![finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids].every(
-        (value) => visibleText.includes(normalizeVisible(value))
-      )
+      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeVisible(value)))
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
@@ -6390,7 +6390,7 @@ function validateRenderedMarkers(markers, report, reviewState, issues) {
         "data-dc-finding-status": finding.status,
         "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
       },
-      requiredText: [finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids],
+      requiredText: findingVisibleText(finding),
     })),
     ...(reviewState?.rows || []).map((row) => ({
       attributes: {
@@ -6564,7 +6564,19 @@ function findingProjection(finding) {
     evidence_ids: finding.evidence_ids,
     before_capture_id: finding.before_capture_id || null,
     after_capture_id: finding.after_capture_id || null,
+    // Present only when cited, so existing report hashes stay unchanged.
+    ...(finding.proof_assertion !== undefined && { proof_assertion: finding.proof_assertion }),
   };
+}
+
+function findingVisibleText(finding) {
+  return [
+    finding.summary,
+    finding.remediation,
+    finding.owner,
+    ...finding.evidence_ids,
+    ...(typeof finding.proof_assertion === "string" ? [finding.proof_assertion] : []),
+  ];
 }
 
 function reviewSummary(review) {

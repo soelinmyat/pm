@@ -2335,9 +2335,11 @@ function htmlReport(source, captures, reviewsBinding, reviews, report) {
         evidence_ids: finding.evidence_ids,
         before_capture_id: finding.before_capture_id || null,
         after_capture_id: finding.after_capture_id || null,
+        ...(finding.proof_assertion !== undefined && { proof_assertion: finding.proof_assertion }),
       };
       const projectionHash = digest(Buffer.from(JSON.stringify(projection)));
-      return `<article data-dc-finding-id="${finding.id}" data-dc-finding-priority="${finding.priority}" data-dc-finding-status="${finding.status}" data-dc-finding-sha256="${projectionHash}">${finding.priority} ${finding.status} ${finding.owner} ${finding.summary} ${finding.remediation} ${finding.evidence_ids.join(" ")}</article>`;
+      const proof = finding.proof_assertion ? ` ${finding.proof_assertion}` : "";
+      return `<article data-dc-finding-id="${finding.id}" data-dc-finding-priority="${finding.priority}" data-dc-finding-status="${finding.status}" data-dc-finding-sha256="${projectionHash}">${finding.priority} ${finding.status} ${finding.owner} ${finding.summary} ${finding.remediation} ${finding.evidence_ids.join(" ")}${proof}</article>`;
     })
     .join("");
   const scoreMarkers = Object.entries(report.scores)
@@ -6306,6 +6308,15 @@ test("native element region proof evaluates only the element the finding cites",
   );
 });
 
+test("native element region proof must show the cited element in the human report", () => {
+  const { fixture } = resolvedRegionFixture("resolved-region");
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.ok(html.includes(" state assertion clause 1</article>"));
+  fs.writeFileSync(htmlPath, html.replace(" state assertion clause 1</article>", "</article>"));
+  assert.match(JSON.stringify(check(fixture).issues), /missing visible finding/);
+});
+
 test("native element region proof rejects a malformed proof_assertion", () => {
   const { fixture } = resolvedRegionFixture(
     "resolved-region",
@@ -6349,7 +6360,7 @@ for (const [name, beforeProof, afterProof, pixels, ...proofAssertion] of [
     "state-content",
   ],
   [
-    "mismatched locators",
+    "a cited clause measured only under another clause",
     "resolved-region-two-grids-schedule",
     "resolved-region-two-grids-roster",
     "state-content",
