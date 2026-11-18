@@ -195,7 +195,7 @@ function requireQa(options) {
   const {
     validateSession,
     writeSession,
-    verifyRfcSidecarIdentity,
+    verifySessionRfcSidecar,
   } = require("./dev-session-schema");
   const { value: located } = require("./dev-session-location").loadDevSession(process.cwd(), {
     sessionPath: options.sessionPath,
@@ -222,11 +222,7 @@ function requireQa(options) {
     const session = JSON.parse(sessionBytes);
     if (session.schema_version !== 3 || validateSession(session).length)
       throw new Error("QA recovery requires a valid schema-v3 session; migrate separately first");
-    verifyRfcSidecarIdentity(
-      session.task.rfc_sidecar,
-      session.task.design_context,
-      session.task.work_units
-    );
+    verifySessionRfcSidecar(session);
     if (!/^sha256:[a-f0-9]{64}$/.test(options.expectedSessionSha256 || ""))
       throw new Error("expected session SHA-256 is required");
     if (

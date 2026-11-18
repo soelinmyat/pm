@@ -445,6 +445,28 @@ test("actual app preview, value and exact product delegation reach RFC handoff a
       blocker: null,
       runtime: { provider: "inline", model: "inherit", reasoning: "inherit", session_id: null },
     };
+    // The record CLI must verify the RFC with the session's stored preview
+    // source root, as route and next do.
+    const cliSession = path.join(repo.root, ".pm/dev-sessions", delivery.slug, "session.json");
+    fs.mkdirSync(path.dirname(cliSession), { recursive: true });
+    fs.writeFileSync(cliSession, `${JSON.stringify(delivery, null, 2)}\n`);
+    const resultPath = path.join(path.dirname(cliSession), "readiness-result.json");
+    fs.writeFileSync(resultPath, JSON.stringify(readiness));
+    const recorded = spawnSync(
+      process.execPath,
+      [
+        path.resolve(__dirname, "../scripts/dev-session.js"),
+        "record",
+        "--session",
+        cliSession,
+        "--result",
+        resultPath,
+        "--json",
+      ],
+      { cwd: repo.root, encoding: "utf8" }
+    );
+    assert.equal(recorded.status, 0, recorded.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(cliSession)).phase, "implementation");
     delivery = dev.recordResult(delivery, readiness);
     assert.equal(delivery.phase, "implementation");
     assert.equal(delivery.authority.push_feature_branch, false);

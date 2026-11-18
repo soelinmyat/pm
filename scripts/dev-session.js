@@ -38,7 +38,7 @@ const {
   transitionCandidate,
   validateResultEnvelope,
   validateSession,
-  verifyRfcSidecarIdentity,
+  verifySessionRfcSidecar,
   updateWorkspace,
   writeJsonAtomic,
   writeSession,
@@ -400,11 +400,7 @@ function recordCommand(options) {
       }
     }
     const session = readSession(sessionPath);
-    verifyRfcSidecarIdentity(
-      session.task.rfc_sidecar,
-      session.task.design_context,
-      session.task.work_units
-    );
+    verifySessionRfcSidecar(session);
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
       let idempotentSession = session;
@@ -736,11 +732,7 @@ function mutateSession(sessionPath, mutation, options = {}) {
         .createHash("sha256")
         .update(fs.readFileSync(bound.path))
         .digest("hex")}`;
-      verifyRfcSidecarIdentity(
-        { ...bound, sha256: observed },
-        session.task.design_context,
-        session.task.work_units
-      );
+      verifySessionRfcSidecar(session, { ...bound, sha256: observed });
       if (observed !== bound.sha256) {
         const verified = verifyRfcApproval({
           sidecarPath: bound.path,
@@ -752,11 +744,7 @@ function mutateSession(sessionPath, mutation, options = {}) {
           throw new Error("RFC changed during release validation; retry with stable artifacts");
       }
     } else if (!options.allowSidecarRebind) {
-      verifyRfcSidecarIdentity(
-        session.task.rfc_sidecar,
-        session.task.design_context,
-        session.task.work_units
-      );
+      verifySessionRfcSidecar(session);
     }
     const updated = mutation(session);
     writeSession(sessionPath, updated);

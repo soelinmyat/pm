@@ -3309,6 +3309,14 @@ function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [],
     );
 }
 
+// Verify a session's RFC sidecar with the preview source root the session
+// itself stores, so callers cannot drop it.
+function verifySessionRfcSidecar(session, identity = session.task.rfc_sidecar) {
+  return verifyRfcSidecarIdentity(identity, session.task.design_context, session.task.work_units, {
+    previewSourceRoot: session.task.preview_source_root,
+  });
+}
+
 function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [], options = {}) {
   if (!identity) return;
   let bytes;
@@ -4044,6 +4052,7 @@ module.exports = {
   validateSession,
   validationError,
   verifyRfcSidecarIdentity,
+  verifySessionRfcSidecar,
   verifyRfcReadinessProvenance,
   updateWorkspace,
   upgradeCompatibleSession,

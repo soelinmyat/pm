@@ -10,7 +10,7 @@ const { gitExec } = require("./lib/git-env");
 const { createWorkflowClient } = require("./productmemory-workflow");
 const {
   validateSession,
-  verifyRfcSidecarIdentity,
+  verifySessionRfcSidecar,
   verifyRfcReadinessProvenance,
 } = require("./lib/dev-session-schema");
 const { readApprovedProposal } = require("./lib/proposal-schema");
@@ -44,11 +44,7 @@ function readCanonical(sessionPath) {
     `sha256:${sha(proposal.source.bytes)}` !== session.task.proposal.approved_proposal_sha256
   )
     throw new Error("Local proposal approval lineage changed");
-  verifyRfcSidecarIdentity(
-    session.task.rfc_sidecar,
-    session.task.design_context,
-    session.task.work_units
-  );
+  verifySessionRfcSidecar(session);
   verifyRfcReadinessProvenance(session);
   return session;
 }
