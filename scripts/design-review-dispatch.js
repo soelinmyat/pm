@@ -35,6 +35,7 @@ const { compareRfc3339DateTimes } = require("./lib/iso-time");
 const MAX_INPUT = 4 * 1024 * 1024;
 const MAX_IMAGES = 64 * 1024 * 1024;
 const NAMESPACE = /^\.pm\/dev-sessions\/[a-z0-9-]+\/design-critique(?:\/[a-zA-Z0-9_-]+)+$/;
+const REVIEW_RUNTIME = "codex";
 const NO_WRITES = "Read only. Do not write files, change worktree state, or take external action.";
 
 function hash(bytes) {
@@ -270,6 +271,7 @@ async function reviewInIsolatedDirectory(root, request, correctEnums, executionD
     const instruction = [
       prompt,
       `Return the canonical worker result for work_unit_id ${workUnit} and commit ${commit} with files_changed 0.`,
+      `Set the worker envelope runtime.provider to ${JSON.stringify(REVIEW_RUNTIME)} (the runtime adapter identifier).`,
       'Put the full ID-free design result in the single evidence entry {"kind":"review","exit_code":0,"review_result": YOUR_RESULT}. This is response completion only. Do not write the result to disk.',
     ].join("\n\n");
     writeProjectFileAtomic(root, location("prompt.txt"), instruction, { replace: false });
@@ -277,7 +279,7 @@ async function reviewInIsolatedDirectory(root, request, correctEnums, executionD
     let observed;
     const args = [
       "--runtime",
-      "codex",
+      REVIEW_RUNTIME,
       "--worktree",
       root,
       "--work-unit-id",
@@ -309,11 +311,14 @@ async function reviewInIsolatedDirectory(root, request, correctEnums, executionD
         observed?.worker.reason || `design reviewer execution blocked (dispatch exit ${code})`
       );
     const { worker, runtime } = observed;
+    if (worker.runtime.provider !== REVIEW_RUNTIME || runtime.provider !== REVIEW_RUNTIME)
+      throw new Error(
+        `worker runtime.provider must equal ${JSON.stringify(REVIEW_RUNTIME)} and match the observed runtime`
+      );
     const entry = worker.evidence[0];
     if (
       worker.files_changed !== 0 ||
       worker.commit !== commit ||
-      worker.runtime.provider !== "codex" ||
       worker.evidence.length !== 1 ||
       entry.kind !== "review" ||
       entry.exit_code !== 0 ||

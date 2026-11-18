@@ -46,15 +46,24 @@ Read each description as the state the capture intends, such as a view scrolled 
 3. What is the weakest part for this task? Explain any inconsistency or composition tradeoff using visible elements and the supplied principles. Distinguish a visible concern from untested behavior; do not invent findings.
 ```
 
-**Output format:** return only the Fresh Eyes `result` object required by `reviews.json`:
+**Output format:** return only the Fresh Eyes `result` object required by `reviews.json`. This synthetic example shows how to name visible elements and describe their position or appearance. Use your own observations and exact capture IDs.
 
 ```json
 {
-  "first_impression": "Two or three direct sentences.",
+  "first_impression": "The Account heading introduces the summary cards. The Save button sits below them where the page changes can be confirmed.",
   "answers": {
-    "purpose": { "text": "What the page does.", "evidence_ids": ["capture-id"] },
-    "visual_focus": { "text": "Where attention goes first.", "evidence_ids": ["capture-id"] },
-    "inconsistencies": { "text": "What feels off, or that none was found.", "evidence_ids": ["capture-id"] }
+    "purpose": {
+      "text": "The Account heading identifies the destination, and the Save button shows how to confirm the edited details.",
+      "evidence_ids": ["capture-id"]
+    },
+    "visual_focus": {
+      "text": "The bold Account heading sits above the light summary cards and draws the eye first.",
+      "evidence_ids": ["capture-id"]
+    },
+    "inconsistencies": {
+      "text": "The Save button aligns with the left edge of the summary cards, but its icon sits above the label.",
+      "evidence_ids": ["capture-id"]
+    }
   },
   "observations": [
     {
@@ -62,14 +71,18 @@ Read each description as the state the capture intends, such as a view scrolled 
       "coverage_id": "route-coverage-id",
       "state": "primary",
       "viewport": "desktop",
-    "observation": "The primary state at the desktop viewport places the Account heading above two summary cards, with the Save button below them."
+      "observation": "The primary state at the desktop viewport places the Account heading above two summary cards, with the Save button below them."
     }
   ],
   "findings": []
 }
 ```
 
-Return exactly one observation row for every supplied capture, including every routed state and viewport. `coverage_id`, `state`, and `viewport` must match that capture's route row. Write at least 40 UTF-8 bytes of direct visual observation, explicitly name the routed state and viewport, and name a concrete interface element plus an observed visual property or relationship. Metadata-filled templates and observations that differ only by capture, coverage, state, or viewport labels are invalid. The first impression and all three answers must also name concrete interface elements; visual-focus and inconsistency answers describe a visual property or relationship. Each raw finding omits its ID and uses exactly `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The generated finding schema supplies allowed priorities, owners, bases and confidence values, with a non-empty example. The caller computes deterministic IDs, binds the exact input/result, and writes a `workflow-attested-non-cryptographic` receipt; this is durable workflow evidence, not proof of separate model execution.
+Name a concrete element in every prose field, including the purpose answer. A description of what the task lets people do needs a visible element that communicates it, such as a heading, button, label, or card. If you use a domain term, identify the visible element too, such as a sheet title or a status badge. In the visual-focus and inconsistency answers and in every observation, also describe something you can point to in the image, such as alignment, spacing, contrast, relative size, or position. Keep genuine findings even when the example has none.
+
+The first impression needs at least 60 UTF-8 bytes, each answer at least 50, and each observation at least 40. Each needs at least eight words. Return exactly one observation for each capture. Copy its `coverage_id`, `state`, and `viewport` and name the exact routed state and viewport in the observation prose. Two observations must differ in visible substance beyond those labels.
+
+Each raw finding omits its ID and uses exactly `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The generated finding schema supplies allowed priorities, owners, bases and confidence values, with a non-empty example. The caller computes deterministic IDs, binds the exact input/result, and writes a `workflow-attested-non-cryptographic` receipt; this is durable workflow evidence, not proof of separate model execution.
 
 ## Limits
 

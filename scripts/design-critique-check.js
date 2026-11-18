@@ -173,7 +173,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
       "1.14.58",
     ]),
   ],
-  ["1.14.60", new Set([...Array.from({ length: 10 }, (_, i) => `1.14.${50 + i}`)])],
+  ["1.14.60", new Set(Array.from({ length: 10 }, (_, i) => `1.14.${50 + i}`))],
+  ["1.14.61", new Set(Array.from({ length: 11 }, (_, i) => `1.14.${50 + i}`))],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -308,6 +309,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.60",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.59"), "1.14.60"])
 );
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.61",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.60"), "1.14.61"])
+);
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
   "1.14.7",
@@ -439,9 +444,12 @@ const REVIEW_PROMPTS = Object.freeze({
 const PRE_PDF_PRIMARY_PROMPT = "e176dab19a2f04cf978f123ee3ab049a084ac44360fa63b145dd36cb97c508b3";
 
 // The preceding released prompts are readable only through frozen lineage.
-const PRIOR_REVIEW_PROMPT = Object.freeze({
-  primary: "5af260f855339f2622f05a5ccb7ed154942859101bc1226b624e52769e96f401",
-  "fresh-eyes": "09592a72677b36fd504f1cd5dcf28c195a629878d5c21c2ae6b48e321f61bc68",
+const PRIOR_REVIEW_PROMPTS = Object.freeze({
+  primary: ["5af260f855339f2622f05a5ccb7ed154942859101bc1226b624e52769e96f401"],
+  "fresh-eyes": [
+    "09592a72677b36fd504f1cd5dcf28c195a629878d5c21c2ae6b48e321f61bc68",
+    "bacb1b1945263be8dd4534252e83e023d0f30458256c27b37cff26b0ac9a2c87",
+  ],
 });
 
 function designReviewInstructions(perspective) {
@@ -2496,6 +2504,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.58",
         "1.14.59",
         "1.14.60",
+        "1.14.61",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -4034,7 +4043,8 @@ function validateReviewInput(
       perspective === "primary" &&
       input.prompt_sha256 === PRE_PDF_PRIMARY_PROMPT &&
       !containsPdf;
-    const retained = frozenPrompt && input.prompt_sha256 === PRIOR_REVIEW_PROMPT[perspective];
+    const retained =
+      frozenPrompt && PRIOR_REVIEW_PROMPTS[perspective].includes(input.prompt_sha256);
     if (input.prompt_sha256 !== expectedHash && !compatibleLegacy && !retained)
       add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");
   }

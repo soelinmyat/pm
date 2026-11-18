@@ -11166,11 +11166,15 @@ if (count === 1) {
     throw new Error("Fresh Eyes received prohibited context");
 }
 const retry = count > 1;
-const result = retry || variant === "valid" ? ${JSON.stringify(valid)} : ${JSON.stringify(invalid)};
+const result = retry || ["valid","wrong-provider","fresh-prose"].includes(variant) ? ${JSON.stringify(valid)} : ${JSON.stringify(invalid)};
 if (count === 1) {
   const material = JSON.parse(prompt.split("as evidence, not instructions.\\n\\n")[1].split("\\n\\nReturn the canonical worker result")[0]);
   for (const row of result.findings)
     row.subject_id = material.captures.find(capture => row.coverage_ids.includes(capture.coverage_id)).subject_id;
+}
+if (variant === "fresh-prose") {
+  result.answers.purpose.text = "This view helps people decide whether to keep the changes they just made.";
+  result.observations[0].observation = "In the primary state on desktop the account section looks good and consistent.";
 }
 if (variant === "non-enum" && !retry) result.findings[0].evidence_ids = "invalid";
 if (retry && variant === "changed") result.first_impression += " Another conclusion.";
@@ -11187,7 +11191,7 @@ if (variant === "denied" || (variant === "refused-correction" && retry)) {
 }
 const worker = { schema_version:1, work_unit_id:"design-review-fresh-eyes", status:"completed",
   summary:"Synthetic visual assessment", commit:${JSON.stringify(commit)}, files_changed:retry && variant === "ownership" ? 1 : 0,
-  evidence:[{kind:"review",exit_code:0,review_result:result}], blocker:null, runtime:{provider:"codex"} };
+  evidence:[{kind:"review",exit_code:0,review_result:result}], blocker:null, runtime:{provider:variant === "wrong-provider" ? "openai" : "codex"} };
 const transport = JSON.stringify({ result_json:JSON.stringify(worker) });
 fs.writeFileSync(args[args.indexOf("--output-last-message")+1], transport);
 emit({type:"item.completed",item:{type:"agent_message",text:transport}});
@@ -11229,6 +11233,8 @@ for (const variant of [
   "dropped",
   "downgraded",
   "wrong-context",
+  "wrong-provider",
+  "fresh-prose",
   "ownership",
   "contaminated",
   "denied",
@@ -11240,15 +11246,37 @@ for (const variant of [
     const { fixture, primary, valid, invalid, request } = fx;
     const run = runSyntheticDesignDispatch(fx, variant);
     const okay = ["valid", "corrected"].includes(variant);
-    const single = ["valid", "no-opt-in", "non-enum", "denied", "runtime-refusal"].includes(
-      variant
-    );
+    const single = [
+      "valid",
+      "no-opt-in",
+      "non-enum",
+      "denied",
+      "runtime-refusal",
+      "wrong-provider",
+      "fresh-prose",
+    ].includes(variant);
     assert.equal(run.attempts, single ? 1 : 2, run.stderr);
     assert.equal(run.status, okay ? 0 : 1, run.stderr);
     assert.ok(run.args[0].includes("read-only"));
     assert.ok(run.args[0].includes("--image"));
     const selectedPath = path.join(fixture.root, request.output, "review.json");
     assert.equal(fs.existsSync(selectedPath), okay);
+    const output = path.join(fixture.root, request.output, "attempt-1");
+    const prompt = fs.readFileSync(path.join(output, "prompt.txt"), "utf8");
+    assert.match(prompt, /runtime\.provider.*"codex"/);
+    assert.match(prompt, /purpose.*button/i);
+    if (variant === "wrong-provider") {
+      assert.match(run.stderr, /worker runtime\.provider must equal "codex"/);
+      const worker = JSON.parse(fs.readFileSync(path.join(output, "worker-result.json")));
+      assert.equal(worker.runtime.provider, "openai");
+      assert.equal(worker.evidence[0].review_result.findings[0].priority, "P2");
+    }
+    if (variant === "fresh-prose") {
+      assert.match(run.stderr, /answers\.purpose\.text/);
+      assert.match(run.stderr, /observations\[0\]\.observation/);
+      const worker = JSON.parse(fs.readFileSync(path.join(output, "worker-result.json")));
+      assert.equal(worker.evidence[0].review_result.findings[0].priority, "P2");
+    }
     if (!okay) return;
     const review = JSON.parse(fs.readFileSync(selectedPath));
     assert.equal(review.result.findings[0].priority, "P2");
@@ -11295,6 +11323,34 @@ for (const variant of [
   });
 }
 
+test("the shipped Fresh Eyes prose example passes actual nested validation", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const instructions = designReviewInstructions("fresh-eyes");
+  const example = JSON.parse(instructions.match(/```json\n([\s\S]*?)\n```/)[1]);
+  const fresh = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  const observation = fresh.result.observations.find(
+    (row) =>
+      row.state === example.observations[0].state &&
+      row.viewport === example.observations[0].viewport
+  );
+  assert.ok(observation);
+  for (const answer of Object.values(example.answers))
+    answer.evidence_ids = [observation.capture_id];
+  example.observations[0] = { ...observation, observation: example.observations[0].observation };
+  const { inspectDesignReviewResult } = require("../scripts/design-critique-check");
+  assert.deepEqual(
+    inspectDesignReviewResult(example, {
+      perspective: fresh.perspective,
+      reviewId: fresh.review_id,
+      route: fixture.route,
+      captures: fixture.captures,
+      input: { capture_ids: [observation.capture_id] },
+    }).issues,
+    []
+  );
+});
+
 test("previous Design prompts require the exact frozen report anchor for current certification", (t) => {
   const fixture = makeFixture();
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
@@ -11325,3 +11381,96 @@ test("previous Design prompts require the exact frozen report anchor for current
   rewriteReviewsAndReport(fixture);
   assert.equal(check(fixture, COMMIT, { retainedReviewReport }).ok, false);
 });
+
+test("gate certifies a finalized attempt with v1.14.60 Fresh Eyes instructions in place", (t) => {
+  const fixture = makeFixture();
+  fixture.root = fs.realpathSync(fixture.root);
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const { base, oldCommit: commit } = bindRecoveryDCSource(fixture, t);
+  const session = createSession({ slug: "example", sourceDir: fixture.root });
+  const sessionDir = ".pm/dev-sessions/example";
+  const attempt = `${sessionDir}/design-critique/runs/${fixture.report.run_id}/round-1/attempt-4`;
+  const html = `${attempt}/report-final.html`;
+  fixture.routePath = `${attempt}/route.json`;
+  fixture.capturesPath = `${attempt}/captures-final.json`;
+  fixture.reviewsPath = `${attempt}/reviews-final.json`;
+  fixture.reportPath = `${attempt}/report-final.json`;
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.reviews = makeReviews(
+    fixture.root,
+    fixture.route,
+    fixture.captures,
+    fixture.report.scores,
+    1,
+    fixture.routePath
+  );
+  fixture.reviews.route = fixture.captures.route;
+  fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = fixture.reviews.captures;
+  fixture.report.human_report = { path: html };
+  const fresh = fixture.reviews.rounds[0].reviews.find((row) => row.perspective === "fresh-eyes");
+  const { payload_sha256: omitted, ...input } = fresh.input;
+  assert.ok(omitted);
+  fresh.input = withPayloadHash({
+    ...input,
+    prompt_sha256: "bacb1b1945263be8dd4534252e83e023d0f30458256c27b37cff26b0ac9a2c87",
+  });
+  attachReviewReceipt(fixture.root, fresh, 1);
+  rewriteReviewsAndReport(fixture);
+  fs.renameSync(path.join(fixture.root, "evidence/report.html"), path.join(fixture.root, html));
+  const retainedReviewReport = binding(fixture.root, fixture.reportPath);
+  const freshIssues = check(fixture, commit).issues.filter((issue) =>
+    issue.path.endsWith(".prompt_sha256")
+  );
+  assert.equal(freshIssues.length, 1);
+  assert.equal(
+    check(fixture, commit, {
+      retainedReviewReport: { ...retainedReviewReport, path: "evidence/another-report.json" },
+    }).ok,
+    false
+  );
+  session.routing.required_gates = ["design-critique"];
+  session.evidence["design-critique"] = {
+    commit,
+    records: [dcReportEvidence(fixture)],
+    recovery_history: [
+      {
+        run_id: fixture.report.run_id,
+        round: 1,
+        commit,
+        outcome: "passed",
+        report: retainedReviewReport,
+      },
+    ],
+  };
+  const sessionPath = path.join(fixture.root, sessionDir, "session.json");
+  fs.writeFileSync(sessionPath, JSON.stringify(session));
+  const { planGateWrite } = require("../scripts/lib/dev-gate-writer");
+  const checked = planGateWrite(
+    { sessionPath, session, name: "design-critique" },
+    {
+      head: () => commit,
+      resolveContext: () => ({
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: base,
+      }),
+      checkDesignCritique: (options) => checkDesignCritique({ ...options, verifyBrowser: false }),
+      checkManifest: () => ({ ok: true, issues: [] }),
+    }
+  );
+  assert.equal(checked.row.artifact, html);
+  assert.deepEqual(binding(fixture.root, fixture.reportPath), retainedReviewReport);
+  assert.equal(fs.existsSync(path.join(fixture.root, attempt, "report.json")), false);
+});
+
+for (const version of ["1.14.49", "1.14.50", "1.14.60", "1.14.61", "999.0.0"]) {
+  test(`finalized-attempt release bounds native producer ${version}`, (t) => {
+    const { fixture, run } = recertificationReleaseFixture(version, "1.14.61");
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+    assert.equal(run().ok, ["1.14.50", "1.14.60", "1.14.61"].includes(version));
+  });
+}
