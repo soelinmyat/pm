@@ -6549,10 +6549,31 @@ function removeHiddenSubtrees(html, css) {
   return output;
 }
 
+const NAMED_VISIBLE_ENTITIES = Object.freeze({
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+});
+
+// Decode HTML entities in one pass, so "&amp;lt;" becomes the literal "&lt;"
+// and is never decoded a second time into "<".
+function decodeVisibleEntity(entity, name) {
+  const lower = name.toLowerCase();
+  if (Object.hasOwn(NAMED_VISIBLE_ENTITIES, lower)) return NAMED_VISIBLE_ENTITIES[lower];
+  const codePoint = lower.startsWith("#x")
+    ? Number.parseInt(lower.slice(2), 16)
+    : Number.parseInt(lower.slice(1), 10);
+  return codePoint <= 0x10ffff && (codePoint < 0xd800 || codePoint > 0xdfff)
+    ? String.fromCodePoint(codePoint)
+    : entity;
+}
+
 function normalizeVisible(value) {
   return String(value)
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
+    .replace(/&(nbsp|amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-f]{1,6});/gi, decodeVisibleEntity)
     .replace(/\s+/g, " ")
     .trim();
 }

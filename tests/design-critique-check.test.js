@@ -6317,6 +6317,42 @@ test("native element region proof must show the cited element in the human repor
   assert.match(JSON.stringify(check(fixture).issues), /missing visible finding/);
 });
 
+function angleBracketReportFixture() {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "Add shift on <date> stays reachable.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "Add shift on <date> was hidden behind the header.";
+  rewriteReportAndHtml(fixture);
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  return { fixture, htmlPath, html: fs.readFileSync(htmlPath, "utf8") };
+}
+
+test("visible report text matches report JSON that contains angle brackets", () => {
+  const { fixture, htmlPath, html } = angleBracketReportFixture();
+  // A correct report escapes "<date>". Named and numeric forms both decode.
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("Add shift on <date> stays", "Add shift on &lt;date&gt; stays")
+      .replace("Add shift on <date> was", "Add shift on &#60;date&#x3E; was")
+  );
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("double-escaped visible report text does not match decoded report JSON", () => {
+  const { fixture, htmlPath, html } = angleBracketReportFixture();
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("Add shift on <date> stays", "Add shift on &amp;lt;date&amp;gt; stays")
+      .replace("Add shift on <date> was", "Add shift on &amp;lt;date&amp;gt; was")
+  );
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.match(issues, /visible score .* must match report JSON/);
+  assert.match(issues, /missing visible finding/);
+});
+
 test("native element region proof rejects a malformed proof_assertion", () => {
   const { fixture } = resolvedRegionFixture(
     "resolved-region",
