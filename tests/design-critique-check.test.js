@@ -6353,7 +6353,7 @@ test("double-escaped visible report text does not match decoded report JSON", ()
   assert.match(issues, /missing visible finding/);
 });
 
-test("report JSON text that quotes literal entities matches only correctly escaped HTML", () => {
+test("report JSON quoting &#39; or &lt;br&gt; matches only correctly escaped HTML", () => {
   const fixture = makeFixture();
   const key = Object.keys(fixture.report.scores)[0];
   fixture.report.scores[key].rationale = "Labels showed &#39; and &lt;br&gt; as text.";
@@ -6371,6 +6371,22 @@ test("report JSON text that quotes literal entities matches only correctly escap
     underEscaped.replaceAll("&#39; and &lt;br&gt;", "&amp;#39; and &amp;lt;br&amp;gt;")
   );
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("report JSON quoting &amp; or &nbsp; keeps its original single decoding", () => {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "R&amp;D notes kept a&nbsp;space.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "R&amp;D notes kept a&nbsp;space in the header.";
+  rewriteReportAndHtml(fixture);
+  // JSON "&amp;" and "&nbsp;" decode once, so HTML that does not escape them
+  // again matches, as before 1.14.64.
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  const html = fs.readFileSync(htmlPath, "utf8");
+  fs.writeFileSync(htmlPath, html.replaceAll("R&amp;D", "R&amp;amp;D"));
+  assert.match(JSON.stringify(check(fixture).issues), /missing visible finding/);
 });
 
 test("native element region proof rejects a malformed proof_assertion", () => {

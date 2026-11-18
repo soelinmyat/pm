@@ -6575,8 +6575,10 @@ function decodeVisibleEntity(entity, name) {
     : entity;
 }
 
-// Report JSON and other plain text keep their original normalization. Only
-// text read from HTML source is entity-decoded, by normalizeVisible.
+// Report JSON and other plain text keep their original normalization, which
+// decodes only &nbsp; and &amp;. JSON that quotes those two therefore matches
+// HTML that does not escape them again. Every other entity is decoded only in
+// text read from HTML source, by normalizeVisible.
 function normalizeText(value) {
   return String(value)
     .replace(/&nbsp;/gi, " ")
