@@ -407,9 +407,12 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
     text,
     /env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX node --test --test-concurrency=4 tests\/\*\.test\.js/
   );
+  const workflow = read(".github/workflows/ci.yml");
+  assert.match(workflow, /PM_ARTIFACT_BROWSER="\$\(command -v google-chrome\)"/);
+  assert.match(workflow, /if \[\[ -n "\$\{PM_SKIP_BROWSER_TESTS:-\}" \]\]; then[\s\S]*?exit 1/);
   assert.match(
-    read(".github/workflows/ci.yml"),
-    /node --test --test-concurrency=4 tests\/\*\.test\.js/
+    workflow,
+    /npx c8 --reporter=text node --test --test-concurrency=2 tests\/\*\.test\.js/
   );
   assert.match(text, /git cat-file -e "\$commit:\$required_path"/);
   assert.match(text, /git show "\$commit:plugin\.config\.json"/);

@@ -1856,7 +1856,7 @@ async function startLoopbackWebSocketServer(root) {
           'new SharedWorker(workerUrl);}</script>'
         : '';
       const serviceWorkerScript = serviceWorker
-        ? '<script>navigator.serviceWorker.register("/service-worker.js");</script>'
+        ? '<script>setTimeout(() => navigator.serviceWorker.register("/service-worker.js"), 350);</script>'
         : '';
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
@@ -2421,19 +2421,22 @@ for (const variant of ["english", "spanish", "outside-dialog", "foreign-title"])
   );
 }
 
-function runBrowserCapture(fixture, allowedOrigins = []) {
-  return runCaptureProbe({
-    browserPath: installedBrowser,
-    url: fixture.url,
-    expectedUrl: fixture.url,
-    viewport: { width: 1024, height: 600 },
-    stateAssertion: fixture.stateAssertion,
-    allowedOrigins,
-    readinessTimeoutMs: 15_000,
-    settleMs: 200,
-    outputPath: fixture.outputPath,
-    verificationPath: fixture.verificationPath,
-  });
+function runBrowserCapture(fixture, allowedOrigins = [], runtime) {
+  return runCaptureProbe(
+    {
+      browserPath: installedBrowser,
+      url: fixture.url,
+      expectedUrl: fixture.url,
+      viewport: { width: 1024, height: 600 },
+      stateAssertion: fixture.stateAssertion,
+      allowedOrigins,
+      readinessTimeoutMs: 15_000,
+      settleMs: 200,
+      outputPath: fixture.outputPath,
+      verificationPath: fixture.verificationPath,
+    },
+    runtime
+  );
 }
 
 for (const retryFirstLaunch of [false, true]) {
@@ -3501,6 +3504,21 @@ test(
   }
 );
 
+function instrumentedCaptureProbe(root, name, source) {
+  const original = require.resolve("../scripts/design-critique-capture-probe");
+  const entry = "if (require.main === module)\n  main()";
+  assert.equal(source.split(entry).length, 2);
+  const probePath = path.join(root, name);
+  fs.writeFileSync(
+    probePath,
+    `const Module=require("node:module");const m=new Module(${JSON.stringify(original)},module);` +
+      `m.filename=${JSON.stringify(original)};m.paths=Module._nodeModulePaths(require("node:path").dirname(m.filename));` +
+      `m._compile(${JSON.stringify(source.replace(entry, "if (true)\n  main()"))},m.filename);`,
+    { mode: 0o600 }
+  );
+  return probePath;
+}
+
 for (const disableIsolation of [false, true]) {
   test(
     `late SharedWorker policy observation measures actual isolation${disableIsolation ? " with a deliberately ineffective policy" : ""}`,
@@ -3544,17 +3562,8 @@ for (const disableIsolation of [false, true]) {
         assert.equal(source.split(policy).length, 2);
         source = source.replace(policy, `${policy}\n  return "ordered-patterns";`);
       }
-      const entry = "if (require.main === module)\n  main()";
-      assert.equal(source.split(entry).length, 2);
-      source = source.replace(entry, "if (true)\n  main()");
-      const probePath = path.join(root, "late-worker-probe.cjs");
-      fs.writeFileSync(
-        probePath,
-        `const Module=require("node:module");const m=new Module(${JSON.stringify(original)},module);` +
-          `m.filename=${JSON.stringify(original)};m.paths=Module._nodeModulePaths(require("node:path").dirname(m.filename));` +
-          `m._compile(${JSON.stringify(source)},m.filename);`,
-        { mode: 0o600 }
-      );
+      const probePath = instrumentedCaptureProbe(root, "late-worker-probe.cjs", source);
+
       assert.throws(
         () =>
           runCaptureProbe(
@@ -3599,7 +3608,28 @@ test(
     fixture.url = `${pageOrigin}/capture?directSocket=0&serviceWorker=1`;
     t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
 
-    const result = runBrowserCapture(fixture, [pageOrigin]);
+    // Wait for the deliberately late ServiceWorker's real CDP close
+    // acknowledgement. The page's registration promise can remain pending
+    // after termination, so it cannot serve as the readiness signal.
+    const original = require.resolve("../scripts/design-critique-capture-probe");
+    let source = fs.readFileSync(original, "utf8");
+    const state = "    let loadFired = false;";
+    const ready = "        loadFired &&\n        violations.length === 0 &&";
+    const close = `            await browserClient.send("Target.closeTarget", {
+              targetId: event.targetInfo.targetId,
+            });`;
+    for (const marker of [state, ready, close]) assert.equal(source.split(marker).length, 2);
+    source = source
+      .replace(state, state + "\n    let serviceWorkerClosed = false;")
+      .replace(ready, "        serviceWorkerClosed &&\n" + ready)
+      .replace(
+        close,
+        close.replace("await", "const response = await") +
+          "\n            serviceWorkerClosed ||= response.success === true;"
+      );
+    const probePath = instrumentedCaptureProbe(root, "service-worker-probe.cjs", source);
+
+    const result = runBrowserCapture(fixture, [pageOrigin], { probePath });
     await new Promise((resolve) => setTimeout(resolve, 250));
     assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
       handshakes: 0,
