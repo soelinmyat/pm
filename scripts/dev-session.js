@@ -403,7 +403,8 @@ function recordCommand(options) {
     verifyRfcSidecarIdentity(
       session.task.rfc_sidecar,
       session.task.design_context,
-      session.task.work_units
+      session.task.work_units,
+      { previewSourceRoot: session.task.preview_source_root }
     );
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
@@ -739,7 +740,8 @@ function mutateSession(sessionPath, mutation, options = {}) {
       verifyRfcSidecarIdentity(
         { ...bound, sha256: observed },
         session.task.design_context,
-        session.task.work_units
+        session.task.work_units,
+        { previewSourceRoot: session.task.preview_source_root }
       );
       if (observed !== bound.sha256) {
         const verified = verifyRfcApproval({
@@ -755,7 +757,8 @@ function mutateSession(sessionPath, mutation, options = {}) {
       verifyRfcSidecarIdentity(
         session.task.rfc_sidecar,
         session.task.design_context,
-        session.task.work_units
+        session.task.work_units,
+        { previewSourceRoot: session.task.preview_source_root }
       );
     }
     const updated = mutation(session);
