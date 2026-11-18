@@ -37,6 +37,21 @@ describe("dev runtime structured dispatch", () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  it("completes when the runtime exits before reading its prompt input", async (t) => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pm-early-exit-"));
+    t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+    // A prompt larger than the pipe buffer makes the write fail with EPIPE
+    // every time once the child has exited without reading stdin.
+    const result = await runStreaming(process.execPath, ["-e", "process.exit(3)"], {
+      cwd: tmp,
+      env: process.env,
+      input: "x".repeat(8 * 1024 * 1024),
+      eventsPath: path.join(tmp, "events.jsonl"),
+      stderrPath: path.join(tmp, "stderr.log"),
+      logFile: path.join(tmp, "run.log"),
+    });
+    assert.equal(result.status, 3);
+  });
   it("observes intact UTF-8 across output chunks and an unterminated final event", async (t) => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pm-observed-utf8-"));
     t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));

@@ -483,6 +483,11 @@ function runStreaming(command, args, options) {
         failureEvents: failureEvent,
       });
     });
+    // A runtime that exits before reading its prompt closes the pipe. Its
+    // exit status, recorded on close, is the outcome; EPIPE is not a crash.
+    child.stdin.on("error", (error) => {
+      if (error.code !== "EPIPE") spawnError ??= error;
+    });
     child.stdin.end(options.input);
   });
 }
