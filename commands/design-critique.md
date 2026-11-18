@@ -28,3 +28,7 @@ floors still apply; identical, unbound or beacon-only content cannot qualify.
 Static product report PDFs use explicit `artifact.format: "pdf"` and the trusted
 `--pdf` producer, retaining every page and disclosed accessibility assurance
 limits. Follow `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pdf-document-evidence.md`.
+
+Recover an already-anchored finalized attempt at its recorded paths using the
+gate writer in the evidence contract. The full checker still requires matching
+source, inputs and reviewer receipts.

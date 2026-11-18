@@ -1576,6 +1576,70 @@ test("attempt-path Design gate retains the original report paths and rejects cro
   assert.throws(() => planGateWrite(options, fx.deps), /HTML must belong to the selected attempt/);
 });
 
+for (const variant of [
+  "exact",
+  "unanchored",
+  "wrong-path",
+  "changed-bytes",
+  "cross-attempt",
+  "wrong-html",
+  "other-filename",
+]) {
+  test(`finalized attempt report remains bound to its original filename: ${variant}`, (t) => {
+    const fx = selectedReportFixture();
+    t.after(() => fx.cleanup());
+    const round = path.posix.dirname(fx.report.route.path);
+    const dir = `${round}/attempt-4`;
+    fs.mkdirSync(path.join(fx.root, dir));
+    const report = `${dir}/${variant === "other-filename" ? "some-report" : "report-final"}.json`;
+    const html = `${dir}/report-final.html`;
+    const phase = fx.session.evidence["design-critique"];
+    Object.assign(fx.report, {
+      commit: phase.commit,
+      route: { path: `${dir}/route.json` },
+      captures: {
+        path: `${variant === "cross-attempt" ? `${round}/attempt-3` : dir}/captures-final.json`,
+      },
+      reviews: { path: `${dir}/reviews-final.json` },
+      human_report: { path: variant === "wrong-html" ? `${dir}/report.html` : html },
+    });
+    const file = path.join(fx.root, report);
+    const bytes = JSON.stringify(fx.report);
+    fs.writeFileSync(file, variant === "changed-bytes" ? bytes + "\n" : bytes);
+    phase.records[0].artifact = file;
+    if (variant !== "unanchored") {
+      phase.recovery_history = [
+        {
+          outcome: "passed",
+          run_id: fx.report.run_id,
+          round: fx.report.rounds,
+          commit: phase.commit,
+          report: {
+            path: variant === "wrong-path" ? `${dir}/report.json` : report,
+            sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+          },
+        },
+      ];
+    }
+    const options = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    if (variant !== "exact") {
+      assert.throws(() => planGateWrite(options, fx.deps));
+      assert.equal(fx.calls.designCritique, undefined);
+      return;
+    }
+    const plan = planGateWrite(options, fx.deps);
+    assert.equal(plan.row.artifact, html);
+    assert.equal(fx.calls.designCritique.reportPath, report);
+    assert.equal(fx.calls.designCritique.capturesPath, fx.report.captures.path);
+    assert.deepEqual(
+      fx.calls.designCritique.retainedReviewReport,
+      phase.recovery_history[0].report
+    );
+    assert.equal(fs.readFileSync(file, "utf8"), bytes);
+    assert.equal(fs.existsSync(path.join(fx.root, dir, "report.json")), false);
+  });
+}
+
 test("Design phase recording refuses to advance or publish if the attempt cannot be certified", (t) => {
   const repo = makeRepo();
   t.after(() => repo.cleanup());

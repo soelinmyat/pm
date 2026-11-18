@@ -49,9 +49,21 @@ jobs:
       - run: npm ci
 
       - name: Run tests with coverage
-        # Each test file can launch an isolated Chromium process. Bound process
-        # concurrency on the shared runner; all browser assertions still run.
-        run: npx c8 --reporter=text node --test --test-concurrency=4 tests/*.test.js
+        # Several suites launch Chromium and V8 coverage subprocesses at once.
+        # Keep the complete suite within the shared runner's startup capacity.
+        run: |
+          if [[ -n "${PM_SKIP_BROWSER_TESTS:-}" ]]; then
+            echo "::error::Browser tests are required in CI."
+            exit 1
+          fi
+          PM_ARTIFACT_BROWSER="$(command -v google-chrome)"
+          test -x "$PM_ARTIFACT_BROWSER"
+          export PM_ARTIFACT_BROWSER
+          "$PM_ARTIFACT_BROWSER" --version
+          printf 'Available CPUs: %s\n' "$(nproc)"
+          free -m
+          df -h /dev/shm
+          npx c8 --reporter=text node --test --test-concurrency=2 tests/*.test.js
 
   managed-directory-windows:
     name: Managed Directory Windows Smoke
