@@ -5549,10 +5549,17 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
         "after_capture_id",
         "defer_reason",
         "defer_owner",
+        "proof_assertion",
       ],
       at,
       issues
     );
+    if (
+      finding.proof_assertion !== undefined &&
+      (typeof finding.proof_assertion !== "string" ||
+        !PROOF_ASSERTION_PATTERN.test(finding.proof_assertion))
+    )
+      add(issues, `${at}.proof_assertion`, 'must be "state assertion clause N"');
     const expectedId = findingId(finding);
     if (finding.id !== expectedId || ids.has(finding.id))
       add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
@@ -5625,7 +5632,13 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
                 after,
                 nativeObservations
               ) &&
-              !hasNativeElementRegionRemediation(root, before, after, nativeObservations) &&
+              !hasNativeElementRegionRemediation(
+                root,
+                finding,
+                before,
+                after,
+                nativeObservations
+              ) &&
               !isHorizontalOverflowRemediation(
                 root,
                 finding,
@@ -5762,16 +5775,22 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
 }
 
 // A localized fix in a large page can change one viewport tile, below the
-// localized changed-tile floor. Compare inside one element region that both
-// verified native captures visibly assert with the same locator and measured
-// visual_bounds. Origin and width must match; differing heights use their
-// measured union. The region must meet the 1% visible-area floor, and both
-// regional crops must pass the unchanged meaningful-image, changed-tile and
-// 32 full-contrast pixel support floors. Caller crops never qualify.
-function hasNativeElementRegionRemediation(root, before, after, nativeObservations) {
+// localized changed-tile floor. A resolved finding may name its proof element
+// with proof_assertion, the native visibility label of one visibly asserted
+// clause. Only that clause is compared: both verified native captures must
+// assert it with the same locator and retained visual_bounds, origin and
+// width must match, and differing heights use their measured union. The
+// region must meet the 1% visible-area floor, and both regional crops must
+// pass the unchanged meaningful-image, changed-tile and 32 full-contrast pixel
+// support floors. Without proof_assertion this path is unavailable.
+const PROOF_ASSERTION_PATTERN = /^state assertion clause [1-9][0-9]{0,2}$/;
+function hasNativeElementRegionRemediation(root, finding, before, after, nativeObservations) {
   const left = nativeObservations?.get(before.id);
   const right = nativeObservations?.get(after.id);
+  const label = finding.proof_assertion;
   if (
+    typeof label !== "string" ||
+    !PROOF_ASSERTION_PATTERN.test(label) ||
     left?.verified !== true ||
     right?.verified !== true ||
     ![left, right].every((observation) =>
@@ -5786,31 +5805,32 @@ function hasNativeElementRegionRemediation(root, before, after, nativeObservatio
     !isDeepStrictEqual(left.manifest.page.css_viewport, right.manifest.page.css_viewport)
   )
     return false;
-  const visibleBounds = (observation) => {
-    const rows = new Map();
-    for (const [index, clause] of (observation.assertion?.all || []).entries()) {
-      if (clause.expect.kind !== "visible") continue;
-      const bounds = observation.manifest.page.state_assertion.visibility.checks.find(
-        (check) => check.label === `state assertion clause ${index + 1}`
-      )?.visual_bounds;
-      if (bounds) rows.set(JSON.stringify(clause.locator), bounds);
-    }
-    return rows;
+  const index = Number(label.slice("state assertion clause ".length)) - 1;
+  const assertedBounds = (observation) => {
+    const clause = observation.assertion?.all?.[index];
+    if (clause?.expect?.kind !== "visible") return null;
+    const bounds = observation.manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === label
+    )?.visual_bounds;
+    return bounds ? { locator: JSON.stringify(clause.locator), bounds } : null;
   };
-  const afterBounds = visibleBounds(right);
-  for (const [locator, a] of visibleBounds(left)) {
-    const b = afterBounds.get(locator);
-    if (!b || a.x !== b.x || a.y !== b.y || a.width !== b.width) continue;
-    const region = { ...a, height: Math.max(a.height, b.height) };
-    if (
-      region.width * region.height <
-      before.width * before.height * PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio
-    )
-      continue;
-    if (hasMaterialNativeRegionChange(root, { capture: before }, { capture: after }, region, true))
-      return true;
-  }
-  return false;
+  const a = assertedBounds(left);
+  const b = assertedBounds(right);
+  if (
+    !a ||
+    !b ||
+    a.locator !== b.locator ||
+    a.bounds.x !== b.bounds.x ||
+    a.bounds.y !== b.bounds.y ||
+    a.bounds.width !== b.bounds.width
+  )
+    return false;
+  const region = { ...a.bounds, height: Math.max(a.bounds.height, b.bounds.height) };
+  return (
+    region.width * region.height >=
+      before.width * before.height * PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio &&
+    hasMaterialNativeRegionChange(root, { capture: before }, { capture: after }, region, true)
+  );
 }
 
 // A document-level horizontal-overflow fix can remove only a scrollbar strip,
