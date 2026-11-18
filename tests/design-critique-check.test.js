@@ -6317,6 +6317,78 @@ test("native element region proof must show the cited element in the human repor
   assert.match(JSON.stringify(check(fixture).issues), /missing visible finding/);
 });
 
+function angleBracketReportFixture() {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "Add shift on <date> stays reachable.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "Add shift on <date> was hidden behind the header.";
+  rewriteReportAndHtml(fixture);
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  return { fixture, htmlPath, html: fs.readFileSync(htmlPath, "utf8") };
+}
+
+test("visible report text matches report JSON that contains angle brackets", () => {
+  const { fixture, htmlPath, html } = angleBracketReportFixture();
+  // A correct report escapes "<date>". Named and numeric forms both decode.
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("Add shift on <date> stays", "Add shift on &lt;date&gt; stays")
+      .replace("Add shift on <date> was", "Add shift on &#60;date&#x3E; was")
+  );
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("double-escaped visible report text does not match decoded report JSON", () => {
+  const { fixture, htmlPath, html } = angleBracketReportFixture();
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("Add shift on <date> stays", "Add shift on &amp;lt;date&amp;gt; stays")
+      .replace("Add shift on <date> was", "Add shift on &amp;lt;date&amp;gt; was")
+  );
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.match(issues, /visible score .* must match report JSON/);
+  assert.match(issues, /missing visible finding/);
+});
+
+test("report JSON quoting &#39; or &lt;br&gt; matches only correctly escaped HTML", () => {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "Labels showed &#39; and &lt;br&gt; as text.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "Labels showed &#39; and &lt;br&gt; as text in the header.";
+  rewriteReportAndHtml(fixture);
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  // The fixture renders JSON text unescaped, which is the under-escaped case.
+  const underEscaped = fs.readFileSync(htmlPath, "utf8");
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.match(issues, /visible score .* must match report JSON/);
+  assert.match(issues, /missing visible finding/);
+  fs.writeFileSync(
+    htmlPath,
+    underEscaped.replaceAll("&#39; and &lt;br&gt;", "&amp;#39; and &amp;lt;br&amp;gt;")
+  );
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("report JSON quoting &amp; or &nbsp; keeps its original single decoding", () => {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "R&amp;D notes kept a&nbsp;space.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "R&amp;D notes kept a&nbsp;space in the header.";
+  rewriteReportAndHtml(fixture);
+  // JSON "&amp;" and "&nbsp;" decode once, so HTML that does not escape them
+  // again matches, as before 1.14.64.
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  const html = fs.readFileSync(htmlPath, "utf8");
+  fs.writeFileSync(htmlPath, html.replaceAll("R&amp;D", "R&amp;amp;D"));
+  assert.match(JSON.stringify(check(fixture).issues), /missing visible finding/);
+});
+
 test("native element region proof rejects a malformed proof_assertion", () => {
   const { fixture } = resolvedRegionFixture(
     "resolved-region",

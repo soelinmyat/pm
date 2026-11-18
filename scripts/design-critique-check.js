@@ -181,6 +181,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   // 1.14.63 passes the preview source root to RFC re-verification and
   // survives an early runtime exit. It changes no native capture or audit contract.
   ["1.14.63", new Set(Array.from({ length: 13 }, (_, i) => `1.14.${50 + i}`))],
+  // 1.14.64 changes only visible report text matching.
+  ["1.14.64", new Set(Array.from({ length: 14 }, (_, i) => `1.14.${50 + i}`))],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -326,6 +328,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.63",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.62"), "1.14.63"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.64",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.63"), "1.14.64"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2521,6 +2527,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.61",
         "1.14.62",
         "1.14.63",
+        "1.14.64",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -4812,7 +4819,7 @@ function validateFreshObservations(observations, inputState, route, captureById,
     if (!boundedText(observation.observation, 10_000))
       add(issues, `${rowAt}.observation`, "is required");
     else {
-      const normalized = normalizeVisible(observation.observation);
+      const normalized = normalizeText(observation.observation);
       const normalizedKey = normalized.toLowerCase();
       const substanceKey = freshObservationSubstanceKey(normalized, observation, coverage);
       if (Buffer.byteLength(normalized, "utf8") < 40)
@@ -4866,7 +4873,7 @@ function validateFreshVisualProse(
   issues,
   { minimumBytes, requireVisualDetail, pdfDocument = false }
 ) {
-  const normalized = normalizeVisible(value);
+  const normalized = normalizeText(value);
   const words = normalized.match(/[\p{L}\p{N}]+/gu) || [];
   if (Buffer.byteLength(normalized, "utf8") < minimumBytes || words.length < 8)
     add(issues, label, "must contain substantive visual reasoning, not a short conclusion");
@@ -4896,7 +4903,7 @@ function freshObservationSubstanceKey(value, observation, coverage) {
     observation.viewport,
     coverage?.id,
   ]) {
-    const candidate = normalizeVisible(String(token || "")).toLowerCase();
+    const candidate = normalizeText(String(token || "")).toLowerCase();
     if (candidate) normalized = normalized.replace(new RegExp(escapeRegex(candidate), "g"), " ");
   }
   return normalized
@@ -5360,7 +5367,7 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
         worstPriority &&
         PRIORITIES.has(finalFinding.priority) &&
         PRIORITY_RANK[finalFinding.priority] < PRIORITY_RANK[worstPriority] &&
-        (!hasNovelDecisionEvidence || normalizeVisible(row.rationale).length < 20)
+        (!hasNovelDecisionEvidence || normalizeText(row.rationale).length < 20)
       )
         add(
           issues,
@@ -6193,7 +6200,7 @@ function validateHumanReport(
     ];
     if (
       !marker ||
-      required.some((text) => !normalizeVisible(marker.text).includes(normalizeVisible(text)))
+      required.some((text) => !normalizeVisible(marker.text).includes(normalizeText(text)))
     )
       add(
         issues,
@@ -6209,7 +6216,7 @@ function validateHumanReport(
     );
     if (
       !assurance ||
-      !normalizeVisible(assurance.text).includes(normalizeVisible(report.review_assurance))
+      !normalizeVisible(assurance.text).includes(normalizeText(report.review_assurance))
     )
       add(
         issues,
@@ -6236,10 +6243,7 @@ function validateHumanReport(
     },
     css
   );
-  if (
-    !nextAction ||
-    !normalizeVisible(nextAction.text).includes(normalizeVisible(report.next_action))
-  )
+  if (!nextAction || !normalizeVisible(nextAction.text).includes(normalizeText(report.next_action)))
     add(issues, "report.human_report", "visible next action must match report JSON");
   const topIssue = visibleMarker(
     html,
@@ -6248,7 +6252,7 @@ function validateHumanReport(
     },
     css
   );
-  if (!topIssue || !normalizeVisible(topIssue.text).includes(normalizeVisible(report.top_issue)))
+  if (!topIssue || !normalizeVisible(topIssue.text).includes(normalizeText(report.top_issue)))
     add(issues, "report.human_report", "visible top issue must match report JSON");
   for (const [key, score] of Object.entries(report.scores || {})) {
     const marker = visibleMarker(
@@ -6259,7 +6263,7 @@ function validateHumanReport(
       },
       css
     );
-    if (!marker || !normalizeVisible(marker.text).includes(normalizeVisible(score.rationale)))
+    if (!marker || !normalizeVisible(marker.text).includes(normalizeText(score.rationale)))
       add(issues, "report.human_report", `visible score ${key} must match report JSON`);
   }
   for (const finding of report.findings || []) {
@@ -6277,7 +6281,7 @@ function validateHumanReport(
     const visibleText = normalizeVisible(marker?.text || "");
     if (
       !marker ||
-      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeVisible(value)))
+      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
@@ -6301,7 +6305,7 @@ function validateHumanReport(
         row.review.execution?.runtime?.model,
         reviewSummary(row.review),
         String(row.resultState.findings.length),
-      ].every((value) => visibleText.includes(normalizeVisible(value)))
+      ].every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible review ${row.review.review_id}`);
   }
@@ -6326,7 +6330,7 @@ function validateHumanReport(
         ...(Array.isArray(row.source_finding_refs) ? row.source_finding_refs : []).map(
           (ref) => `${ref?.review_id}:${ref?.finding_id}`
         ),
-      ].every((value) => visibleText.includes(normalizeVisible(value)))
+      ].every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible reconciliation ${row.id}`);
   }
@@ -6437,13 +6441,13 @@ function validateRenderedMarkers(markers, report, reviewState, issues) {
     const matches = markers.filter((marker) =>
       Object.entries(attributes).every(([name, value]) => marker.attributes?.[name] === value)
     );
-    const renderedText = normalizeVisible(
+    const renderedText = normalizeText(
       (item.firstScreen ? matches[0]?.firstScreenText : matches[0]?.text) || ""
     );
     const textMatches = item.exactText
-      ? renderedText.toLowerCase() === normalizeVisible(item.exactText).toLowerCase()
+      ? renderedText.toLowerCase() === normalizeText(item.exactText).toLowerCase()
       : (item.requiredText || []).every((value) =>
-          renderedText.includes(normalizeVisible(value || ""))
+          renderedText.includes(normalizeText(value || ""))
         );
     if (
       matches.length !== 1 ||
@@ -6549,10 +6553,43 @@ function removeHiddenSubtrees(html, css) {
   return output;
 }
 
-function normalizeVisible(value) {
+const NAMED_VISIBLE_ENTITIES = Object.freeze({
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+});
+
+// Decode HTML entities in one pass, so "&amp;lt;" becomes the literal "&lt;"
+// and is never decoded a second time into "<".
+function decodeVisibleEntity(entity, name) {
+  const lower = name.toLowerCase();
+  if (Object.hasOwn(NAMED_VISIBLE_ENTITIES, lower)) return NAMED_VISIBLE_ENTITIES[lower];
+  const codePoint = lower.startsWith("#x")
+    ? Number.parseInt(lower.slice(2), 16)
+    : Number.parseInt(lower.slice(1), 10);
+  return codePoint <= 0x10ffff && (codePoint < 0xd800 || codePoint > 0xdfff)
+    ? String.fromCodePoint(codePoint)
+    : entity;
+}
+
+// Report JSON and other plain text keep their original normalization, which
+// decodes only &nbsp; and &amp;. JSON that quotes those two therefore matches
+// HTML that does not escape them again. Every other entity is decoded only in
+// text read from HTML source, by normalizeVisible.
+function normalizeText(value) {
   return String(value)
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeVisible(value) {
+  return String(value)
+    .replace(/&(nbsp|amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-f]{1,6});/gi, decodeVisibleEntity)
     .replace(/\s+/g, " ")
     .trim();
 }
