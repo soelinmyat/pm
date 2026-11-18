@@ -6353,6 +6353,26 @@ test("double-escaped visible report text does not match decoded report JSON", ()
   assert.match(issues, /missing visible finding/);
 });
 
+test("report JSON text that quotes literal entities matches only correctly escaped HTML", () => {
+  const fixture = makeFixture();
+  const key = Object.keys(fixture.report.scores)[0];
+  fixture.report.scores[key].rationale = "Labels showed &#39; and &lt;br&gt; as text.";
+  const { finding } = configureResolvedPrimaryFinding(fixture);
+  finding.summary = "Labels showed &#39; and &lt;br&gt; as text in the header.";
+  rewriteReportAndHtml(fixture);
+  const htmlPath = path.join(fixture.root, "evidence/report.html");
+  // The fixture renders JSON text unescaped, which is the under-escaped case.
+  const underEscaped = fs.readFileSync(htmlPath, "utf8");
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.match(issues, /visible score .* must match report JSON/);
+  assert.match(issues, /missing visible finding/);
+  fs.writeFileSync(
+    htmlPath,
+    underEscaped.replaceAll("&#39; and &lt;br&gt;", "&amp;#39; and &amp;lt;br&amp;gt;")
+  );
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
 test("native element region proof rejects a malformed proof_assertion", () => {
   const { fixture } = resolvedRegionFixture(
     "resolved-region",

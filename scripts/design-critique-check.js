@@ -4819,7 +4819,7 @@ function validateFreshObservations(observations, inputState, route, captureById,
     if (!boundedText(observation.observation, 10_000))
       add(issues, `${rowAt}.observation`, "is required");
     else {
-      const normalized = normalizeVisible(observation.observation);
+      const normalized = normalizeText(observation.observation);
       const normalizedKey = normalized.toLowerCase();
       const substanceKey = freshObservationSubstanceKey(normalized, observation, coverage);
       if (Buffer.byteLength(normalized, "utf8") < 40)
@@ -4873,7 +4873,7 @@ function validateFreshVisualProse(
   issues,
   { minimumBytes, requireVisualDetail, pdfDocument = false }
 ) {
-  const normalized = normalizeVisible(value);
+  const normalized = normalizeText(value);
   const words = normalized.match(/[\p{L}\p{N}]+/gu) || [];
   if (Buffer.byteLength(normalized, "utf8") < minimumBytes || words.length < 8)
     add(issues, label, "must contain substantive visual reasoning, not a short conclusion");
@@ -4903,7 +4903,7 @@ function freshObservationSubstanceKey(value, observation, coverage) {
     observation.viewport,
     coverage?.id,
   ]) {
-    const candidate = normalizeVisible(String(token || "")).toLowerCase();
+    const candidate = normalizeText(String(token || "")).toLowerCase();
     if (candidate) normalized = normalized.replace(new RegExp(escapeRegex(candidate), "g"), " ");
   }
   return normalized
@@ -5367,7 +5367,7 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
         worstPriority &&
         PRIORITIES.has(finalFinding.priority) &&
         PRIORITY_RANK[finalFinding.priority] < PRIORITY_RANK[worstPriority] &&
-        (!hasNovelDecisionEvidence || normalizeVisible(row.rationale).length < 20)
+        (!hasNovelDecisionEvidence || normalizeText(row.rationale).length < 20)
       )
         add(
           issues,
@@ -6200,7 +6200,7 @@ function validateHumanReport(
     ];
     if (
       !marker ||
-      required.some((text) => !normalizeVisible(marker.text).includes(normalizeVisible(text)))
+      required.some((text) => !normalizeVisible(marker.text).includes(normalizeText(text)))
     )
       add(
         issues,
@@ -6216,7 +6216,7 @@ function validateHumanReport(
     );
     if (
       !assurance ||
-      !normalizeVisible(assurance.text).includes(normalizeVisible(report.review_assurance))
+      !normalizeVisible(assurance.text).includes(normalizeText(report.review_assurance))
     )
       add(
         issues,
@@ -6243,10 +6243,7 @@ function validateHumanReport(
     },
     css
   );
-  if (
-    !nextAction ||
-    !normalizeVisible(nextAction.text).includes(normalizeVisible(report.next_action))
-  )
+  if (!nextAction || !normalizeVisible(nextAction.text).includes(normalizeText(report.next_action)))
     add(issues, "report.human_report", "visible next action must match report JSON");
   const topIssue = visibleMarker(
     html,
@@ -6255,7 +6252,7 @@ function validateHumanReport(
     },
     css
   );
-  if (!topIssue || !normalizeVisible(topIssue.text).includes(normalizeVisible(report.top_issue)))
+  if (!topIssue || !normalizeVisible(topIssue.text).includes(normalizeText(report.top_issue)))
     add(issues, "report.human_report", "visible top issue must match report JSON");
   for (const [key, score] of Object.entries(report.scores || {})) {
     const marker = visibleMarker(
@@ -6266,7 +6263,7 @@ function validateHumanReport(
       },
       css
     );
-    if (!marker || !normalizeVisible(marker.text).includes(normalizeVisible(score.rationale)))
+    if (!marker || !normalizeVisible(marker.text).includes(normalizeText(score.rationale)))
       add(issues, "report.human_report", `visible score ${key} must match report JSON`);
   }
   for (const finding of report.findings || []) {
@@ -6284,7 +6281,7 @@ function validateHumanReport(
     const visibleText = normalizeVisible(marker?.text || "");
     if (
       !marker ||
-      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeVisible(value)))
+      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
@@ -6308,7 +6305,7 @@ function validateHumanReport(
         row.review.execution?.runtime?.model,
         reviewSummary(row.review),
         String(row.resultState.findings.length),
-      ].every((value) => visibleText.includes(normalizeVisible(value)))
+      ].every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible review ${row.review.review_id}`);
   }
@@ -6333,7 +6330,7 @@ function validateHumanReport(
         ...(Array.isArray(row.source_finding_refs) ? row.source_finding_refs : []).map(
           (ref) => `${ref?.review_id}:${ref?.finding_id}`
         ),
-      ].every((value) => visibleText.includes(normalizeVisible(value)))
+      ].every((value) => visibleText.includes(normalizeText(value)))
     )
       add(issues, "report.human_report", `missing visible reconciliation ${row.id}`);
   }
@@ -6444,13 +6441,13 @@ function validateRenderedMarkers(markers, report, reviewState, issues) {
     const matches = markers.filter((marker) =>
       Object.entries(attributes).every(([name, value]) => marker.attributes?.[name] === value)
     );
-    const renderedText = normalizeVisible(
+    const renderedText = normalizeText(
       (item.firstScreen ? matches[0]?.firstScreenText : matches[0]?.text) || ""
     );
     const textMatches = item.exactText
-      ? renderedText.toLowerCase() === normalizeVisible(item.exactText).toLowerCase()
+      ? renderedText.toLowerCase() === normalizeText(item.exactText).toLowerCase()
       : (item.requiredText || []).every((value) =>
-          renderedText.includes(normalizeVisible(value || ""))
+          renderedText.includes(normalizeText(value || ""))
         );
     if (
       matches.length !== 1 ||
@@ -6576,6 +6573,16 @@ function decodeVisibleEntity(entity, name) {
   return codePoint <= 0x10ffff && (codePoint < 0xd800 || codePoint > 0xdfff)
     ? String.fromCodePoint(codePoint)
     : entity;
+}
+
+// Report JSON and other plain text keep their original normalization. Only
+// text read from HTML source is entity-decoded, by normalizeVisible.
+function normalizeText(value) {
+  return String(value)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeVisible(value) {
