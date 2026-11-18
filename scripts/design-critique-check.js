@@ -175,6 +175,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ],
   ["1.14.60", new Set(Array.from({ length: 10 }, (_, i) => `1.14.${50 + i}`))],
   ["1.14.61", new Set(Array.from({ length: 11 }, (_, i) => `1.14.${50 + i}`))],
+  // The resolved P0/P1 element-region path only reads retained native
+  // visual_bounds. It changes no native capture or audit contract.
+  ["1.14.62", new Set(Array.from({ length: 12 }, (_, i) => `1.14.${50 + i}`))],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -312,6 +315,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.61",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.60"), "1.14.61"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.62",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.61"), "1.14.62"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2505,6 +2512,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.59",
         "1.14.60",
         "1.14.61",
+        "1.14.62",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -5541,10 +5549,17 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
         "after_capture_id",
         "defer_reason",
         "defer_owner",
+        "proof_assertion",
       ],
       at,
       issues
     );
+    if (
+      finding.proof_assertion !== undefined &&
+      (typeof finding.proof_assertion !== "string" ||
+        !PROOF_ASSERTION_PATTERN.test(finding.proof_assertion))
+    )
+      add(issues, `${at}.proof_assertion`, 'must be "state assertion clause N"');
     const expectedId = findingId(finding);
     if (finding.id !== expectedId || ids.has(finding.id))
       add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
@@ -5613,6 +5628,13 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
             (!isMaterialVisualDifference(resolvedVisualDifference) &&
               !isLocalizedNativeRemediation(
                 resolvedVisualDifference,
+                before,
+                after,
+                nativeObservations
+              ) &&
+              !hasNativeElementRegionRemediation(
+                root,
+                finding,
                 before,
                 after,
                 nativeObservations
@@ -5749,6 +5771,67 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
     before.height === after.height &&
     difference !== null &&
     difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
+  );
+}
+
+// A localized fix in a large page can change one viewport tile, below the
+// localized changed-tile floor. A resolved finding may name its proof element
+// with proof_assertion, the native visibility label of one visibly asserted
+// clause. Only that clause is compared: both verified native captures must
+// assert it with the same locator and retained visual_bounds, origin and
+// width must match, and differing heights use their measured union. The
+// region must meet the 1% visible-area floor, and both regional crops must
+// pass the unchanged meaningful-image, changed-tile and 32 full-contrast pixel
+// support floors. Without proof_assertion this path is unavailable.
+const PROOF_ASSERTION_PATTERN = /^state assertion clause [1-9][0-9]{0,2}$/;
+function hasNativeElementRegionRemediation(root, finding, before, after, nativeObservations) {
+  const left = nativeObservations?.get(before.id);
+  const right = nativeObservations?.get(after.id);
+  const label = finding.proof_assertion;
+  if (
+    typeof label !== "string" ||
+    !PROOF_ASSERTION_PATTERN.test(label) ||
+    left?.verified !== true ||
+    right?.verified !== true ||
+    ![left, right].every((observation) =>
+      ["accessibility-tree", "dom-audit"].every(
+        (kind) => observation.normalizedAuditCounts?.get(kind) === 1
+      )
+    ) ||
+    before.full_page ||
+    after.full_page ||
+    before.width !== after.width ||
+    before.height !== after.height ||
+    !isDeepStrictEqual(left.manifest.page.css_viewport, right.manifest.page.css_viewport)
+  )
+    return false;
+  const index = Number(label.slice("state assertion clause ".length)) - 1;
+  const assertedBounds = (observation) => {
+    const clause = observation.assertion?.all?.[index];
+    if (clause?.expect?.kind !== "visible") return null;
+    const bounds = observation.manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === label
+    )?.visual_bounds;
+    return bounds ? { locator: JSON.stringify(clause.locator), bounds } : null;
+  };
+  const a = assertedBounds(left);
+  const b = assertedBounds(right);
+  if (
+    !a ||
+    !b ||
+    // Both captures read one canonical coverage assertion, so valid evidence
+    // cannot disagree here. Keep the guard in case that binding ever changes.
+    a.locator !== b.locator ||
+    a.bounds.x !== b.bounds.x ||
+    a.bounds.y !== b.bounds.y ||
+    a.bounds.width !== b.bounds.width
+  )
+    return false;
+  const region = { ...a.bounds, height: Math.max(a.bounds.height, b.bounds.height) };
+  return (
+    region.width * region.height >=
+      before.width * before.height * PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio &&
+    hasMaterialNativeRegionChange(root, { capture: before }, { capture: after }, region, true)
   );
 }
 
@@ -6186,9 +6269,7 @@ function validateHumanReport(
     const visibleText = normalizeVisible(marker?.text || "");
     if (
       !marker ||
-      ![finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids].every(
-        (value) => visibleText.includes(normalizeVisible(value))
-      )
+      !findingVisibleText(finding).every((value) => visibleText.includes(normalizeVisible(value)))
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
@@ -6309,7 +6390,7 @@ function validateRenderedMarkers(markers, report, reviewState, issues) {
         "data-dc-finding-status": finding.status,
         "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
       },
-      requiredText: [finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids],
+      requiredText: findingVisibleText(finding),
     })),
     ...(reviewState?.rows || []).map((row) => ({
       attributes: {
@@ -6483,7 +6564,19 @@ function findingProjection(finding) {
     evidence_ids: finding.evidence_ids,
     before_capture_id: finding.before_capture_id || null,
     after_capture_id: finding.after_capture_id || null,
+    // Present only when cited, so existing report hashes stay unchanged.
+    ...(finding.proof_assertion !== undefined && { proof_assertion: finding.proof_assertion }),
   };
+}
+
+function findingVisibleText(finding) {
+  return [
+    finding.summary,
+    finding.remediation,
+    finding.owner,
+    ...finding.evidence_ids,
+    ...(typeof finding.proof_assertion === "string" ? [finding.proof_assertion] : []),
+  ];
 }
 
 function reviewSummary(review) {
