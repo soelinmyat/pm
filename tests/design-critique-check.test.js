@@ -1202,6 +1202,17 @@ function attachTrustedCaptureObservation(
     for (const clause of assertion.all)
       if (clause.locator.by === "role-name" && clause.locator.value.startsWith("alert:"))
         clause.locator.value = nativeAlertLocator;
+  const resolvedRegionProof =
+    typeof nativeStateProof === "string" && nativeStateProof.startsWith("resolved-region");
+  if (resolvedRegionProof) {
+    assertion.all[0].locator = { by: "role-name", value: "grid:Schedule" };
+    // Both captures share one assertion file, so each asserts both grids.
+    if (nativeStateProof.includes("two-grids"))
+      assertion.all.push({
+        locator: { by: "role-name", value: "grid:Roster" },
+        expect: { kind: "visible" },
+      });
+  }
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -1617,6 +1628,35 @@ function attachTrustedCaptureObservation(
       content.y = content.visual_bounds.y + 4;
     }
     if (nativeStateProof.includes("full-page") && loading) capture.full_page = true;
+  }
+  if (resolvedRegionProof) {
+    const check = assertionVisibility.checks[1];
+    // A meaningful header/sidebar corner that holds the noise change but
+    // covers less than 1% of the viewport.
+    const region = nativeStateProof.includes("tiny")
+      ? { x: 60, y: 0, width: 80, height: 175 }
+      : nativeStateProof.includes("elsewhere")
+        ? { x: 800, y: 100, width: 600, height: 400 }
+        : { x: 200, y: 100, width: 600, height: 400 };
+    if (nativeStateProof.includes("shifted")) region.x += 1;
+    if (nativeStateProof.includes("taller")) region.height += 40;
+    Object.assign(check, {
+      x: region.x + Math.floor(region.width / 2),
+      y: region.y + Math.floor(region.height / 2),
+      visual_bounds: region,
+      native_role: "grid",
+      native_name_present: true,
+    });
+    delete check.focus_indicator_regions;
+    if (nativeStateProof.includes("no-geometry")) delete check.visual_bounds;
+    if (nativeStateProof.includes("two-grids")) {
+      const roster = { ...check, label: "state assertion clause 2" };
+      // Each capture measures the same geometry under a different locator.
+      if (nativeStateProof.includes("roster")) delete check.visual_bounds;
+      else delete roster.visual_bounds;
+      assertionVisibility.checks.push(roster);
+      assertionVisibility.verified_nodes = assertionVisibility.checks.length;
+    }
   }
   let sourceTree = "d".repeat(40);
   try {
@@ -6205,6 +6245,96 @@ test("localized resolved P1 proof requires successfully validated native binding
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /must exactly bind the capture row/);
   assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+});
+
+function resolvedRegionFixture(beforeProof, afterProof = beforeProof, pixels = "state-content") {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  fixture.nativeStateProofByCapture = {
+    [before.id]: beforeProof,
+    "capture-ui-primary-after": afterProof,
+  };
+  const afterBytes = validPng(before.width, before.height, 0, 0, null, 1, pixels);
+  return { fixture, ...configureResolvedPrimaryFinding(fixture, afterBytes), afterBytes };
+}
+
+function assertResolvedProofRejected(fixture) {
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
+}
+
+test("native element region proves a localized resolved P1 below the whole-viewport floor", () => {
+  const { fixture, afterBytes } = resolvedRegionFixture("resolved-region");
+  // The fix changes one of 64 viewport tiles, below the unchanged whole-viewport floor.
+  const whole = visualDifference(
+    inspectPngVisualBytes(validPng(1440, 1000)),
+    inspectPngVisualBytes(afterBytes)
+  );
+  assert.ok(whole.changedTileRatio > 0 && whole.changedTileRatio < 0.03);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("native element region proof finds the shared locator among several asserted regions", () => {
+  const { fixture } = resolvedRegionFixture("resolved-region-two-grids-schedule");
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("native element region proof compares the measured union of differing heights", () => {
+  const { fixture } = resolvedRegionFixture("resolved-region", "resolved-region-taller");
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+for (const [name, beforeProof, afterProof, pixels] of [
+  ["no asserted element region", null, null, "state-content"],
+  ["identical pixels", "resolved-region", "resolved-region", false],
+  ["a single-pixel beacon", "resolved-region", "resolved-region", "state-beacon"],
+  ["a two-pixel beacon", "resolved-region", "resolved-region", "two-pixel-beacon"],
+  [
+    "a change outside the asserted region",
+    "resolved-region-elsewhere",
+    "resolved-region-elsewhere",
+    "state-content",
+  ],
+  [
+    "mismatched locators",
+    "resolved-region-two-grids-schedule",
+    "resolved-region-two-grids-roster",
+    "state-content",
+  ],
+  ["missing before geometry", "resolved-region-no-geometry", "resolved-region", "state-content"],
+  ["missing after geometry", "resolved-region", "resolved-region-no-geometry", "state-content"],
+  [
+    "a region below the visible-area floor",
+    "resolved-region-tiny",
+    "resolved-region-tiny",
+    "nearby-noise",
+  ],
+  ["a shifted region origin", "resolved-region", "resolved-region-shifted", "state-content"],
+]) {
+  test(`native element region proof rejects ${name}`, () => {
+    assertResolvedProofRejected(resolvedRegionFixture(beforeProof, afterProof, pixels).fixture);
+  });
+}
+
+test("native element region proof rejects full-page captures", () => {
+  const { fixture, before, after } = resolvedRegionFixture("resolved-region");
+  before.full_page = true;
+  after.full_page = true;
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assertResolvedProofRejected(fixture);
+});
+
+test("native element region proof requires verified native observations", () => {
+  const { fixture, after } = resolvedRegionFixture("resolved-region");
+  delete after.observation;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assertResolvedProofRejected(fixture);
 });
 
 test("rejects an active capture older than an inactive later round", () => {

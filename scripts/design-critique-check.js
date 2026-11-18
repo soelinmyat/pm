@@ -175,6 +175,9 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ],
   ["1.14.60", new Set(Array.from({ length: 10 }, (_, i) => `1.14.${50 + i}`))],
   ["1.14.61", new Set(Array.from({ length: 11 }, (_, i) => `1.14.${50 + i}`))],
+  // The resolved P0/P1 element-region path only reads retained native
+  // visual_bounds. It changes no native capture or audit contract.
+  ["1.14.62", new Set(Array.from({ length: 12 }, (_, i) => `1.14.${50 + i}`))],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -312,6 +315,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.61",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.60"), "1.14.61"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.62",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.61"), "1.14.62"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2505,6 +2512,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.59",
         "1.14.60",
         "1.14.61",
+        "1.14.62",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");
@@ -5617,6 +5625,7 @@ function validateFindings(root, findings, route, captures, outcome, issues, nati
                 after,
                 nativeObservations
               ) &&
+              !hasNativeElementRegionRemediation(root, before, after, nativeObservations) &&
               !isHorizontalOverflowRemediation(
                 root,
                 finding,
@@ -5750,6 +5759,58 @@ function isLocalizedNativeRemediation(difference, before, after, nativeObservati
     difference !== null &&
     difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
   );
+}
+
+// A localized fix in a large page can change one viewport tile, below the
+// localized changed-tile floor. Compare inside one element region that both
+// verified native captures visibly assert with the same locator and measured
+// visual_bounds. Origin and width must match; differing heights use their
+// measured union. The region must meet the 1% visible-area floor, and both
+// regional crops must pass the unchanged meaningful-image, changed-tile and
+// 32 full-contrast pixel support floors. Caller crops never qualify.
+function hasNativeElementRegionRemediation(root, before, after, nativeObservations) {
+  const left = nativeObservations?.get(before.id);
+  const right = nativeObservations?.get(after.id);
+  if (
+    left?.verified !== true ||
+    right?.verified !== true ||
+    ![left, right].every((observation) =>
+      ["accessibility-tree", "dom-audit"].every(
+        (kind) => observation.normalizedAuditCounts?.get(kind) === 1
+      )
+    ) ||
+    before.full_page ||
+    after.full_page ||
+    before.width !== after.width ||
+    before.height !== after.height ||
+    !isDeepStrictEqual(left.manifest.page.css_viewport, right.manifest.page.css_viewport)
+  )
+    return false;
+  const visibleBounds = (observation) => {
+    const rows = new Map();
+    for (const [index, clause] of (observation.assertion?.all || []).entries()) {
+      if (clause.expect.kind !== "visible") continue;
+      const bounds = observation.manifest.page.state_assertion.visibility.checks.find(
+        (check) => check.label === `state assertion clause ${index + 1}`
+      )?.visual_bounds;
+      if (bounds) rows.set(JSON.stringify(clause.locator), bounds);
+    }
+    return rows;
+  };
+  const afterBounds = visibleBounds(right);
+  for (const [locator, a] of visibleBounds(left)) {
+    const b = afterBounds.get(locator);
+    if (!b || a.x !== b.x || a.y !== b.y || a.width !== b.width) continue;
+    const region = { ...a, height: Math.max(a.height, b.height) };
+    if (
+      region.width * region.height <
+      before.width * before.height * PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio
+    )
+      continue;
+    if (hasMaterialNativeRegionChange(root, { capture: before }, { capture: after }, region, true))
+      return true;
+  }
+  return false;
 }
 
 // A document-level horizontal-overflow fix can remove only a scrollbar strip,
