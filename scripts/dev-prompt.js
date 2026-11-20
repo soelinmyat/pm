@@ -142,6 +142,7 @@ function implementationDesignInputs(input) {
     parts.push(
       "",
       "UI implementation: read skills/dev/references/product-ui-judgment.md at the resolved PM plugin root, including its implementation examples. Apply the relevant repository design guidance and a strong incumbent screen supplied in Inputs; if missing, discover them and explain any absence. Preserve approved behavior and navigation while composing the whole task, rather than merely reusing tokens or components.",
+      "When changing repeated per-item controls, use a realistic populated mixed-status scenario early, with several actionable rows and long content. Before clicking, check that each action visibly belongs to the intended item; fix ambiguous grouping while the slice is still small. Use an existing fixture or the project's usual setup and keep its reference with the existing inputs.",
       "Before accepting the first visible slice that changes interaction or hierarchy, inspect realistic whole-page before/after pixels in ordinary entry/return context and consequential content growth. Retain the observation in existing implementation evidence. This is implementation feedback, not final visual certification; unavailable rendered evidence stays an explicit gap. Established incremental patterns need no full alternative prototype."
     );
   }

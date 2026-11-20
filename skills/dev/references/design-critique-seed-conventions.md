@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Seed tasks are the contract between implementation and design critique. The implementing agent creates seed data during implementation. Design critique reuses the same seeds, so both see identical data. No MSW mocks, no Storybook. Real database records, real API responses.
+Seed tasks are the contract between implementation and design critique. The implementing agent creates seed data during implementation. Design critique reuses the same seeds, so both see identical data. When repeated per-item controls change, reuse implementation's realistic populated mixed-status scenario as the primary list example instead of a sparse list. Keep several actionable rows with long content and mix in other applicable statuses. This changes the example, not the capture count; retain all required route states and evidence. No MSW mocks, no Storybook. Real database records, real API responses.
 
 ## Location and Naming
 
@@ -17,7 +17,7 @@ Seed tasks are the contract between implementation and design critique. The impl
 3. **Cascade teardown.** `design:teardown:{feature}` destroys the account, cascading to all related records.
 4. **Cover all visual states.** Happy path, empty state, edge cases.
 5. **Seed user with known credentials.** Create a user with `design-review@example.com` / `password123` so Playwright can log in via the real login flow.
-6. **Created by the implementing agent.** Part of implementation, not an afterthought. Committed alongside feature code.
+6. **Prepared by the implementing agent.** Reuse suitable existing seeds. If seed code is needed, write and commit it alongside the feature.
 
 ## Template
 
@@ -47,8 +47,16 @@ namespace :design do
         t.state = :open
       end
 
-      # YELLOW: approaching deadline
-      Task.find_or_create_by!(title: "Restock supplies in lobby", account: account) do |t|
+      # COMPLETED: contrast with neighboring actionable rows
+      Task.find_or_create_by!(title: "Empty the recycling bins at reception", account: account) do |t|
+        t.location = location
+        t.due_at = 10.minutes.ago
+        t.assigned_to = cleaner
+        t.state = :completed
+      end
+
+      # YELLOW: approaching deadline; long title can wrap before the action
+      Task.find_or_create_by!(title: "Restock supplies in the main lobby and both meeting-room storage cabinets", account: account) do |t|
         t.location = location
         t.due_at = 25.minutes.from_now
         t.assigned_to = cleaner
@@ -109,7 +117,6 @@ cd apps/api && bin/rails design:teardown:{feature_slug}
 
 The seed task is created during implementation (in /dev), not during design critique. The implementing agent:
 
-1. Writes feature code
-2. Creates the seed task covering all visual states
-3. Runs the seed, starts servers, captures screenshots
-4. Visually self-checks before invoking `pm:design-critique`
+1. Uses the project's existing setup or prepares feature seeds early enough to check the first visible slice. Cover all applicable visual states before formal critique.
+2. Runs the seed, starts the app, and checks the rendered composition. For changed repeated per-item controls, check which item owns each action before clicking and fix ambiguous grouping while the slice is small.
+3. Keeps the setup reference with existing implementation inputs so Design Critique can reuse it. Ordinary rendered observations can guide implementation, but do not certify the later gate.

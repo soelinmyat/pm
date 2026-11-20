@@ -4,6 +4,8 @@ Opt-in ProductMemory native Dev uses a currently reviewed structured remote bund
 
 Small, explicitly assessed low-risk web UI changes use one combined visual/browser QA pass (desktop, narrow screen, and keyboard), followed by source review and release checks. Mobile, mixed-platform, larger, sensitive, or uncertain changes retain standalone design critique. No safety-bypass flag is needed.
 
+When repeated row or item controls change, Dev checks a populated mixed-status example early to make sure each action visibly belongs to the right item. Standalone Design Critique reuses that example without adding capture requirements or replacing required evidence.
+
 Research, Ideate and Groom turn evidence into a customer/commercial recommendation: beneficiary, buyer (including unknown), user outcome, commercial hypothesis, contrary evidence, uncertainty, build/test-first/defer and a test that can reverse the decision. New Groom producers retain this as a cited `decision_brief.value_decision`; existing idea ranking stays unchanged. A valid structure authenticates references, not market truth.
 
 Consequential app journeys can be groomed in an isolated consumer worktree using the real app shell, navigation and components with separate synthetic fixtures. `scripts/app-preview.js` binds exact source, reviewed UI code, fixtures, launch recipe and observed states, then checks adoption of that UI delta into an isolated Dev base. Inert document prototypes remain supported. Preserve the pinned source worktree until adoption; a preview identity is neither a source bundle nor backend certification.
