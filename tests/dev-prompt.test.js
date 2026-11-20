@@ -58,6 +58,15 @@ test("first visual implementation packet carries the exact approved context and 
   assert.match(result.prompt, /product-ui-judgment\.md/);
   assert.match(result.prompt, /Before accepting the first visible slice/);
   assert.match(result.prompt, /whole-page before\/after/);
+  assert.match(result.prompt, /When changing repeated per-item controls/);
+  assert.match(result.prompt, /realistic populated mixed-status scenario/);
+  assert.match(result.prompt, /several actionable rows and long content/);
+  assert.match(
+    result.prompt,
+    /Before clicking, check that each action visibly belongs to the intended item/
+  );
+  assert.match(result.prompt, /fix ambiguous grouping while the slice is still small/);
+
   assert.match(result.prompt, /docs\/design-system\/product-design-guidance\.md/);
   assert.match(result.prompt, /src\/jobs\/detail\.tsx/);
   assert.doesNotMatch(result.prompt, /additional review round|required alternative prototype/);
@@ -67,6 +76,7 @@ test("first visual implementation packet carries the exact approved context and 
 test("UI tasks without an approved design context receive composition guidance without inventing approval", () => {
   const result = buildWorkerPrompt(validInput({ phase: "implementation", ui_impact: true }));
   assert.match(result.prompt, /product-ui-judgment\.md/);
+  assert.match(result.prompt, /When changing repeated per-item controls/);
   assert.doesNotMatch(result.prompt, /Approved design context:/);
 });
 
@@ -79,7 +89,7 @@ test("nonvisual and later-phase packets preserve experience context without firs
     const result = buildWorkerPrompt(validInput(overrides));
     assert.doesNotMatch(
       result.prompt,
-      /Before accepting the first visible slice|product-ui-judgment\.md/
+      /Before accepting the first visible slice|product-ui-judgment\.md|repeated per-item controls/
     );
     if (overrides.design_context) assert.match(result.prompt, /Save, leave and resume/);
   }
