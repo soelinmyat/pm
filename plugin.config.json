@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo",
-  "version": "1.14.65",
+  "version": "1.14.66",
   "author": {
     "name": "Soe Lin Myat",
     "url": "https://github.com/soelinmyat"
@@ -45,6 +45,7 @@
     "start",
     "sync",
     "strategy",
+    "survey",
     "task",
     "think"
   ],
@@ -67,6 +68,7 @@
         "features",
         "rfc",
         "sync",
+        "survey",
         "design-critique",
         "dev",
         "ship",

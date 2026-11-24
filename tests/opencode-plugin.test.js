@@ -46,8 +46,8 @@ function context(version = "2.0.24") {
 test("V2 registers canonical PM skills and commands without starting a workflow", async () => {
   const ctx = context();
   await setup(ctx);
-  assert.equal(ctx.skills.length, 24);
-  assert.equal(ctx.commands.length, 23);
+  assert.equal(ctx.skills.length, 25);
+  assert.equal(ctx.commands.length, 24);
   assert.equal(ctx.prompts.length, 0);
   const dev = ctx.skills.find((s) => s.id === "pm-dev");
   assert.equal(dev.path, path.join(root, "skills/dev/SKILL.md"));
@@ -339,5 +339,5 @@ test("prompt admission restores canonical skills after late fallback discovery o
   assert.match(registry.get("pm-dev").content, /NEVER SHIP WITHOUT CURRENT GATE EVIDENCE/);
   await ctx.hooks.prompt({});
   assert.equal(registrations, 2);
-  assert.equal(registry.size, 24);
+  assert.equal(registry.size, 25);
 });

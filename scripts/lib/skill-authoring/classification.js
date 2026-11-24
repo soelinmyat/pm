@@ -21,6 +21,7 @@ const SKILL_CLASSIFICATION = Object.freeze({
   simplify: "redirect",
   start: "operational-effect",
   strategy: "conversational",
+  survey: "evidence-pipeline",
   sync: "operational-effect",
   task: "capture",
   think: "conversational",
