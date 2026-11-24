@@ -265,9 +265,10 @@ def choose(study, people, versions, alternatives, *, model, out, stay="Carry on"
 def pick(answer, names):
     """The option the answer opens with, as the prompt asks: its name followed by a full stop or colon.
     Anything else, such as a name the answer goes on to reject or a choice buried later, is Unclear."""
-    start = re.sub(r"^[\W_]+", "", answer).lower()
+    bare = lambda text: re.sub(r"^[\W_]+", "", text).lower()  # drop leading markup and punctuation
+    start = bare(answer)
     for name in sorted(names, key=len, reverse=True):
-        if re.match(rf"{re.escape(name.lower())}[*_\s]*[.:!]", start):
+        if re.match(rf"{re.escape(bare(name))}[*_\s]*[.:!]", start):
             return name
     return "Unclear"
 
@@ -278,6 +279,7 @@ assert pick("Honestly I can't decide", ["Ours", "Acme", "Carry on"]) == "Unclear
 assert pick("I would not choose Acme.", ["Ours", "Acme", "Carry on"]) == "Unclear"
 assert pick("Acme is not for me; I cannot decide yet.", ["Ours", "Acme", "Carry on"]) == "Unclear"
 assert pick("Acme Pro: it fits.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
+assert pick("**&Open.** It fits.", ["&Open", "Carry on"]) == "&Open"
 
 
 def choice_report(rows, *, ours, baseline=None, split_by=None):
