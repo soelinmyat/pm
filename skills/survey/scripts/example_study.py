@@ -70,6 +70,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="opus", help="claude CLI model alias")
     parser.add_argument("--show", action="store_true", help="print one persona and card per study and stop")
     args = parser.parse_args()
+    if args.n < 2:
+        parser.error("--n must be at least 2, so respondents can be split in half")
     question = "How likely are you to sign up and try it? Why?"
     if args.show:
         who = people("pitch", 3)[2]

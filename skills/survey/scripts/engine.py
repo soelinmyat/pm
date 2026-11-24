@@ -162,6 +162,8 @@ def ranks(values):
 def stability(n, measure):
     """Split-half agreement of the option order, averaged over 200 random splits of n respondents.
     measure(respondent indices) -> one value per option. A half with no order counts as 0, not 1."""
+    if n < 2:
+        return 0.0  # too few people to split in half
     rng, splits = np.random.default_rng(0), []
     for _ in range(200):  # one random split is itself noisy, so average many
         order = rng.permutation(n)
@@ -181,6 +183,7 @@ def lowest(names, values):
 
 assert list(ranks([3, 3, 1])) == [1.5, 1.5, 0.0]
 assert stability(4, lambda idx: [3.0, 3.0, 3.0]) == 0.0
+assert stability(1, lambda idx: [1.0, 2.0]) == 0.0
 assert lowest(["decoy_x", "a"], [3.0, 3.0]).endswith("distrust this study)")
 assert lowest(["decoy_x", "a"], [2.0, 3.0]) == "decoy_x"
 assert lowest(["a", "b"], [2.0, 3.0]).endswith("unchecked)")
