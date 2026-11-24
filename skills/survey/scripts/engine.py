@@ -194,7 +194,8 @@ def rating_report(rows, score, *, reference=None, planted=()):
     for r in rows:
         grid[r["respondent"], names.index(r["option"])] = r["score"]
     mean = grid.mean(axis=0)
-    halves = stability(n, lambda idx: grid[idx].mean(axis=0))
+    real = [j for j, name in enumerate(names) if not name.startswith("decoy")]  # the decoy is checked on its own
+    halves = stability(n, lambda idx: grid[idx][:, real].mean(axis=0))
     lines = [f"## {study}", "",
              f"{n} respondents per option. Halves agree: {halves:.2f} (1 = stable order, 0 = noise). "
              f"Lowest option: {lowest(names, mean)}.", "",
@@ -206,10 +207,9 @@ def rating_report(rows, score, *, reference=None, planted=()):
             # The same people saw both options, so compare within each person.
             gap = grid[:, j] - grid[:, names.index(reference)]
             se = gap.std(ddof=1) / n ** 0.5
-            clear = "clear" if se > 0 and abs(gap.mean() / se) >= 2 else "noise"
+            clear = "clear" if abs(gap.mean()) > 2 * se else "noise"  # a constant nonzero gap is clear
             line += " |" if names[j] == reference else f" {gap.mean():+.2f} ({clear}) |"
         lines.append(line)
-    real = [j for j, name in enumerate(names) if not name.startswith("decoy")]
     own = grid[:, real].mean(axis=1)  # each person's average over the real options
     groups = defaultdict(list)
     for r in rows:
@@ -259,24 +259,21 @@ def choose(study, people, versions, alternatives, *, model, out, stay="Carry on"
 
 
 def pick(answer, names):
-    """Which option the answer names: its opening words, or else the only option it mentions early on."""
+    """The option the answer opens with, as the prompt asks: its name followed by a full stop or colon.
+    Anything else, such as a name the answer goes on to reject or a choice buried later, is Unclear."""
     start = re.sub(r"^[\W_]+", "", answer).lower()
-    said = lambda name, text: re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", text)  # whole words only
     for name in sorted(names, key=len, reverse=True):
-        hit = said(name, start)
-        if hit and hit.start() == 0:
+        if re.match(rf"{re.escape(name.lower())}[*_\s]*[.:!]", start):
             return name
-    found = {name for name in names if said(name, start[:160])}
-    found = {name for name in found if not any(name != other and said(name, other.lower()) for other in found)}
-    return found.pop() if len(found) == 1 else "Unclear"  # two names mentioned is no choice
+    return "Unclear"
 
 
 assert pick("**Acme.** Known name", ["Ours", "Acme", "Carry on"]) == "Acme"
 assert pick("Carry on. Nothing is broken.", ["Ours", "Acme", "Carry on"]) == "Carry on"
 assert pick("Honestly I can't decide", ["Ours", "Acme", "Carry on"]) == "Unclear"
-assert pick("I cannot decide between Acme and Ours.", ["Ours", "Acme", "Carry on"]) == "Unclear"
-assert pick("Pickles aside, I would carry on.", ["Pick", "Carry on"]) == "Carry on"
-assert pick("I would go with Acme Pro.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
+assert pick("I would not choose Acme.", ["Ours", "Acme", "Carry on"]) == "Unclear"
+assert pick("Acme is not for me; I cannot decide yet.", ["Ours", "Acme", "Carry on"]) == "Unclear"
+assert pick("Acme Pro: it fits.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
 
 
 def choice_report(rows, *, ours, baseline=None, split_by=None):
@@ -295,13 +292,17 @@ def choice_report(rows, *, ours, baseline=None, split_by=None):
     def shares(idx):  # share choosing each real option, version by version, among these respondents
         return [sum(picks[v][i] == x for i in idx) / len(idx) for v in versions for x in real]
 
+    def substantive(idx):  # the same shares without decoys, which are checked on their own
+        return [share for share, (v, x) in zip(shares(idx), [(v, x) for v in versions for x in real])
+                if not (v.startswith("decoy") or x.startswith("decoy"))]
+
     total = np.reshape(shares(range(n)), (len(versions), len(real)))
     if any(v.startswith("decoy") for v in versions):  # a decoy version of your product should win least
         low = f"Version least chosen as {ours}: {lowest(versions, total[:, 0])}"
     else:
         low = f"Least chosen option: {lowest(real, total.mean(axis=0))}"
     lines = [f"## {study}", "",
-             f"{n} respondents. Halves agree: {stability(n, shares):.2f} (1 = stable order, 0 = noise). {low}.", "",
+             f"{n} respondents. Halves agree: {stability(n, substantive):.2f} (1 = stable order, 0 = noise). {low}.", "",
              f"Share choosing each option, one row per version of {ours}.", "",
              "| Version | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
     for version in versions:
