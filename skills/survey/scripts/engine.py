@@ -16,6 +16,7 @@ Synthetic answers are a brainstorming aid. Read the order of options within a st
 
 import hashlib
 import json
+import os
 import random
 import re
 import subprocess
@@ -48,12 +49,17 @@ ANCHORS = [  # each set runs from 1 (no) to 5 (yes); scores are averaged over se
 
 # --- Asking -----------------------------------------------------------------
 
+# The claude CLI prefers these over the logged-in subscription, so answers would bill to the API.
+API_CREDENTIALS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+
 def ask(system, prompt, model, cwd):
+    env = {k: v for k, v in os.environ.items() if k not in API_CREDENTIALS}  # subscription only
     for _ in range(3):
         done = subprocess.run(
             ["claude", "-p", "--model", model, "--system-prompt", system, "--tools", "",
              "--disable-slash-commands", "--strict-mcp-config"],
-            input=prompt, capture_output=True, text=True, cwd=cwd, timeout=180,
+            input=prompt, capture_output=True, text=True, cwd=cwd, timeout=180, env=env,
         )
         if done.returncode == 0 and done.stdout.strip():
             return done.stdout.strip()
