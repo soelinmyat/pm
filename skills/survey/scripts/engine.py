@@ -268,6 +268,8 @@ def pick(answer, names):
     bare = lambda text: re.sub(r"^[\W_]+", "", text).lower()  # drop leading markup and punctuation
     start = bare(answer)
     hits = [name for name in names if re.match(rf"{re.escape(bare(name))}[*_\s]*[.:!]", start)]
+    longest = max((len(bare(name)) for name in hits), default=0)
+    hits = [name for name in hits if len(bare(name)) == longest]  # "Acme.com" over "Acme"
     if len(hits) > 1:  # names that differ only in leading punctuation ("Open", "&Open") need the exact spelling
         plain = re.sub(r"^[*_\s]+", "", answer).lower()
         hits = [name for name in hits if plain.startswith(name.lower())]
@@ -282,6 +284,7 @@ assert pick("Acme is not for me; I cannot decide yet.", ["Ours", "Acme", "Carry 
 assert pick("Acme Pro: it fits.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
 assert pick("**&Open.** It fits.", ["&Open", "Carry on"]) == "&Open"
 assert pick("Open. It fits.", ["Open", "&Open", "Carry on"]) == "Open"
+assert pick("Acme.com. It fits.", ["Acme", "Acme.com", "Carry on"]) == "Acme.com"
 
 
 def choice_report(rows, *, ours, baseline=None, split_by=None):
