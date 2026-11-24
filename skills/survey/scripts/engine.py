@@ -267,10 +267,11 @@ def pick(answer, names):
     Anything else, such as a name the answer goes on to reject or a choice buried later, is Unclear."""
     bare = lambda text: re.sub(r"^[\W_]+", "", text).lower()  # drop leading markup and punctuation
     start = bare(answer)
-    for name in sorted(names, key=len, reverse=True):
-        if re.match(rf"{re.escape(bare(name))}[*_\s]*[.:!]", start):
-            return name
-    return "Unclear"
+    hits = [name for name in names if re.match(rf"{re.escape(bare(name))}[*_\s]*[.:!]", start)]
+    if len(hits) > 1:  # names that differ only in leading punctuation ("Open", "&Open") need the exact spelling
+        plain = re.sub(r"^[*_\s]+", "", answer).lower()
+        hits = [name for name in hits if plain.startswith(name.lower())]
+    return hits[0] if len(hits) == 1 else "Unclear"
 
 
 assert pick("**Acme.** Known name", ["Ours", "Acme", "Carry on"]) == "Acme"
@@ -280,6 +281,7 @@ assert pick("I would not choose Acme.", ["Ours", "Acme", "Carry on"]) == "Unclea
 assert pick("Acme is not for me; I cannot decide yet.", ["Ours", "Acme", "Carry on"]) == "Unclear"
 assert pick("Acme Pro: it fits.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
 assert pick("**&Open.** It fits.", ["&Open", "Carry on"]) == "&Open"
+assert pick("Open. It fits.", ["Open", "&Open", "Carry on"]) == "Open"
 
 
 def choice_report(rows, *, ours, baseline=None, split_by=None):
