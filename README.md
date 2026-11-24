@@ -320,7 +320,7 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:strategy` | Create or update strategy plus stable priority/non-goal tokens for downstream checks |
 | `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, responsive HTML/Markdown readers, a visible source-bound prototype entry point when UI exploration is warranted and approved, quality calibration, and explicit hash-bound approval |
 | `/pm:ideate` | Mine evidence-backed ideas, rank them deterministically, and flag strategy conflicts |
-| `/pm:synthetic-survey <what-to-test>` | Rank positioning, feature, onboarding or pricing options by surveying AI-played respondents; results are labelled synthetic, never customer evidence |
+| `/pm:survey <what-to-test>` | Rank positioning, feature, onboarding or pricing options by surveying AI-played respondents; results are labelled synthetic, never customer evidence |
 
 ### Development and delivery
 

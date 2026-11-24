@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["sentence-transformers", "numpy"]
 # ///
-"""Example study for pm:synthetic-survey. Copy it with engine.py, then replace the product, people and cards.
+"""Example study for pm:survey. Copy it with engine.py, then replace the product, people and cards.
 
 Run:   uv run example_study.py --show          print one card per study and stop (free)
        uv run example_study.py --n 4           pilot: read the answers before spending more

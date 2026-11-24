@@ -1,4 +1,4 @@
-"""Engine for pm:synthetic-survey. Copy this file next to your study script and import it.
+"""Engine for pm:survey. Copy this file next to your study script and import it.
 
 A study script builds invented respondents and cards, then calls:
 

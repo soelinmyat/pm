@@ -153,7 +153,7 @@ ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/features ~/.agents/skills/pm-features
 ln -sfn ~/.agents/vendor/pm/skills/rfc ~/.agents/skills/pm-rfc
 ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
-ln -sfn ~/.agents/vendor/pm/skills/synthetic-survey ~/.agents/skills/pm-synthetic-survey
+ln -sfn ~/.agents/vendor/pm/skills/survey ~/.agents/skills/pm-survey
 ln -sfn ~/.agents/vendor/pm/skills/design-critique ~/.agents/skills/pm-design-critique
 ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/pm-dev
 ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/pm-ship

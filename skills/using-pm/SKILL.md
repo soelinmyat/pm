@@ -51,7 +51,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 | “Research X” / “What is the market size?” / “Compare competitors” | `pm:research` | Factual investigation and saved research |
 | “Write a PRD” / “Spec this idea” / “Break down the product scope” | `pm:groom` | Product discovery and an approved proposal |
 | “Generate ideas” / “What should we build next?” | `pm:ideate` | Evidence-linked opportunity generation |
-| “Run a synthetic survey” / “Test this pricing on simulated customers” | `pm:synthetic-survey` | AI-played respondents rank options; labelled synthetic, never customer evidence |
+| “Run a synthetic survey” / “Test this pricing on simulated customers” | `pm:survey` | AI-played respondents rank options; labelled synthetic, never customer evidence |
 | “Define our strategy” / “Clarify ICP or positioning” | `pm:strategy` | Product strategy and explicit non-goals |
 | “Feature inventory” / “What does this product do?” | `pm:features` | Source-bound user-facing capability inventory |
 | “Capture this customer signal” / “Save this observation” | `pm:note` | One lightweight evidence record |

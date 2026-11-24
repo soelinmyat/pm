@@ -1,9 +1,9 @@
 ---
-name: synthetic-survey
+name: survey
 description: "Pressure-test positioning, features, onboarding or pricing by surveying AI-played respondents and ranking the options. Use for a synthetic or simulated customer survey, not for real customer evidence."
 ---
 
-# pm:synthetic-survey
+# pm:survey
 
 ## Purpose
 
@@ -13,10 +13,10 @@ It is a brainstorming aid that narrows a dozen opinions to a ranked list with re
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-Read `${CLAUDE_PLUGIN_ROOT}/skills/synthetic-survey/references/study-design.md` before writing any persona or card; it holds the design rules and the failure modes found in practice.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/survey/references/study-design.md` before writing any persona or card; it holds the design rules and the failure modes found in practice.
 Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before durable writeback.
 
-**Workflow:** `synthetic-survey` | **Telemetry steps:** `frame`, `design`, `pilot`, `run`, `read`, `writeback`
+**Workflow:** `survey` | **Telemetry steps:** `frame`, `design`, `pilot`, `run`, `read`, `writeback`
 
 ## Iron Law
 
@@ -39,7 +39,7 @@ Every table, summary and saved artifact says the answers were written by an AI p
 - **Every study carries its own checks.** A decoy that should lose, the same respondents across all options, and the split-half stability figure. A study whose decoy does not land last, or whose order is unstable, is reported as noise.
 - **Compare, never forecast.** Report gaps between options and whether each gap is clear. Do not report a share or score as what real customers will do.
 - **Rival facts come from the rival's own page.** Check each fact on the vendor's source, record the URL and access date, and mark what you could not confirm. A wrong line on a rival's card decides the result.
-- **One writer for the scripts.** Copy `engine.py` from `${CLAUDE_PLUGIN_ROOT}/skills/synthetic-survey/scripts/` beside a study script modelled on `example_study.py`. Do not rewrite the engine per project.
+- **One writer for the scripts.** Copy `engine.py` from `${CLAUDE_PLUGIN_ROOT}/skills/survey/scripts/` beside a study script modelled on `example_study.py`. Do not rewrite the engine per project.
 
 ## Workflow
 
@@ -54,10 +54,10 @@ Run the beats in order. Ask one question at a time, and only when the answer cha
 
 ## Output and provenance
 
-- **Working files:** the study script, `engine.py`, raw answers and reports go in `{pm_state_dir}/synthetic-survey/{slug}/`. Raw answers stay there.
+- **Working files:** the study script, `engine.py`, raw answers and reports go in `{pm_state_dir}/survey/{slug}/`. Raw answers stay there.
 - **Research artifact:** `{pm_dir}/evidence/research/{slug}.md` with the method, findings, limits and open questions, written to the research template in `study-design.md`. Set `source_origin` to `internal`, or `mixed` when rival facts cite vendor pages, and list those source URLs with access dates.
 - **Decision record:** `{pm_dir}/evidence/research/{slug}-decisions.md` when the user made decisions during the read.
-- Register the artifact through the evidence runtime as `synthesized`, with method `synthetic-survey`. Confidence for every finding is low until a real source supports it; write each finding as a hypothesis.
+- Register the artifact through the evidence runtime as `synthesized`, with method `survey`. Confidence for every finding is low until a real source supports it; write each finding as a hypothesis.
 - Update the research index and log the same way `pm:research` does.
 
 ## Red Flags — Self-Check

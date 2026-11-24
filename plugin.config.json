@@ -45,7 +45,7 @@
     "start",
     "sync",
     "strategy",
-    "synthetic-survey",
+    "survey",
     "task",
     "think"
   ],
@@ -68,7 +68,7 @@
         "features",
         "rfc",
         "sync",
-        "synthetic-survey",
+        "survey",
         "design-critique",
         "dev",
         "ship",
