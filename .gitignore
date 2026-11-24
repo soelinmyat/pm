@@ -19,3 +19,4 @@ tools/swe-bench/
 
 # PM behavioral eval local run artifacts
 eval-results/
+__pycache__/
