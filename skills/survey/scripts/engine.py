@@ -21,7 +21,7 @@ import re
 import subprocess
 import tempfile
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +65,13 @@ def collect(jobs, model, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     cache = out / "responses.jsonl"
-    old = [json.loads(line) for line in cache.read_text().splitlines()] if cache.exists() else []
+    text = cache.read_text() if cache.exists() else ""
+    old = []
+    for line in text.splitlines():
+        try:
+            old.append(json.loads(line))
+        except json.JSONDecodeError:  # a run killed mid-write leaves one torn line; ask that answer again
+            pass
     digest = lambda job: hashlib.sha256((job["system"] + "\0" + job["prompt"]).encode()).hexdigest()[:16]
     key = lambda r: (r["model"], r["study"], r["option"], r["respondent"], r["prompt_sha"])
     have = {key(r): r for r in old}
@@ -80,12 +86,22 @@ def collect(jobs, model, out):
         return {**row, "answer": ask(job["system"], job["prompt"], model, cwd)}
 
     with ThreadPoolExecutor(10) as pool, cache.open("a") as sink:
-        for done, row in enumerate(pool.map(run, todo), 1):
-            sink.write(json.dumps(row) + "\n")
-            sink.flush()
-            have[key(row)] = row
-            if done % 50 == 0:
-                print(f"  {done}/{len(todo)}", flush=True)
+        if text and not text.endswith("\n"):
+            sink.write("\n")  # start after a torn line, not inside it
+        futures = [pool.submit(run, job) for job in todo]
+        try:
+            # Save each answer as it lands, so a failure keeps everything already paid for.
+            for done, future in enumerate(as_completed(futures), 1):
+                row = future.result()
+                sink.write(json.dumps(row) + "\n")
+                sink.flush()
+                have[key(row)] = row
+                if done % 50 == 0:
+                    print(f"  {done}/{len(todo)}", flush=True)
+        except BaseException:
+            for future in futures:
+                future.cancel()  # stop asking; answers already in flight are lost
+            raise
     return [have[key(job)] for job in jobs]
 
 

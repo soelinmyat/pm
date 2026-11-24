@@ -78,7 +78,23 @@ uv run study.py --n 40 --model opus   # full run, in the background
 
 ## Research artifact template
 
+The frontmatter is what the knowledge-base validator requires; the decision record uses the same frontmatter.
+
 ```markdown
+---
+type: evidence
+evidence_type: research
+topic: {Product} synthetic survey
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+source_origin: internal|mixed
+confidence: low
+cited_by: []
+sources:
+  - url: {rival page}
+    accessed: YYYY-MM-DD
+---
+
 # {Product} synthetic survey
 
 ## Summary
