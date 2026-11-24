@@ -89,19 +89,29 @@ def collect(jobs, model, out):
         if text and not text.endswith("\n"):
             sink.write("\n")  # start after a torn line, not inside it
         futures = [pool.submit(run, job) for job in todo]
+        stop = lambda: [future.cancel() for future in futures]  # running requests still finish
+        failure = None
         try:
-            # Save each answer as it lands, so a failure keeps everything already paid for.
+            # Save each answer as it lands, so a failure keeps every answer already asked, in flight included.
             for done, future in enumerate(as_completed(futures), 1):
-                row = future.result()
+                if future.cancelled():
+                    continue
+                try:
+                    row = future.result()
+                except Exception as error:
+                    failure = failure or error
+                    stop()
+                    continue
                 sink.write(json.dumps(row) + "\n")
                 sink.flush()
                 have[key(row)] = row
                 if done % 50 == 0:
                     print(f"  {done}/{len(todo)}", flush=True)
-        except BaseException:
-            for future in futures:
-                future.cancel()  # stop asking; answers already in flight are lost
+        except BaseException:  # Ctrl-C: stop asking; answers in flight are lost
+            stop()
             raise
+    if failure:
+        raise failure
     return [have[key(job)] for job in jobs]
 
 
@@ -140,7 +150,36 @@ def make_scorer():
 
 
 def ranks(values):
-    return np.argsort(np.argsort(values))
+    """Average ranks, so tied values share a rank instead of getting an arbitrary order."""
+    values = np.asarray(values, dtype=float)
+    out, ordered = np.empty(len(values)), np.sort(values)
+    for value in np.unique(values):
+        out[values == value] = np.flatnonzero(ordered == value).mean()
+    return out
+
+
+def stability(n, measure):
+    """Split-half agreement of the option order, averaged over 200 random splits of n respondents.
+    measure(respondent indices) -> one value per option. A half with no order counts as 0, not 1."""
+    rng, splits = np.random.default_rng(0), []
+    for _ in range(200):  # one random split is itself noisy, so average many
+        order = rng.permutation(n)
+        a, b = ranks(measure(order[: n // 2])), ranks(measure(order[n // 2:]))
+        splits.append(0.0 if a.std() == 0 or b.std() == 0 else np.corrcoef(a, b)[0, 1])
+    return float(np.mean(splits))
+
+
+def lowest(names, values):
+    """The lowest option, all of them on a tie, plus a warning unless only decoys share the bottom."""
+    bottom = [name for name, value in zip(names, values) if value <= min(values) + 1e-9]
+    ok = all(name.startswith("decoy") for name in bottom) or not any(x.startswith("decoy") for x in names)
+    return ", ".join(bottom) + ("" if ok else " (the decoy did not land last, so distrust this study)")
+
+
+assert list(ranks([3, 3, 1])) == [1.5, 1.5, 0.0]
+assert stability(4, lambda idx: [3.0, 3.0, 3.0]) == 0.0
+assert lowest(["decoy_x", "a"], [3.0, 3.0]).endswith("distrust this study)")
+assert lowest(["decoy_x", "a"], [2.0, 3.0]) == "decoy_x"
 
 
 def rating_report(rows, score, *, reference=None, planted=()):
@@ -154,17 +193,11 @@ def rating_report(rows, score, *, reference=None, planted=()):
     grid = np.zeros((n, len(names)))
     for r in rows:
         grid[r["respondent"], names.index(r["option"])] = r["score"]
-    rng, splits = np.random.default_rng(0), []
-    for _ in range(200):  # one random split is itself noisy, so average many
-        order = rng.permutation(n)
-        a, b = grid[order[: n // 2]].mean(axis=0), grid[order[n // 2:]].mean(axis=0)
-        splits.append(np.corrcoef(ranks(a), ranks(b))[0, 1])
     mean = grid.mean(axis=0)
-    last = names[int(mean.argmin())]
+    halves = stability(n, lambda idx: grid[idx].mean(axis=0))
     lines = [f"## {study}", "",
-             f"{n} respondents per option. Halves agree: {np.mean(splits):.2f} (1 = stable order, 0 = noise). "
-             f"Lowest option: {last}" + ("" if last.startswith("decoy") or not any(x.startswith("decoy") for x in names)
-                                         else " (the decoy did not land last, so distrust this study)") + ".", "",
+             f"{n} respondents per option. Halves agree: {halves:.2f} (1 = stable order, 0 = noise). "
+             f"Lowest option: {lowest(names, mean)}.", "",
              "| Option | Score | Likely or better |" + (f" Gap to {reference} |" if reference else ""),
              "|---|---|---|" + ("---|" if reference else "")]
     for j in np.argsort(-mean):
@@ -226,18 +259,24 @@ def choose(study, people, versions, alternatives, *, model, out, stay="Carry on"
 
 
 def pick(answer, names):
-    """Which option the answer names, read from its opening words."""
+    """Which option the answer names: its opening words, or else the only option it mentions early on."""
     start = re.sub(r"^[\W_]+", "", answer).lower()
+    said = lambda name, text: re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", text)  # whole words only
     for name in sorted(names, key=len, reverse=True):
-        if start.startswith(name.lower()):
+        hit = said(name, start)
+        if hit and hit.start() == 0:
             return name
-    found = [(start.find(name.lower()), name) for name in names if name.lower() in start[:160]]
-    return min(found)[1] if found else "Unclear"
+    found = {name for name in names if said(name, start[:160])}
+    found = {name for name in found if not any(name != other and said(name, other.lower()) for other in found)}
+    return found.pop() if len(found) == 1 else "Unclear"  # two names mentioned is no choice
 
 
 assert pick("**Acme.** Known name", ["Ours", "Acme", "Carry on"]) == "Acme"
 assert pick("Carry on. Nothing is broken.", ["Ours", "Acme", "Carry on"]) == "Carry on"
 assert pick("Honestly I can't decide", ["Ours", "Acme", "Carry on"]) == "Unclear"
+assert pick("I cannot decide between Acme and Ours.", ["Ours", "Acme", "Carry on"]) == "Unclear"
+assert pick("Pickles aside, I would carry on.", ["Pick", "Carry on"]) == "Carry on"
+assert pick("I would go with Acme Pro.", ["Acme", "Acme Pro", "Carry on"]) == "Acme Pro"
 
 
 def choice_report(rows, *, ours, baseline=None, split_by=None):
@@ -251,7 +290,19 @@ def choice_report(rows, *, ours, baseline=None, split_by=None):
     for r in rows:
         picks[r["option"]][r["respondent"]] = r["choice"]
     n = len(picks[versions[0]])
-    lines = [f"## {study}", "", f"{n} respondents. Share choosing each option, one row per version of {ours}.", "",
+    real = [x for x in names if x != "Unclear"]
+
+    def shares(idx):  # share choosing each real option, version by version, among these respondents
+        return [sum(picks[v][i] == x for i in idx) / len(idx) for v in versions for x in real]
+
+    total = np.reshape(shares(range(n)), (len(versions), len(real)))
+    if any(v.startswith("decoy") for v in versions):  # a decoy version of your product should win least
+        low = f"Version least chosen as {ours}: {lowest(versions, total[:, 0])}"
+    else:
+        low = f"Least chosen option: {lowest(real, total.mean(axis=0))}"
+    lines = [f"## {study}", "",
+             f"{n} respondents. Halves agree: {stability(n, shares):.2f} (1 = stable order, 0 = noise). {low}.", "",
+             f"Share choosing each option, one row per version of {ours}.", "",
              "| Version | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
     for version in versions:
         count = Counter(picks[version].values())
