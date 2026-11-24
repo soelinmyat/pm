@@ -50,9 +50,13 @@ PITCHES = {  # one thing changes per option; the decoy should lose, and tells yo
 }
 
 
+CHOICE_VERSIONS = ["plain", "reminders", "decoy_contract"]  # the decoy version should win the fewest people
+
+
 def alternatives(who, version):
     """What each app is and costs for this person. The rival's card is the same in every version."""
-    ours = BASE + {"plain": "", "reminders": " It texts customers a reminder the day before."}[version]
+    ours = BASE + {"plain": "", "reminders": " It texts customers a reminder the day before.",
+                   "decoy_contract": " To start, you sign a one-year contract paid upfront."}[version]
     return {
         "Slotwise": f"{ours} Cost for you: {'free' if who['staff'] <= 3 else '$15 a month'}.",
         "FixDesk": "a booking app for repair shops. Customers book online and you get a calendar. "
@@ -74,7 +78,7 @@ if __name__ == "__main__":
         raise SystemExit
     score = engine.make_scorer()  # first, so a broken scorer fails before any answers are bought
     pitch = engine.rate("pitch", people("pitch", args.n), PITCHES, question, model=args.model, out=OUT)
-    choice = engine.choose("choice", people("choice", args.n), ["plain", "reminders"], alternatives,
+    choice = engine.choose("choice", people("choice", args.n), CHOICE_VERSIONS, alternatives,
                            model=args.model, out=OUT, intro="You are deciding how to take bookings. These are your options.")
     engine.write_report(OUT, f"report-{args.model}.md", "Slotwise synthetic survey", [
         engine.rating_report(pitch, score, reference="base", planted=("Problem",)),

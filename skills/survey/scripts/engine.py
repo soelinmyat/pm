@@ -112,7 +112,8 @@ def collect(jobs, model, out):
             raise
     if failure:
         raise failure
-    return [have[key(job)] for job in jobs]
+    meta = lambda job: {k: v for k, v in job.items() if k not in ("system", "prompt")}
+    return [{**have[key(job)], **meta(job)} for job in jobs]  # cached answer, current traits and fields
 
 
 # --- Rating studies ---------------------------------------------------------
@@ -172,7 +173,9 @@ def stability(n, measure):
 def lowest(names, values):
     """The lowest option, all of them on a tie, plus a warning unless only decoys share the bottom."""
     bottom = [name for name, value in zip(names, values) if value <= min(values) + 1e-9]
-    ok = all(name.startswith("decoy") for name in bottom) or not any(x.startswith("decoy") for x in names)
+    if not any(x.startswith("decoy") for x in names):
+        return ", ".join(bottom) + " (no decoy, so this study is unchecked)"
+    ok = all(name.startswith("decoy") for name in bottom)
     return ", ".join(bottom) + ("" if ok else " (the decoy did not land last, so distrust this study)")
 
 
@@ -180,6 +183,7 @@ assert list(ranks([3, 3, 1])) == [1.5, 1.5, 0.0]
 assert stability(4, lambda idx: [3.0, 3.0, 3.0]) == 0.0
 assert lowest(["decoy_x", "a"], [3.0, 3.0]).endswith("distrust this study)")
 assert lowest(["decoy_x", "a"], [2.0, 3.0]) == "decoy_x"
+assert lowest(["a", "b"], [2.0, 3.0]).endswith("unchecked)")
 
 
 def rating_report(rows, score, *, reference=None, planted=()):
