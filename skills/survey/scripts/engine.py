@@ -296,9 +296,13 @@ def choice_report(rows, *, ours, baseline=None, split_by=None):
     def shares(idx):  # share choosing each real option, version by version, among these respondents
         return [sum(picks[v][i] == x for i in idx) / len(idx) for v in versions for x in real]
 
-    def substantive(idx):  # the same shares without decoys, which are checked on their own
-        return [share for share, (v, x) in zip(shares(idx), [(v, x) for v in versions for x in real])
-                if not (v.startswith("decoy") or x.startswith("decoy"))]
+    kept = [v for v in versions if not v.startswith("decoy")]  # decoys are checked on their own
+
+    def substantive(idx):
+        """With several versions, the order of versions by share choosing ours; with one, the order of options."""
+        if len(kept) > 1:
+            return [sum(picks[v][i] == ours for i in idx) / len(idx) for v in kept]
+        return [sum(picks[kept[0]][i] == x for i in idx) / len(idx) for x in real if not x.startswith("decoy")]
 
     total = np.reshape(shares(range(n)), (len(versions), len(real)))
     if any(v.startswith("decoy") for v in versions):  # a decoy version of your product should win least
