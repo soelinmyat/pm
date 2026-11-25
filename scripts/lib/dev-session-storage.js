@@ -20,6 +20,9 @@ function inspectSessionStorage(root) {
   const directories = [""];
   while (directories.length) {
     const directory = directories.pop();
+    const inDerivedData =
+      path.basename(directory) === "DerivedData" ||
+      path.basename(path.dirname(directory)) === "DerivedData";
     const entries = fs.readdirSync(path.join(root, directory), { withFileTypes: true });
     const cluster =
       entries.some((e) => e.isFile() && e.name === "PG_VERSION") &&
@@ -31,8 +34,7 @@ function inspectSessionStorage(root) {
       if (entry.isDirectory()) {
         if (
           report.generated.length < 10 &&
-          (entry.name === "node_modules" ||
-            (path.basename(directory) === "DerivedData" && derivedOutputs.has(entry.name)))
+          (entry.name === "node_modules" || (inDerivedData && derivedOutputs.has(entry.name)))
         ) {
           report.generated.push(relative);
         }

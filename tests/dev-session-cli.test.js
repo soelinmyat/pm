@@ -353,7 +353,15 @@ test("completion moves the durable audit out of the active-session scan path", (
     assert.equal(blocked.status, 3, blocked.stderr);
     assert.match(blocked.stderr, /DerivedData[/\\]Build/);
     assert.equal(JSON.parse(fs.readFileSync(initialized.session_path)).phase, "retro");
-    fs.rmSync(build, { recursive: true });
+    const project = path.join(activeDir, "qa", "DerivedData", "Example-abcd");
+    fs.mkdirSync(project);
+    fs.renameSync(build, path.join(project, "Build"));
+    fs.mkdirSync(path.join(project, "Index.noindex"));
+    const nested = repo.run([...record, "--retain-large-evidence", "QA requires capture.bin"]);
+    assert.equal(nested.status, 3, nested.stderr);
+    assert.match(nested.stderr, /Example-abcd[/\\]Build/);
+    assert.match(nested.stderr, /Example-abcd[/\\]Index.noindex/);
+    fs.rmSync(project, { recursive: true });
     const recorded = repo.run([
       "record",
       "--session",
