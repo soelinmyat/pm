@@ -23,6 +23,8 @@ Extract evidence-supported durable learnings from the completed dev session, wri
 
 ## How
 
+Before the terminal record, inspect the run with `dev-session storage --session <session.json>`. Move disposable runtime outputs out of the session and preserve artifacts referenced by checks. Completion reports misplaced generated folders and requests a review for large archives. For necessary large evidence, pass `--retain-large-evidence "<reason>"` on the terminal record. Retry the same result after resolving storage issues.
+
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
 If extraction fails at any point, preserve canonical state and record a structured failed retro result with the error evidence. Then say:

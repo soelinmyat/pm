@@ -28,6 +28,9 @@ Complete the routed implementation work and produce commit-linked test evidence 
 
 ## How
 
+Keep only the session record, reports, receipts and the evidence they reference in the run folder. Allocate a private temporary directory with `node scripts/dev-session.js scratch --session <session.json>` (resolve the script from the plugin root). Point Xcode DerivedData, test database clusters, dependency installs, downloads, and raw captures there. Copy the required evidence into the session before recording the result, then stop its services and remove the scratch directory this run allocated.
+
+
 For a project requiring MCP coverage, follow `${CLAUDE_PLUGIN_ROOT}/references/mcp-feature-coverage.md`: implement the scoped agent workflows and retain current MCP test output for every applicable acceptance criterion. Prepare the session coverage report for final Review and verification.
 
 1. Read the canonical session. Read the RFC Execution Contract first when present. Treat acceptance criteria and explicit non-goals as the scope boundary; use legacy issue-card detail only when intake recorded that fallback.

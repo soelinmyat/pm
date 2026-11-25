@@ -203,6 +203,8 @@ pm/
 
 `pm/` is the durable product memory — commit it. `.pm/` is runtime state — gitignore it.
 
+Dev sessions retain reports, receipts and supporting evidence. Use `dev-session.js scratch --session <session.json>` for a private temporary build or test directory, and remove it after moving the required evidence into the session. Use `dev-session.js storage --session <session.json> --json` to inspect active or completed runs. Completion pauses for misplaced Xcode output, dependency installs and PostgreSQL clusters. A file of at least 64 MiB or a run totaling at least 256 MiB requires a storage review. Keep required large evidence with `record --retain-large-evidence "<reason>"`. The inspection and completion checks never delete files.
+
 ### Example output
 
 Think-to-Groom handoff preserves approved proposal identity even when the selected Think direction has a different slug. Promotion still verifies exact approval and source lineage; generated `proposal:<slug>` reader IDs are accepted by KB validation when their filename, kind, and proposal link match.

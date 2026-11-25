@@ -79,6 +79,48 @@ test("init, status, next, prompt, validate, and project form a cold-process CLI"
   }
 });
 
+test("scratch stays private outside the session and storage inspects local bytes only", () => {
+  const repo = makeRepo();
+  let scratch;
+  try {
+    const init = JSON.parse(
+      repo.run(["init", "--slug", "storage-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const dir = path.dirname(init.session_path);
+    const allocated = repo.run(["scratch", "--session", init.session_path], {
+      env: { TMPDIR: repo.root },
+    });
+    assert.equal(allocated.status, 0, allocated.stderr);
+    scratch = allocated.stdout.trim();
+    assert.equal(path.dirname(fs.realpathSync(scratch)), fs.realpathSync(repo.root));
+    assert.equal(fs.statSync(scratch).mode & 0o777, 0o700);
+    assert.equal(
+      repo.run(["scratch", "--session", init.session_path], { env: { TMPDIR: dir } }).status,
+      3
+    );
+
+    fs.symlinkSync(scratch, path.join(dir, "external"), "dir");
+    fs.writeFileSync(path.join(scratch, "unrelated"), "outside");
+    fs.mkdirSync(path.join(dir, "pg", "base"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "pg", "global"));
+    fs.writeFileSync(path.join(dir, "pg", "PG_VERSION"), "16");
+    for (let i = 0; i < 5; i++) {
+      const file = path.join(dir, "part-" + i);
+      fs.closeSync(fs.openSync(file, "w"));
+      fs.truncateSync(file, 53 * 1024 * 1024);
+    }
+    const inspected = repo.run(["storage", "--session", init.session_path, "--json"]);
+    assert.equal(inspected.status, 0, inspected.stderr);
+    const report = JSON.parse(inspected.stdout);
+    assert.deepEqual(report.generated, ["pg"]);
+    assert.equal(report.oversized, true);
+    assert.equal(report.files, 7);
+    assert.equal(report.largest.length, 5);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("init rejects a source directory outside a Git worktree as a precondition", () => {
   const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-dev-non-git-"));
   try {
@@ -297,12 +339,29 @@ test("completion moves the durable audit out of the active-session scan path", (
         runtime: { provider: "inline", model: "test", reasoning: "high" },
       })
     );
+    const record = ["record", "--session", initialized.session_path, "--result", resultPath];
+    const oversized = path.join(activeDir, "capture.bin");
+    fs.closeSync(fs.openSync(oversized, "w"));
+    fs.truncateSync(oversized, 70 * 1024 * 1024);
+    const oversizedResult = repo.run(record);
+    assert.equal(oversizedResult.status, 3, oversizedResult.stderr);
+    assert.match(oversizedResult.stderr, /capture.bin/);
+    const build = path.join(activeDir, "qa", "DerivedData", "Build");
+    fs.mkdirSync(build, { recursive: true });
+    fs.writeFileSync(path.join(build, "object.o"), "generated");
+    const blocked = repo.run([...record, "--retain-large-evidence", "QA requires capture.bin"]);
+    assert.equal(blocked.status, 3, blocked.stderr);
+    assert.match(blocked.stderr, /DerivedData[/\\]Build/);
+    assert.equal(JSON.parse(fs.readFileSync(initialized.session_path)).phase, "retro");
+    fs.rmSync(build, { recursive: true });
     const recorded = repo.run([
       "record",
       "--session",
       initialized.session_path,
       "--result",
       resultPath,
+      "--retain-large-evidence",
+      "QA requires capture.bin",
       "--json",
     ]);
     assert.equal(recorded.status, 0, recorded.stderr);
