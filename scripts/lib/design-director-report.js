@@ -338,10 +338,10 @@ function checkSweepAndStates(report, findingsById, add) {
       if (entry.status !== "unreachable")
         return add(`${at}.status`, "must be examined or unreachable");
       const finding = findingsById.get(entry.finding_id);
-      if (!finding || finding.class !== "major")
+      if (!finding || finding.class !== "major" || finding.status !== "open")
         add(
           `${at}.finding_id`,
-          "an unreachable declared state is a major finding against the build"
+          "an unreachable declared state is an open major finding against the build"
         );
       return undefined;
     });
@@ -388,6 +388,11 @@ function checkFirstImpression(report, findingsById, add) {
     answered.set(entry.point, entry);
     return undefined;
   });
+  if (report.verdict === "approve" && impression.points.length === 0)
+    add(
+      "first_impression.points",
+      "an approval needs the pass to have reported at least one point"
+    );
   impression.points.forEach((point, index) => {
     const at = `first_impression.points[${index}]`;
     if (!isObject(point) || !text(point.id) || !text(point.text))

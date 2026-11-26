@@ -143,7 +143,7 @@ test("an unreachable declared state is a major finding and blocks", () => {
   const result = messages(check(report));
   assert.match(result, /cannot approve: major finding f-05 is open/);
   report.declared_states[0].finding_id = "none";
-  assert.match(messages(check(report)), /an unreachable declared state is a major finding/);
+  assert.match(messages(check(report)), /an unreachable declared state is an open major finding/);
 });
 
 test("screenshots and measurement output must exist inside the review directory", () => {
@@ -438,4 +438,20 @@ test("a run parked at round 3 cannot be reopened with a reset", () => {
     messages(check(reopened, { root })),
     /the run parked at its round 3 rejection and takes no further review/
   );
+});
+
+test("an unreachable declared state blocks until it is reached", () => {
+  const report = approval({
+    declared_states: [{ state: "payment failed", status: "unreachable", finding_id: "f-05" }],
+    findings: [finding("f-05", "major", "resilience", "fixed")],
+  });
+  assert.match(
+    messages(check(report)),
+    /an unreachable declared state is an open major finding against the build/
+  );
+});
+
+test("an approval needs a first-impression pass that reported something", () => {
+  const report = approval({ first_impression: { points: [] }, first_impression_answers: [] });
+  assert.match(messages(check(report)), /at least one point/);
 });

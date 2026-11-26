@@ -99,6 +99,31 @@ function createMeasure(env) {
         a: parts.length > 3 ? px(parts[3]) : 1,
       };
     }
+    match = /^ok(lab|lch)\(([^)]+)\)$/.exec(text);
+    if (match) {
+      // OKLab to sRGB (Ottosson). Chrome keeps this form in computed styles.
+      const parts = match[2].split(/[\s/]+/).filter(Boolean);
+      if (parts.length < 3) return null;
+      const unit = (part) => (part.endsWith("%") ? px(part) / 100 : px(part));
+      const hue = (px(parts[2]) * Math.PI) / 180;
+      const [L, a, b] =
+        match[1] === "lab"
+          ? [unit(parts[0]), px(parts[1]), px(parts[2])]
+          : [unit(parts[0]), px(parts[1]) * Math.cos(hue), px(parts[1]) * Math.sin(hue)];
+      const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+      const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+      const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+      const encode = (linear) => {
+        const c = Math.min(1, Math.max(0, linear));
+        return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+      };
+      return {
+        r: encode(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+        g: encode(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+        b: encode(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+        a: parts.length > 3 ? unit(parts[3]) : 1,
+      };
+    }
     if (text === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
     return null;
   }
@@ -141,9 +166,11 @@ function createMeasure(env) {
 
   function paintsBackground(node) {
     if (!hasStyles(node)) return false;
-    const color = parseColor(node.style["background-color"]);
+    const fill = node.style["background-color"];
+    const color = parseColor(fill);
     const image = node.style["background-image"];
-    return Boolean((color && color.a > 0.02) || (image && image !== "none"));
+    // A fill in a colour space this script cannot read still paints.
+    return Boolean((color ? color.a > 0.02 : fill) || (image && image !== "none"));
   }
 
   // A surface is something drawn as its own block: a fill, an outline or a
@@ -943,6 +970,10 @@ function main(argv = process.argv.slice(2)) {
     }
     const model = JSON.parse(fs.readFileSync(rest[modelAt + 1], "utf8"));
     const minTarget = targetAt >= 0 ? Number(rest[targetAt + 1]) : undefined;
+    if (rest.some((arg) => arg.startsWith("--min-target")) && !(minTarget > 0)) {
+      process.stderr.write("--min-target requires a positive number\n");
+      return 2;
+    }
     process.stdout.write(
       `${JSON.stringify(analyzeModel(model, minTarget ? { minTarget } : {}), null, 2)}\n`
     );

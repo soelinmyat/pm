@@ -125,7 +125,7 @@ After your review, a second agent with no context looks only at your screenshots
 
 ## What you return
 
-Write `report.json` in the review directory, with your screenshots under `screenshots/` and saved measurement output under `measurements/`. Follow the report contract in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director.md`. Then run the check it names and fix what it reports about the report's form. Never change a score or a verdict to satisfy the check.
+Write `report.json` in the review directory, with your screenshots under `screenshots/` and saved measurement output under `measurements/`. Follow the report contract in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director.md`. Then run the check it names and fix what it reports about the report's form. An intended approval fails that check until the first-impression pass has been added; report that as expected and leave the verdict as it is. Never change a score or a verdict to satisfy the check.
 
 Return the verdict, the scores, the open findings and the report path.
 

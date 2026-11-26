@@ -197,7 +197,13 @@ test("contrast follows the WCAG formula", () => {
   const white = measure.parseColor("rgb(255, 255, 255)");
   assert.equal(measure.contrastRatio(black, white), 21);
   assert.equal(measure.parseColor("color(srgb 1 1 1 / 0.5)").a, 0.5);
-  assert.equal(measure.parseColor("oklch(0.5 0.1 200)"), null);
+  const grey = measure.parseColor("oklch(0.97 0 0)");
+  assert.ok(Math.abs(grey.r - 245) < 2 && Math.abs(grey.g - 245) < 2 && Math.abs(grey.b - 245) < 2);
+  const red = measure.parseColor("oklch(62.8% 0.2577 29.23 / 50%)");
+  assert.ok(red.r > 250 && red.g < 5 && red.b < 5, JSON.stringify(red));
+  assert.equal(red.a, 0.5);
+  assert.ok(Math.abs(measure.parseColor("oklab(1 0 0)").g - 255) < 1);
+  assert.equal(measure.parseColor("lab(50 10 10)"), null);
 });
 
 test("a model without styles is measured for geometry and states the limit", () => {
@@ -329,6 +335,40 @@ test("the CLI prints the snippet and analyzes a model file", () => {
     assert.equal(analyzed.status, 0);
     assert.equal(JSON.parse(analyzed.stdout).insets.tool, "insets");
     assert.equal(spawnSync(process.execPath, [SCRIPT]).status, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a fill in an unreadable colour space still counts as a surface", () => {
+  const card = { "background-color": "lab(97 0 0)", ...padding("16px"), "padding-right": "24px" };
+  const model = [
+    el(0, -1, "body", [0, 0, 800, 600], WHITE),
+    el(1, 0, "section", [20, 20, 400, 100], card),
+    el(2, 1, "p", [36, 36, 300, 20], {}, { has_text: true, text: "Body" }),
+  ];
+  const measure = createMeasure();
+  assert.equal(measure.insetsModel(model).containers_measured, 1);
+  assert.equal(measure.thresholdsModel(model).text_with_unmeasured_contrast, 1);
+  const oklch = [
+    model[0],
+    { ...model[1], style: { ...model[1].style, "background-color": "oklch(0.2 0 0)" } },
+    model[2],
+  ];
+  assert.equal(measure.thresholdsModel(oklch).low_contrast_text.length, 1);
+});
+
+test("the CLI refuses a malformed --min-target", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-measure-"));
+  try {
+    const file = path.join(dir, "model.json");
+    fs.writeFileSync(file, JSON.stringify([{ tag: "Screen", rect: { x: 0, y: 0, w: 10, h: 10 } }]));
+    for (const args of [["--min-target", "abc"], ["--min-target=44"], ["--min-target"]]) {
+      const run = spawnSync(process.execPath, [SCRIPT, "analyze", "--model", file, ...args], {
+        encoding: "utf8",
+      });
+      assert.equal(run.status, 2, args.join(" "));
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
