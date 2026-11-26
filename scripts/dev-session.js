@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+const os = require("node:os");
+const { inspectSessionStorage } = require("./lib/dev-session-storage");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -59,6 +61,25 @@ function main(argv) {
   switch (command) {
     case "init":
       return initCommand(options);
+    case "storage": {
+      const { sessionPath } = loadRequiredSession(options);
+      const report = inspectSessionStorage(path.dirname(sessionPath));
+      emit(options, report, JSON.stringify(report, null, 2) + "\n");
+      return EXIT.OK;
+    }
+    case "scratch": {
+      const { session, sessionPath } = loadRequiredSession(options);
+      if (session.status !== "active")
+        throw cliError("scratch requires an active session", EXIT.PRECONDITION);
+      const tempRoot = fs.realpathSync(os.tmpdir());
+      const stateRoot = fs.realpathSync(path.dirname(path.dirname(path.dirname(sessionPath))));
+      if (tempRoot === stateRoot || tempRoot.startsWith(stateRoot + path.sep)) {
+        throw cliError("choose a TMPDIR outside the PM state directory", EXIT.PRECONDITION);
+      }
+      const directory = fs.mkdtempSync(path.join(tempRoot, "pm-dev-"));
+      emit(options, { directory }, directory + "\n");
+      return EXIT.OK;
+    }
     case "status":
       return statusCommand(options);
     case "next":
@@ -145,6 +166,7 @@ function parseArguments(argv) {
     "legacy",
     "base-commit",
     "expected-version",
+    "retain-large-evidence",
     "state",
     "external-effect-started-at",
     "affected-identity",
@@ -411,7 +433,13 @@ function recordCommand(options) {
       let idempotentSession = session;
       let idempotentPath = sessionPath;
       if (["complete", "handoff"].includes(session.status)) {
-        idempotentPath = archiveTerminalRun(sessionPath, session, result, resultPath);
+        idempotentPath = archiveTerminalRun(
+          sessionPath,
+          session,
+          result,
+          resultPath,
+          options.retainLargeEvidence
+        );
         idempotentSession = readSession(idempotentPath);
       }
       const decision = nextDecision(idempotentSession, idempotentPath);
@@ -450,7 +478,13 @@ function recordCommand(options) {
     }
     let persistedPath = sessionPath;
     if (["complete", "handoff"].includes(updated.status)) {
-      persistedPath = archiveTerminalRun(sessionPath, updated, result, resultPath);
+      persistedPath = archiveTerminalRun(
+        sessionPath,
+        updated,
+        result,
+        resultPath,
+        options.retainLargeEvidence
+      );
       updated = readSession(persistedPath);
     } else {
       writeSession(sessionPath, updated);
@@ -488,12 +522,27 @@ function clearActiveRunDirectory(sessionPath) {
   }
 }
 
-function archiveTerminalRun(sessionPath, session, result, resultPath) {
+function archiveTerminalRun(sessionPath, session, result, resultPath, retentionReason) {
   const activeDir = path.dirname(sessionPath);
   const sessionsDir = path.dirname(activeDir);
   const archiveDir = path.join(sessionsDir, "completed", session.slug, session.run_id);
   const persistedPath = path.join(archiveDir, "session.json");
   if (fs.existsSync(archiveDir)) throw new Error(`terminal archive already exists: ${archiveDir}`);
+  const storage = inspectSessionStorage(activeDir);
+  if (storage.generated.length) {
+    throw cliError(
+      "Move generated runtime data outside the session before retrying: " +
+        storage.generated.join(", "),
+      EXIT.PRECONDITION
+    );
+  }
+  if (storage.oversized && !retentionReason?.trim()) {
+    throw cliError(
+      "Review the session with dev-session storage. Move disposable data outside the session or retry with --retain-large-evidence <reason> for required artifacts. Largest files: " +
+        storage.largest.map((file) => file.path).join(", "),
+      EXIT.PRECONDITION
+    );
+  }
   const archivedSession = rebaseContractPaths(
     session,
     activeDir,
@@ -521,6 +570,9 @@ function archiveTerminalRun(sessionPath, session, result, resultPath) {
     run_id: session.run_id,
     result_hash: hashResult(result),
     session_path: persistedPath,
+    ...(storage.oversized
+      ? { retained_bytes: storage.bytes, retention_reason: retentionReason.trim() }
+      : {}),
   });
   return persistedPath;
 }
@@ -1265,10 +1317,12 @@ function helpText() {
     "Commands:",
     "  init --slug <slug> --source-dir <path> [--task <path-or-id>] [--json]",
     "  status --session <path> [--json]",
+    "  storage --session <path> [--json]",
+    "  scratch --session <path> [--json]",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
-    "  record --session <path> --result <path> [--json]",
+    "  record --session <path> --result <path> [--retain-large-evidence <reason>] [--json]",
     "  rebind-rfc --session <path> --rfc-sidecar <json-path> --expected-sidecar-sha256 <sha256:hex> --reason <text> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
     "  gate --session <path> --name <gate> [--status <passed|failed|blocked|skipped>] [--reason <text>] [--artifact <path>] [--json]",

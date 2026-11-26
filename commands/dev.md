@@ -26,3 +26,5 @@ When Ship discovers a missing first QA phase, follow `dev-session require-qa` in
 Repeated baseline/focused verification can use authenticated execution receipts
 under the [execution contract](../skills/dev/references/verification-execution.md).
 Final repository checks and independent CI still execute.
+
+Keep build products and disposable services in a private run scratch directory. Inspect storage before completion and preserve the reports and files used as evidence.
