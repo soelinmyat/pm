@@ -9,6 +9,7 @@ const AGENTS_DIR = path.join(__dirname, "..", "agents");
 
 const EXPECTED_AGENTS = [
   "adversarial-engineer",
+  "design-director",
   "designer",
   "developer",
   "product-manager",
@@ -33,7 +34,7 @@ function parseFrontmatter(content) {
   return { data, body };
 }
 
-test("agents: all 7 plugin agent files exist", () => {
+test("agents: all 8 plugin agent files exist", () => {
   for (const name of EXPECTED_AGENTS) {
     const filePath = path.join(AGENTS_DIR, `${name}.md`);
     assert.ok(fs.existsSync(filePath), `Missing agent file: agents/${name}.md`);

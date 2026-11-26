@@ -29,6 +29,8 @@ function defaultDeps() {
     checkManifest: gateCheck.checkGateManifest,
     checkDesignCritique: (options) =>
       require("../design-critique-check").checkDesignCritique(options),
+    checkDesignDirector: (options) =>
+      require("./design-director-report").checkDesignDirector(options),
     validateQa: gateCheck.validateCanonicalQaDeliveryEvidence,
     isAncestor: (root, ancestor, descendant) =>
       require("./review-freshness").isAncestor(root, ancestor, descendant),
@@ -207,8 +209,39 @@ function retainedDesignPath(base, relative, basename, report) {
 // since the captures are bound to it rather than to the original evidence.
 // On that path the checker's own source-commit comparison is trivially met, so
 // the ancestry proof below (original, then route source, then HEAD) is the guard.
-function designCritiqueRowFields(layout, head, context, evidence, deps) {
+// A Design Director report is its own artifact: there is no capture chain to
+// rerun. The report is rechecked at the commit its evidence is bound to, which
+// is HEAD unless the phase was recertified.
+function designDirectorRowFields(layout, session, head, evidence, deps, reportPath) {
+  if (!reportPath.startsWith(`${layout.sessionDirRel}/design-critique/director/`))
+    throw gateError("Design Director report must belong to this session");
+  const result = deps.checkDesignDirector({
+    root: layout.root,
+    reportPath,
+    commit: evidence.recertified ? evidence.phaseEvidence.commit : head,
+    runId: session.run_id,
+  });
+  if (!result?.ok)
+    throw gateError(`design-director check failed: ${formatIssues(result?.issues || [])}`);
+  if (result.outcome !== "passed")
+    throw gateError("Design Critique requires an approved Design Director report");
+  return { artifact: reportPath, evidence_kind: "design-director-report-v1" };
+}
+
+function designCritiqueRowFields(layout, head, context, evidence, deps, session) {
   const base = `${layout.sessionDirRel}/design-critique`;
+  const directorArtifact = evidence.passing[0]?.artifact;
+  if (typeof directorArtifact === "string" && directorArtifact.trim()) {
+    const { isDirectorReportPath } = require("./design-director-report");
+    let candidate = null;
+    try {
+      candidate = projectRelative(layout.root, directorArtifact.trim());
+    } catch {
+      // Evidence outside the project is handled by the capture path below.
+    }
+    if (candidate && isDirectorReportPath(candidate))
+      return designDirectorRowFields(layout, session, head, evidence, deps, candidate);
+  }
   const paths = {
     root: layout.root,
     routePath: `${base}/route.json`,
@@ -436,7 +469,7 @@ function planGateWrite(request, deps = defaultDeps()) {
     let fields;
     if (name === "review") fields = reviewRowFields(layout);
     else if (name === "design-critique")
-      fields = designCritiqueRowFields(layout, head, context, evidence, deps);
+      fields = designCritiqueRowFields(layout, head, context, evidence, deps, session);
     else if (name === "qa")
       fields = qaRowFields(layout, session, evidence, head, layout.manifestPath, deps);
     else fields = { artifact: evidenceArtifact(layout, evidence) };

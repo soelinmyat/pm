@@ -230,39 +230,61 @@ Separate PRs, each releasable:
 
 # Resume here
 
-State at the end of the first session, 2026-11-26. No runtime plugin file has
-been changed. The work so far is three notes in `docs/plans/`:
+State at the end of the second session, 2026-11-26. Delivery item 1, the
+director path, is built on branch `claude/design-director-planning-f41f75`. It
+is not released and no real director review has been run with it yet.
 
-- `2026-11-26-design-director.md`: this plan.
-- `2026-11-26-design-director-rubric.md`: rubric and director instructions,
-  revision 3, with decisions in Part 4.
-- `2026-11-26-design-director-calibration.md`: the owner's comments on twenty
-  Cleanlog screens, with a summary.
+What item 1 added:
 
-Decisions made after this plan was first written are recorded in the rubric's
-Part 4 and take precedence over the text above where they differ. The main
-ones:
+- `agents/design-director.md`: the director, registered as `pm:design-director`.
+- `skills/dev/references/design-director-rubric.md`: the rubric, hunt list and
+  calibration as a runtime reference. The calibration examples carry no product
+  name.
+- `skills/dev/references/design-director.md`: the review flow, round rules,
+  first-impression pass and report contract.
+- `scripts/design-director-measure.js`: sweep, insets, nesting, thresholds and
+  point query. It runs in the page through any browser tool, or over a JSON
+  model for native hierarchies.
+- `scripts/design-director-check.js` and `scripts/lib/design-director-report.js`:
+  the report check.
+- Gate acceptance in `scripts/lib/dev-session-schema.js` and
+  `scripts/lib/dev-gate-writer.js`: an approved director report at the current
+  commit passes the Design Critique gate, and rejections are kept in the phase's
+  recovery history.
 
-- A floor of 4 on every dimension; a 5 means nothing left to raise and needs no
-  reference screen. The owner's eye is the minimum standard.
-- States declared in grooming must be examined. An unreachable one is a round 1
-  finding; the work parks only if it is still unreachable after round 3.
-- One reset per run, for a rebuild, a wrong direction or an invalid earlier
-  round, with at most five reviews.
-- The first-impression agent has no veto; the director answers each point.
-- The director is a new agent; the existing `designer` agent is unchanged.
+Decisions made while building. The owner set the first; the rest are for the
+owner to confirm:
 
-Next step: delivery item 1, the director path. That means a new agent file, the
-rubric as a runtime reference, the measurement tools lifted from
-`scripts/design-critique-capture-probe.js`, the round rules, and a gate check
-that accepts a director report at the current commit. The old capture path
-stays in place.
+- **Default.** By the owner's decision on 2026-11-26, the director is the
+  default review for product UI in Dev. Capture remains for PM artifacts, PDFs,
+  sessions already in flight on it, hosts that cannot dispatch a separate
+  reviewer, and projects whose PM instructions say `Design review: capture`.
+  The replay has not been run, so early verdicts are untuned.
+- **Measurement tools were rewritten, not lifted.** The probe's audits read a
+  Chrome DevTools snapshot and cannot be injected into a page. The new script
+  measures the same things from the live DOM.
+- **A fifth tool, `thresholds`.** It lists low contrast, small targets and
+  unnamed controls, since the rubric's accessibility anchors need those numbers.
+- **Native measurement takes a prepared model.** There is no converter from a
+  simulator's hierarchy dump yet.
+- **The report's `review` number is the lineage.** A reset restarts `round` at
+  1 while `review` keeps counting to five.
 
-Before auto-merge is enabled: replay the director on the twenty calibrated
-screens. It should find at least what the owner found on each. The screenshots
-are in `cleanlog-mono` at
-`work/design-system/web-client-rollout/evidence/captures` and
-`docs/audits/mobile/screenshots`; the calibration note lists each source file.
+Decisions recorded in the rubric's Part 4 still take precedence over the plan
+text above where they differ.
+
+Next steps, in order:
+
+1. Replay the director on the twenty calibrated screens. It should find at
+   least what the owner found on each. The screenshots are in `cleanlog-mono`
+   at `work/design-system/web-client-rollout/evidence/captures` and
+   `docs/audits/mobile/screenshots`; the calibration note lists each source
+   file. Screenshots allow only a screenshots-only review, so run a few of the
+   web screens against the running app as well, to exercise the measurement
+   tools.
+2. Delivery item 2, the build step additions.
+3. Delivery item 4 holds the remaining mechanical checks: hardcoded values,
+   declared surfaces and neighbour pixel comparison.
 
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.

@@ -145,7 +145,7 @@ test("install config preserves unrelated settings, is idempotent and refuses per
   assert.deepEqual(installed.agents.custom, existing.agents.custom);
   assert.equal(installed.plugins[0], "other");
   assert.equal(installed.plugins[1].package.endsWith("/"), true);
-  assert.equal(Object.keys(installed.agents).length, 8);
+  assert.equal(Object.keys(installed.agents).length, 9);
   const reviewer = installed.agents["pm:staff-engineer"];
   assert.equal(reviewer.mode, "subagent");
   assert.ok(reviewer.permissions.some((p) => p.action === "edit" && p.effect === "deny"));

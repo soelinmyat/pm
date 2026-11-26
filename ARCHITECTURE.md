@@ -155,7 +155,7 @@ HTML reference templates live in `references/templates/`. Skills read these befo
 
 ### Personas
 
-Seven role overlays in `agents/`:
+Eight role overlays in `agents/`:
 
 | Persona | Used by |
 |---------|---------|
@@ -163,6 +163,7 @@ Seven role overlays in `agents/`:
 | product-manager | Scope review, proposal review |
 | staff-engineer | Code review, design review |
 | designer | Design critique |
+| design-director | Design Director review: uses the running app and approves or rejects against a rubric |
 | developer | Implementation agents |
 | strategist | Strategy review |
 | tester | QA review |

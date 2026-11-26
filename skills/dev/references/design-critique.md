@@ -1,6 +1,6 @@
 # Design Critique Integration Reference
 
-`pm:design-critique` is the source of truth for the Design Critique gate. Read its `SKILL.md`, ordered steps, and `references/evidence-contract.md`; do not recreate a parallel flow here.
+In Dev, product UI is reviewed by the Design Director by default; see `design-director.md` for that path and for when the capture path applies instead. For the capture path, `pm:design-critique` is the source of truth. Read its `SKILL.md`, ordered steps, and `references/evidence-contract.md`; do not recreate a parallel flow here.
 
 ## Execution context
 

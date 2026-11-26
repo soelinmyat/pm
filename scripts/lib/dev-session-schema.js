@@ -1495,6 +1495,19 @@ function validateScopedGateEvidence(session, result, errors) {
         relative !== `${path.posix.dirname(report.target.path)}/report.json`
       )
         throw new Error("failed verification requires an immutable passing round checkpoint");
+    } else if (require("./design-director-report").isDirectorReportPath(relative)) {
+      // A Design Director report satisfies the same gate without the capture
+      // chain. Its review number continues the retained lineage; a reset
+      // restarts the director's round count, never the lineage.
+      checked = require("./design-director-report").checkDesignDirector({
+        root,
+        reportPath: relative,
+        commit: result.commit,
+        runId: session.run_id,
+      });
+      policy = report.recovery_policy;
+      round = report.review;
+      previous = report.prior_report;
     } else {
       const { checkDesignCritique } = require("../design-critique-check");
       const base = require("../review-target").resolveTrustedBase(
