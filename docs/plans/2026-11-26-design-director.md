@@ -272,7 +272,8 @@ owner to confirm:
 - **A run ends at its approval.** A later commit that changes the reviewed UI
   is reviewed as a new director run in its own directory.
 - **Parked is terminal.** After a round 3 rejection or a fifth review, Dev
-  stops and waits for the owner. It does not diagnose and continue.
+  stops. It does not diagnose and continue, a reset cannot reopen the run, and
+  the owner restarts the work in a new session.
 - **A late major below the blocking bar scores 4.** The rubric files such a
   finding instead of blocking on it, so its dimension cannot score below the
   floor. The score links the finding and names its fix.

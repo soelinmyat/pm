@@ -419,3 +419,23 @@ test("the report names its run from its path and binds the session separately", 
   const unbound = approval({ session_run_id: "run-9" });
   assert.match(messages(check(unbound)), /session_run_id: must equal the session run run-1/);
 });
+
+test("a run parked at round 3 cannot be reopened with a reset", () => {
+  const root = workspace();
+  let prior = null;
+  for (const review of [1, 2, 3]) {
+    const written = write(root, review, rejection(review, review, { prior_report: prior }));
+    prior = { path: written.reportPath, sha256: written.sha256 };
+  }
+  const reopened = approval({
+    review: 4,
+    round: 1,
+    prior_report: prior,
+    reset: { used: true, reason: "rebuild", at_review: 4 },
+  });
+  reopened.findings = [finding("f-01", "major", "hierarchy", "fixed")];
+  assert.match(
+    messages(check(reopened, { root })),
+    /the run parked at its round 3 rejection and takes no further review/
+  );
+});

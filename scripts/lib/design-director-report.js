@@ -202,6 +202,8 @@ function checkFindings(report, add) {
       if (!text(finding.answer)) add(`${at}.answer`, "an answered elevation records the reason");
     }
     const lateFollowUp = isLateFollowUp(finding);
+    if (lateFollowUp && finding.status === "open")
+      add(`${at}.status`, "a late finding that does not block is filed as a follow-up");
     if (finding.late !== undefined && !(finding.first_seen_round > 1))
       add(`${at}.late`, "applies only to a finding first raised after round 1");
     if (finding.status === "filed") {
@@ -444,6 +446,8 @@ function checkLineage(report, root, directory, reviewNumber, add) {
   if (prior.review !== reviewNumber - 1) add("prior_report", "is not the immediately prior review");
   if (prior.verdict === "approve")
     add("prior_report", "an approved run has no further review; a later commit starts a new run");
+  if (prior.verdict === "reject" && prior.round === MAX_ROUNDS)
+    add("prior_report", "the run parked at its round 3 rejection and takes no further review");
   // A finding's first round comes from the retained lineage, not from the
   // report that carries it: a new finding belongs to this round.
   const earlier = new Map(

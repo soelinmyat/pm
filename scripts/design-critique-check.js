@@ -189,6 +189,8 @@ const COMPATIBLE_NATIVE_EVIDENCE_VERSIONS = new Map([
   ["1.14.66", new Set(Array.from({ length: 16 }, (_, i) => `1.14.${50 + i}`))],
   // Session archive storage preserves the native evidence format.
   ["1.14.67", new Set(Array.from({ length: 17 }, (_, i) => `1.14.${50 + i}`))],
+  // The Design Director path adds a separate report; native evidence is unchanged.
+  ["1.14.68", new Set(Array.from({ length: 18 }, (_, i) => `1.14.${50 + i}`))],
 ]);
 function currentNativeEvidenceVersion(version) {
   return (
@@ -350,6 +352,10 @@ SPARSE_CONTENT_PRODUCER_VERSIONS.set(
 SPARSE_CONTENT_PRODUCER_VERSIONS.set(
   "1.14.67",
   new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.66"), "1.14.67"])
+);
+SPARSE_CONTENT_PRODUCER_VERSIONS.set(
+  "1.14.68",
+  new Set([...SPARSE_CONTENT_PRODUCER_VERSIONS.get("1.14.67"), "1.14.68"])
 );
 const HISTORICAL_CAPTURE_PRODUCER_VERSIONS = new Set([
   "1.14.6",
@@ -2549,6 +2555,7 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
         "1.14.65",
         "1.14.66",
         "1.14.67",
+        "1.14.68",
       ]).has(manifest.observation.producer.version)
     )
       throw new Error("native file-label focus requires an explicitly supported producer");

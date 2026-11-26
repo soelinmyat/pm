@@ -53,7 +53,7 @@ Give no state list beyond the declared states. Choosing what else to examine is 
 - Each review runs at a new commit that contains the builder's fixes, and gets the next `review-{N}` directory.
 - A review continues the one before it: `prior_report` binds the earlier report's path and SHA-256, and every earlier finding stays in the list with its current status.
 - One reset per run restarts the round count at 1. Reviews keep counting. A run has at most five reviews.
-- A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. Dev's usual diagnose-and-continue recovery does not apply here: a parked run takes no further review, and the session resumes only on new direction from the owner.
+- A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. Dev's usual diagnose-and-continue recovery does not apply here. A parked run takes no further review, a reset cannot reopen it, and this session cannot start another run. Continuing the work needs new direction from the owner and a new Dev session.
 - A run ends at its approval. When a later commit changes the reviewed UI, start a new director run: a new `{run}` name, `review-1`, round 1, no `prior_report`. A new run cannot start while the current one is unfinished or parked.
 
 After a rejection, give the builder the open findings and nothing else from the report. The builder fixes, commits, and updates the access notes.
@@ -161,7 +161,8 @@ Field rules the check enforces:
 - **Late findings.** One first raised after round 1 carries `"late": {"ui": "changed-by-fix"}` or `"late": {"ui": "unchanged", "blocks": true, "reason": "anchor-2-or-lower | breaks-task"}`. On unchanged UI only a major finding may be opened, with `missed_earlier: true`. When it does not block, set `"blocks": false` and status `filed`; its dimension scores 4, links the finding, and names the fix in `to_reach_5`. `late` is not allowed on a finding first seen in round 1, and `first_seen_round` must match the earlier report for a carried finding and the current round for a new one.
 - **Sweep.** An `intentional` outlier has `cites`. A `defect` has `finding_id`.
 - **Declared states.** An `unreachable` state has the `finding_id` of a major finding.
-- **Reset.** `{"used": true, "reason": "rebuild | wrong-direction | invalid-round", "at_review": N}`, carried unchanged into later reports.
+- **Prior report.** `null` for the first review of a run. Otherwise `{"path": "<project-relative path of the previous review's report.json>", "sha256": "<hex SHA-256 of its bytes>"}`. Unlike screenshot paths, this path starts at `.pm/`.
+- **Reset.** `{"used": true, "reason": "rebuild | wrong-direction | invalid-round", "at_review": N}`, carried unchanged into later reports. A reset is declared in place of the next round, at review 2 or 3; it cannot follow a round 3 rejection.
 - **Limits.** `screenshots-only`, or `style_values_measured: false`, needs `measurement_limits` and caps craft at 4.
 - **Verdict.** An approval has no score below 4, no open major finding or regression, and in rounds 1 and 2 no open small finding or elevation. A rejection has at least one of those.
 
@@ -183,7 +184,7 @@ A new commit after an approval makes the report stale. Never edit the report's c
 
 - **Follow-ups.** Findings with status `filed` and all system notes are collected for the retro. They are filed after the merge under the project's existing rules for creating backlog items.
 - **Wrong-direction reset.** Record it for the retro. It suggests the grooming target was too loose.
-- **Parked work.** Report the open findings and the report path. Do not merge, and do not start another review without new direction from the owner.
+- **Parked work.** Report the open findings and the report path. Do not merge. This session is finished; the owner decides whether to start the work again in a new session.
 
 ## What this path does not check yet
 
