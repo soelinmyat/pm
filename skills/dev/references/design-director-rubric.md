@@ -149,6 +149,8 @@ An elevation is answered when it is implemented, or rebutted with a reason the d
 
 An older flaw on a changed screen counts when its fix is inside the declared surfaces. Otherwise it is a system note.
 
+A major finding first seen after round 1 on UI the fix did not change blocks only when it meets an anchor at 2 or lower, or breaks the task. Otherwise it is filed as a follow-up and recorded as missed. Its dimension then scores 4, not lower: the score links the finding and names its fix as the way to reach 5.
+
 ## Measurement dispositions
 
 Every outlier from the sweep is a defect or intentional. An intentional disposition cites one of: a design token, an existing component, a declared decision in the approved target, or the same treatment on the comparable screen. "Looks fine" is not a disposition.

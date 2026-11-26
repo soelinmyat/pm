@@ -6,16 +6,17 @@
 // an approval or a rejection. Only an approved report can pass the gate.
 
 const path = require("node:path");
+const { requireValue } = require("./lib/check-cli");
 const { gitExec } = require("./lib/git-env");
 const { checkDesignDirector } = require("./lib/design-director-report");
 
 function usage() {
   return [
     "Usage: design-director-check.js --report <report.json> [--root <dir>] [--commit <sha>]",
-    "                                [--run-id <id>] [--json]",
+    "                                [--run-id <session run_id>] [--json]",
     "",
     "The report lives at",
-    ".pm/dev-sessions/{slug}/design-critique/director/review-{N}/report.json.",
+    ".pm/dev-sessions/{slug}/design-critique/director/{run}/review-{N}/report.json.",
     "Without --commit, the report must have been made at the current HEAD.",
   ].join("\n");
 }
@@ -26,9 +27,7 @@ function parseArgs(argv) {
     const flag = argv[index];
     if (flag === "--json") options.json = true;
     else if (["--report", "--root", "--commit", "--run-id"].includes(flag)) {
-      const value = argv[index + 1];
-      if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
-      options[flag === "--run-id" ? "runId" : flag.slice(2)] = value;
+      options[flag === "--run-id" ? "runId" : flag.slice(2)] = requireValue(argv, index + 1, flag);
       index += 1;
     } else throw new Error(`unknown argument ${flag}`);
   }

@@ -269,6 +269,13 @@ owner to confirm:
   simulator's hierarchy dump yet.
 - **The report's `review` number is the lineage.** A reset restarts `round` at
   1 while `review` keeps counting to five.
+- **A run ends at its approval.** A later commit that changes the reviewed UI
+  is reviewed as a new director run in its own directory.
+- **Parked is terminal.** After a round 3 rejection or a fifth review, Dev
+  stops and waits for the owner. It does not diagnose and continue.
+- **A late major below the blocking bar scores 4.** The rubric files such a
+  finding instead of blocking on it, so its dimension cannot score below the
+  floor. The score links the finding and names its fix.
 
 Decisions recorded in the rubric's Part 4 still take precedence over the plan
 text above where they differ.

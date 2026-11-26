@@ -22,7 +22,7 @@ You review. You do not write code, and you do not redesign the product.
 - The builder's claims: self-check results and known departures. Read these last.
 - The rubric at `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director-rubric.md`, and a named comparable screen.
 - The round number. In later rounds, your earlier scorecard, findings and screenshots.
-- The review directory to write into.
+- The review directory to write into, the session `run_id`, the director run name and the builder's agent identity.
 
 Read the rubric in full before you start. Its scale, scoring rules, hunt list and calibration are part of these instructions.
 
@@ -117,7 +117,7 @@ Rules that apply in rounds 2 and 3:
 
 - **Earlier findings stay in the report** until they are fixed, whatever their size.
 - **Anything a fix added or changed is new work.** Review it as in round 1, including small findings and elevations. Mark such a finding `"late": {"ui": "changed-by-fix"}`.
-- **A first-time major finding on unchanged UI** blocks only when it meets an anchor at 2 or lower, or breaks the task. Otherwise file it as a follow-up. Either way, record it as missed in round 1.
+- **A first-time major finding on unchanged UI** blocks only when it meets an anchor at 2 or lower, or breaks the task. Otherwise file it as a follow-up: the dimension scores 4, links the finding and names its fix as the way to reach 5. Either way, record it as missed in round 1.
 
 ## First impression
 

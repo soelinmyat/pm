@@ -1748,7 +1748,7 @@ test("an approved Design Director report at HEAD passes the Design Critique gate
   const repo = directorRepo();
   t.after(() => repo.cleanup());
   const session = repo.session();
-  const report = directorFixture.approval({ run_id: session.run_id, commit: repo.head() });
+  const report = directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() });
   const written = directorFixture.write(repo.root, 1, report, "gate-cli");
   const recorded = repo.record(directorResult(repo, session, "passed", written.absolutePath));
   assert.equal(recorded.status, 0, recorded.stderr + recorded.stdout);
@@ -1787,7 +1787,7 @@ test("a Design Director report cannot pass the gate when it rejects, is stale or
     [
       "another run",
       (report) => {
-        report.run_id = "dev_other";
+        report.session_run_id = "dev_other";
       },
       /must equal the session run/,
     ],
@@ -1806,7 +1806,10 @@ test("a Design Director report cannot pass the gate when it rejects, is stale or
     const repo = directorRepo();
     t.after(() => repo.cleanup());
     const session = repo.session();
-    const report = directorFixture.approval({ run_id: session.run_id, commit: repo.head() });
+    const report = directorFixture.approval({
+      session_run_id: session.run_id,
+      commit: repo.head(),
+    });
     mutate(report);
     const written = directorFixture.write(repo.root, 1, report, "gate-cli");
     const before = fs.readFileSync(repo.sessionPath);
@@ -1827,7 +1830,7 @@ test("a Design Director rejection is retained and the next review continues its 
   t.after(() => repo.cleanup());
   let session = repo.session();
   const rejected = directorFixture.approval({
-    run_id: session.run_id,
+    session_run_id: session.run_id,
     commit: repo.head(),
     verdict: "reject",
     outcome: "failed",
@@ -1854,7 +1857,7 @@ test("a Design Director rejection is retained and the next review continues its 
   fs.writeFileSync(path.join(repo.root, "scripts", "feature.js"), "module.exports = 2;\n");
   git(repo.root, ["commit", "-qam", "fix hierarchy"]);
   const approved = directorFixture.approval({
-    run_id: session.run_id,
+    session_run_id: session.run_id,
     commit: repo.head(),
     review: 2,
     round: 2,
@@ -1882,7 +1885,7 @@ test("the Design Director's third round can pass after two retained rejections",
   for (const review of [1, 2]) {
     const session = repo.session();
     const rejected = directorFixture.approval({
-      run_id: session.run_id,
+      session_run_id: session.run_id,
       commit: repo.head(),
       review,
       round: review,
@@ -1910,14 +1913,17 @@ test("the Design Director's third round can pass after two retained rejections",
   const session = repo.session();
   assert.equal(session.phase_attempt, 3);
   const approved = directorFixture.approval({
-    run_id: session.run_id,
+    session_run_id: session.run_id,
     commit: repo.head(),
     review: 3,
     round: 3,
     prior_report: prior,
     findings: [
       directorFixture.finding("f-01", "major", "hierarchy", "fixed"),
-      directorFixture.finding("f-02", "small", "microcopy", "filed"),
+      directorFixture.finding("f-02", "small", "microcopy", "filed", {
+        first_seen_round: 3,
+        late: { ui: "changed-by-fix" },
+      }),
     ],
   });
   directorFixture.setScore(approved, "microcopy", 4, {
@@ -1931,4 +1937,43 @@ test("the Design Director's third round can pass after two retained rejections",
     repo.gates().gates.find((gate) => gate.name === "design-critique").artifact,
     written.reportPath
   );
+});
+
+test("a commit after a Design Director approval is reviewed as a new run", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const first = directorFixture.write(
+    repo.root,
+    1,
+    directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() }),
+    "gate-cli"
+  );
+  assert.equal(repo.record(directorResult(repo, session, "passed", first.absolutePath)).status, 0);
+
+  fs.writeFileSync(path.join(repo.root, "scripts", "feature.js"), "module.exports = 9;\n");
+  git(repo.root, ["commit", "-qam", "change the UI after approval"]);
+  const stale = repo.gate(["--name", "design-critique"]);
+  assert.notEqual(stale.status, 0, "the earlier approval does not cover the new commit");
+
+  const reopened = repo.session();
+  reopened.phase = "design-critique";
+  reopened.phase_attempt = 2;
+  repo.saveSession(reopened);
+  const second = directorFixture.write(
+    repo.root,
+    1,
+    directorFixture.approval({
+      run_id: "after-approval",
+      session_run_id: session.run_id,
+      commit: repo.head(),
+    }),
+    "gate-cli"
+  );
+  const recorded = repo.record(directorResult(repo, reopened, "passed", second.absolutePath));
+  assert.equal(recorded.status, 0, recorded.stderr + recorded.stdout);
+  const row = repo.gates().gates.find((gate) => gate.name === "design-critique");
+  assert.equal(row.commit, repo.head());
+  assert.equal(row.artifact, second.reportPath);
+  assert.match(row.artifact, /director\/after-approval\/review-1/);
 });

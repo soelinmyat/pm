@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const {
@@ -10,7 +12,7 @@ const {
 } = require("../scripts/lib/design-director-report");
 
 const SCRIPT = path.join(__dirname, "..", "scripts", "design-director-check.js");
-const BASE = ".pm/dev-sessions/unit/design-critique/director";
+const BASE = ".pm/dev-sessions/unit/design-critique/director/main";
 const {
   COMMIT,
   approval,
@@ -244,10 +246,11 @@ test("after round 1, small findings cannot be opened on unchanged UI", () => {
     missed_earlier: true,
     late: { ui: "unchanged", blocks: false },
   });
-  report.scores.find((score) => score.dimension === "craft").finding_ids = [];
+  report.scores.find((score) => score.dimension === "craft").finding_ids = ["f-07"];
   const filed = check(report, { root });
-  assert.match(messages(filed), /a 4 must raise its gap/);
+  assert.equal(filed.ok, true, messages(filed));
   assert.deepEqual(filed.blockers, [], "a late major below the blocking bar is a follow-up");
+  assert.deepEqual(filed.follow_ups, ["f-07"]);
 });
 
 test("round 3 approves with small items filed, and a round 3 rejection parks", () => {
@@ -263,7 +266,10 @@ test("round 3 approves with small items filed, and a round 3 rejection parks", (
   const third = approval({ review: 3, round: 3, prior_report: prior });
   third.findings = [
     finding("f-01", "major", "hierarchy", "fixed"),
-    finding("f-08", "small", "microcopy", "filed"),
+    finding("f-08", "small", "microcopy", "filed", {
+      first_seen_round: 3,
+      late: { ui: "changed-by-fix" },
+    }),
   ];
   setScore(third, "microcopy", 4, { finding_ids: ["f-08"], to_reach_5: "Shorten the empty text" });
   const passed = check(third, { root });
@@ -324,7 +330,7 @@ test("a run has at most five reviews, and the path is bounded", () => {
     reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
   });
   assert.equal(result.ok, false);
-  assert.match(result.issues[0].message, /director\/review-\{1-5\}\/report\.json/);
+  assert.match(result.issues[0].message, /director\/\{run\}\/review-\{1-5\}\/report\.json/);
 });
 
 test("the CLI exits 0 for a valid report, 1 for an invalid one and 2 for bad usage", () => {
@@ -338,4 +344,78 @@ test("the CLI exits 0 for a valid report, 1 for an invalid one and 2 for bad usa
   assert.equal(stale.status, 1);
   assert.match(stale.stderr, /report\.commit/);
   assert.equal(run("--root", root).status, 2);
+});
+
+test("only a genuinely late finding can be marked as not blocking", () => {
+  const report = approval({
+    findings: [
+      finding("f-01", "major", "craft", "open", { late: { ui: "unchanged", blocks: false } }),
+    ],
+  });
+  setScore(report, "craft", 4, { finding_ids: ["f-01"], to_reach_5: "Align the toolbar" });
+  const result = check(report);
+  assert.match(messages(result), /late: applies only to a finding first raised after round 1/);
+  assert.match(messages(result), /cannot approve: major finding f-01 is open/);
+});
+
+test("a finding's first round comes from the retained lineage", () => {
+  const first = approval({ findings: [finding("f-01", "small", "craft", "open")] });
+  first.findings[0].first_seen_round = 2;
+  assert.match(messages(check(first)), /f-01 is first seen in round 1 of the first review/);
+
+  const root = workspace();
+  const written = write(root, 1, rejection(1, 1));
+  const second = approval({
+    review: 2,
+    round: 2,
+    prior_report: { path: written.reportPath, sha256: written.sha256 },
+  });
+  second.findings = [
+    finding("f-01", "major", "hierarchy", "fixed"),
+    finding("f-11", "small", "craft", "open"),
+  ];
+  setScore(second, "craft", 4, { finding_ids: ["f-11"], to_reach_5: "Align the icon" });
+  assert.match(messages(check(second, { root })), /f-11 was first seen in round 2/);
+});
+
+test("malformed fields are reported, never thrown", () => {
+  for (const mutate of [
+    (report) => {
+      report.findings = { id: "f-01" };
+    },
+    (report) => {
+      report.scores = 7;
+    },
+    (report) => {
+      report.findings = [null, 3];
+    },
+  ]) {
+    const report = approval();
+    mutate(report);
+    const result = check(report);
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.length > 0);
+  }
+  const root = workspace();
+  const dir = `${BASE}/review-1`;
+  fs.mkdirSync(path.join(root, dir), { recursive: true });
+  fs.writeFileSync(path.join(root, dir, "report.json"), "null");
+  const sha256 = crypto.createHash("sha256").update("null").digest("hex");
+  const second = approval({
+    review: 2,
+    round: 2,
+    prior_report: { path: `${dir}/report.json`, sha256 },
+  });
+  assert.match(messages(check(second, { root })), /prior_report: is not a report object/);
+});
+
+test("the report names its run from its path and binds the session separately", () => {
+  const report = approval({ run_id: "other" });
+  const root = workspace();
+  const { reportPath } = write(root, 1, { ...report, run_id: "main" });
+  fs.writeFileSync(path.join(root, reportPath), JSON.stringify(report));
+  const result = checkDesignDirector({ root, reportPath, commit: COMMIT, runId: "run-1" });
+  assert.match(messages(result), /run_id: must equal main, from its path/);
+  const unbound = approval({ session_run_id: "run-9" });
+  assert.match(messages(check(unbound)), /session_run_id: must equal the session run run-1/);
 });

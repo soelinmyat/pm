@@ -33,7 +33,8 @@ function approval(overrides = {}) {
   return {
     schema: "design-director-report",
     schema_version: 1,
-    run_id: "run-1",
+    run_id: "main",
+    session_run_id: "run-1",
     review: 1,
     round: 1,
     commit: COMMIT,
@@ -94,7 +95,7 @@ function workspace() {
 }
 
 function write(root, review, report, slug = "unit") {
-  const base = `.pm/dev-sessions/${slug}/design-critique/director`;
+  const base = `.pm/dev-sessions/${slug}/design-critique/director/${report.run_id || "main"}`;
   const dir = path.join(root, base, `review-${review}`);
   fs.mkdirSync(path.join(dir, "screenshots"), { recursive: true });
   fs.mkdirSync(path.join(dir, "measurements"), { recursive: true });

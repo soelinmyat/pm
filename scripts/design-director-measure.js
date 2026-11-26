@@ -823,23 +823,26 @@ function createMeasure(env) {
     };
   }
 
+  function describePage(output, collected) {
+    output.elements = collected.model.length;
+    if (collected.truncated) output.truncated_at_elements = MAX_ELEMENTS;
+    output.viewport = {
+      width: win.innerWidth,
+      height: win.innerHeight,
+      scroll_width: doc.documentElement.scrollWidth,
+      device_pixel_ratio: win.devicePixelRatio,
+    };
+    // A hidden or collapsed browser pane lays the page out at no width, and
+    // every number measured there describes that squeeze, not the product.
+    if (!(win.innerWidth >= 200))
+      output.warning = `The viewport is ${win.innerWidth}px wide. Show or resize the browser before trusting these values.`;
+    return output;
+  }
+
   function live(analysis) {
     return (rootSelector, options) => {
       const collected = collect(rootSelector);
-      const output = analysis(collected.model, options);
-      output.elements = collected.model.length;
-      if (collected.truncated) output.truncated_at_elements = MAX_ELEMENTS;
-      output.viewport = {
-        width: win.innerWidth,
-        height: win.innerHeight,
-        scroll_width: doc.documentElement.scrollWidth,
-        device_pixel_ratio: win.devicePixelRatio,
-      };
-      // A hidden or collapsed browser pane lays the page out at no width, and
-      // every number measured there describes that squeeze, not the product.
-      if (!(win.innerWidth >= 200))
-        output.warning = `The viewport is ${win.innerWidth}px wide. Show or resize the browser before trusting these values.`;
-      return output;
+      return describePage(analysis(collected.model, options), collected);
     };
   }
 
@@ -859,12 +862,18 @@ function createMeasure(env) {
     api.nesting = live(nestingModel);
     api.thresholds = live(thresholdsModel);
     api.point = point;
-    api.standard = (rootSelector) => ({
-      sweep: api.sweep(rootSelector),
-      insets: api.insets(rootSelector),
-      nesting: api.nesting(rootSelector),
-      thresholds: api.thresholds(rootSelector),
-    });
+    // One walk of the page serves all four tools.
+    api.standard = (rootSelector) => {
+      const collected = collect(rootSelector);
+      const output = {
+        sweep: sweepModel(collected.model),
+        insets: insetsModel(collected.model),
+        nesting: nestingModel(collected.model),
+        thresholds: thresholdsModel(collected.model),
+      };
+      for (const result of Object.values(output)) describePage(result, collected);
+      return output;
+    };
   }
   return api;
 }

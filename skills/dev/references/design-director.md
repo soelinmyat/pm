@@ -36,7 +36,8 @@ Assemble one brief:
 5. **Comparable screen.** One named existing screen that does a similar job.
 6. **Round.** The review number, the round number, and the prior report path for later rounds.
 7. **Builder's claims.** Self-check results and known departures, marked to be read last.
-8. **Review directory.** `.pm/dev-sessions/{slug}/design-critique/director/review-{N}/`.
+8. **Review directory.** `.pm/dev-sessions/{slug}/design-critique/director/{run}/review-{N}/`, where `{run}` is a short lowercase name for this director run, such as `main`.
+9. **Identities.** The session `run_id`, the director run name, and the builder's agent identity. The director writes all three into the report.
 
 Give no state list beyond the declared states. Choosing what else to examine is part of the judgment.
 
@@ -52,7 +53,8 @@ Give no state list beyond the declared states. Choosing what else to examine is 
 - Each review runs at a new commit that contains the builder's fixes, and gets the next `review-{N}` directory.
 - A review continues the one before it: `prior_report` binds the earlier report's path and SHA-256, and every earlier finding stays in the list with its current status.
 - One reset per run restarts the round count at 1. Reviews keep counting. A run has at most five reviews.
-- A rejection in round 3, or in the fifth review, parks the work: leave it unmerged with the report and stop.
+- A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. Dev's usual diagnose-and-continue recovery does not apply here: a parked run takes no further review, and the session resumes only on new direction from the owner.
+- A run ends at its approval. When a later commit changes the reviewed UI, start a new director run: a new `{run}` name, `review-1`, round 1, no `prior_report`. A new run cannot start while the current one is unfinished or parked.
 
 After a rejection, give the builder the open findings and nothing else from the report. The builder fixes, commits, and updates the access notes.
 
@@ -84,7 +86,8 @@ A rejection may be recorded without this pass. Its points are then gathered and 
 {
   "schema": "design-director-report",
   "schema_version": 1,
-  "run_id": "the session run_id",
+  "run_id": "the director run name, from the path",
+  "session_run_id": "the session run_id",
   "review": 1,
   "round": 1,
   "commit": "full HEAD commit the review ran at",
@@ -155,7 +158,7 @@ Field rules the check enforces:
 - **Dimensions.** All ten, once each: `fidelity`, `hierarchy`, `composition`, `visual-quality`, `craft`, `consistency`, `flow`, `resilience`, `microcopy`, `accessibility`.
 - **Scores.** Below 4 links an open major finding or regression. A 4 names `to_reach_5` and links an elevation or small finding. A 5 leaves no finding open or filed on its dimension.
 - **Statuses.** `answered` is for an elevation and carries an `answer`. `filed` is for system notes at any time, and for small findings and elevations in round 3.
-- **Late findings.** One first raised after round 1 carries `"late": {"ui": "changed-by-fix"}` or `"late": {"ui": "unchanged", "blocks": true, "reason": "anchor-2-or-lower | breaks-task"}`. On unchanged UI only a major finding may be opened, with `missed_earlier: true`; when it does not block it is `filed`.
+- **Late findings.** One first raised after round 1 carries `"late": {"ui": "changed-by-fix"}` or `"late": {"ui": "unchanged", "blocks": true, "reason": "anchor-2-or-lower | breaks-task"}`. On unchanged UI only a major finding may be opened, with `missed_earlier: true`. When it does not block, set `"blocks": false` and status `filed`; its dimension scores 4, links the finding, and names the fix in `to_reach_5`. `late` is not allowed on a finding first seen in round 1, and `first_seen_round` must match the earlier report for a carried finding and the current round for a new one.
 - **Sweep.** An `intentional` outlier has `cites`. A `defect` has `finding_id`.
 - **Declared states.** An `unreachable` state has the `finding_id` of a major finding.
 - **Reset.** `{"used": true, "reason": "rebuild | wrong-direction | invalid-round", "at_review": N}`, carried unchanged into later reports.
@@ -167,20 +170,20 @@ Field rules the check enforces:
 1. Run the check at the reviewed commit:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/design-director-check.js" --report <absolute report.json> --run-id <run_id>
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/design-director-check.js" --report <absolute report.json> --run-id <session run_id>
    ```
 
    Exit 0 means the report is complete, current and consistent with its verdict. It does not mean the work passed.
 2. Record the phase result through `dev-session.js record` with one `review` evidence record whose `artifact` is the absolute `report.json`. Use status `passed` for an approval and `failed` for a rejection.
 3. The recorder reruns the check, requires the report's commit to equal the result commit, and keeps each report as an anchor in the phase's recovery history. On an approval it writes the Design Critique gate row pointing at the report.
 
-A new commit after an approval makes the report stale. Review again at the new commit; do not edit the report's commit.
+A new commit after an approval makes the report stale. Never edit the report's commit. When the commit changed the reviewed UI, return the session to this phase and review it as a new director run. When it did not, Dev's existing recertification rules decide whether the approval carries forward.
 
 ## After the run
 
 - **Follow-ups.** Findings with status `filed` and all system notes are collected for the retro. They are filed after the merge under the project's existing rules for creating backlog items.
 - **Wrong-direction reset.** Record it for the retro. It suggests the grooming target was too loose.
-- **Parked work.** Report the open findings and the report path. Do not merge.
+- **Parked work.** Report the open findings and the report path. Do not merge, and do not start another review without new direction from the owner.
 
 ## What this path does not check yet
 

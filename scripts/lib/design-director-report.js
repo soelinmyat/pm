@@ -7,6 +7,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { isGitObjectId } = require("./git-object-id");
 const { readProjectInput } = require("./project-file");
 const { RECOVERY_POLICY } = require("./scoped-recovery");
 
@@ -33,8 +34,10 @@ const RESET_REASONS = new Set(["rebuild", "wrong-direction", "invalid-round"]);
 const METHODS = new Set(["browser", "simulator", "device", "screenshots-only"]);
 const PLATFORMS = new Set(["web", "ios", "android"]);
 const LATE_BLOCK_REASONS = new Set(["anchor-2-or-lower", "breaks-task"]);
+// A director run is one fix loop: up to five reviews of one piece of work. A
+// later commit after an approval starts a new run beside it.
 const REPORT_PATH_RE =
-  /^\.pm\/dev-sessions\/([^/]+)\/design-critique\/director\/review-([1-5])\/report\.json$/;
+  /^\.pm\/dev-sessions\/([^/]+)\/design-critique\/director\/([a-z0-9][a-z0-9._-]{0,63})\/review-([1-5])\/report\.json$/;
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -65,9 +68,26 @@ function readSibling(root, directory, relative, maxBytes) {
   return readProjectInput(root, `${directory}/${relative}`, maxBytes).bytes;
 }
 
+// A major finding first seen after round 1 on UI the fix did not touch, below
+// the bar that lets a late finding block. It is recorded as missed and filed.
+function isLateFollowUp(finding) {
+  return (
+    finding.class === "major" &&
+    finding.first_seen_round > 1 &&
+    finding.missed_earlier === true &&
+    isObject(finding.late) &&
+    finding.late.ui === "unchanged" &&
+    finding.late.blocks === false
+  );
+}
+
+function listOf(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function isBlocking(finding, round) {
   if (finding.status !== "open") return false;
-  if (finding.class === "major") return !(isObject(finding.late) && finding.late.blocks === false);
+  if (finding.class === "major") return !isLateFollowUp(finding);
   if (finding.class === "regression") return true;
   if (finding.class === "small" || finding.class === "elevation") return round < MAX_ROUNDS;
   return false;
@@ -76,10 +96,10 @@ function isBlocking(finding, round) {
 // The reasons this report cannot approve. An empty list means it may.
 function blockers(report) {
   const reasons = [];
-  for (const score of report.scores || [])
+  for (const score of listOf(report.scores))
     if (Number.isInteger(score?.value) && score.value < PASS_FLOOR)
       reasons.push(`${score.dimension} scores ${score.value}, below the floor of ${PASS_FLOOR}`);
-  for (const finding of report.findings || [])
+  for (const finding of listOf(report.findings))
     if (isObject(finding) && isBlocking(finding, report.round))
       reasons.push(`${finding.class} finding ${finding.id} is open`);
   return reasons;
@@ -126,8 +146,11 @@ function checkScores(report, findingsById, shots, add) {
         add(`${at}.to_reach_5`, "a 4 must name the change that would make it a 5");
       const capped =
         score.dimension === "craft" && report.exercised?.style_values_measured === false;
+      // A filed late major is the named gap: it cannot block, so the score
+      // cannot drop below the floor for it, and it cannot be a 5 either.
       const named = linked.some(
-        (finding) => finding && ["elevation", "small"].includes(finding.class)
+        (finding) =>
+          finding && (["elevation", "small"].includes(finding.class) || isLateFollowUp(finding))
       );
       if (!named && !capped)
         add(`${at}.finding_ids`, "a 4 must raise its gap as an elevation or small finding");
@@ -178,8 +201,9 @@ function checkFindings(report, add) {
         add(`${at}.status`, "only an elevation can be answered instead of fixed");
       if (!text(finding.answer)) add(`${at}.answer`, "an answered elevation records the reason");
     }
-    const lateFollowUp =
-      finding.class === "major" && isObject(finding.late) && finding.late.blocks === false;
+    const lateFollowUp = isLateFollowUp(finding);
+    if (finding.late !== undefined && !(finding.first_seen_round > 1))
+      add(`${at}.late`, "applies only to a finding first raised after round 1");
     if (finding.status === "filed") {
       if (["small", "elevation"].includes(finding.class)) {
         if (report.round < MAX_ROUNDS)
@@ -390,7 +414,11 @@ function checkLineage(report, root, directory, reviewNumber, add) {
   } else if (report.review !== report.round)
     add("round", "without a reset the round equals the review number");
 
+  const findings = listOf(report.findings).filter(isObject);
   if (reviewNumber === 1) {
+    for (const finding of findings)
+      if (finding.first_seen_round !== 1)
+        add("findings", `${finding.id} is first seen in round 1 of the first review`);
     if (report.prior_report !== null) add("prior_report", "the first review has none");
     if (report.round !== 1) add("round", "the first review is round 1");
     if (reset.used) add("reset.used", "the first review cannot be a reset");
@@ -411,9 +439,23 @@ function checkLineage(report, root, directory, reviewNumber, add) {
   } catch (error) {
     return add("prior_report", `cannot read the earlier report: ${error.message}`);
   }
+  if (!isObject(prior)) return add("prior_report", "is not a report object");
   if (prior.run_id !== report.run_id) add("prior_report", "belongs to a different run");
   if (prior.review !== reviewNumber - 1) add("prior_report", "is not the immediately prior review");
-  if (prior.verdict === "approve") add("prior_report", "an approved run has no further review");
+  if (prior.verdict === "approve")
+    add("prior_report", "an approved run has no further review; a later commit starts a new run");
+  // A finding's first round comes from the retained lineage, not from the
+  // report that carries it: a new finding belongs to this round.
+  const earlier = new Map(
+    listOf(prior.findings)
+      .filter(isObject)
+      .map((finding) => [finding.id, finding.first_seen_round])
+  );
+  for (const finding of findings) {
+    const expected = earlier.has(finding.id) ? earlier.get(finding.id) : report.round;
+    if (finding.first_seen_round !== expected)
+      add("findings", `${finding.id} was first seen in round ${expected}`);
+  }
   const resetNow = reset.used && reset.at_review === report.review;
   if (prior.reset?.used) {
     if (
@@ -428,10 +470,8 @@ function checkLineage(report, root, directory, reviewNumber, add) {
   } else {
     if (report.round !== prior.round + 1) add("round", `must be ${prior.round + 1}`);
     // Earlier findings stay open until fixed, so none may drop out of the list.
-    const present = new Set((report.findings || []).map((finding) => finding?.id));
-    const dropped = (prior.findings || [])
-      .map((finding) => finding?.id)
-      .filter((id) => text(id) && !present.has(id));
+    const present = new Set(findings.map((finding) => finding.id));
+    const dropped = [...earlier.keys()].filter((id) => text(id) && !present.has(id));
     if (dropped.length) add("findings", `earlier findings are missing: ${dropped.join(", ")}`);
   }
   return undefined;
@@ -452,12 +492,13 @@ function checkDesignDirector(options = {}) {
         {
           path: "report",
           message:
-            "must be .pm/dev-sessions/{slug}/design-critique/director/review-{1-5}/report.json",
+            "must be .pm/dev-sessions/{slug}/design-critique/director/{run}/review-{1-5}/report.json",
         },
       ],
     };
   const directory = path.posix.dirname(reportPath);
-  const reviewNumber = Number(located[2]);
+  const runName = located[2];
+  const reviewNumber = Number(located[3]);
   let bytes;
   let report;
   try {
@@ -471,16 +512,16 @@ function checkDesignDirector(options = {}) {
 
   if (report.schema !== REPORT_SCHEMA) add("schema", `must equal ${REPORT_SCHEMA}`);
   if (report.schema_version !== 1) add("schema_version", "must equal 1");
-  if (!text(report.run_id)) add("run_id", "is required");
-  else if (options.runId && report.run_id !== options.runId)
-    add("run_id", `must equal the session run ${options.runId}`);
+  if (report.run_id !== runName) add("run_id", `must equal ${runName}, from its path`);
+  if (!text(report.session_run_id)) add("session_run_id", "is required");
+  else if (options.runId && report.session_run_id !== options.runId)
+    add("session_run_id", `must equal the session run ${options.runId}`);
   if (report.review !== reviewNumber) add("review", `must equal ${reviewNumber}, from its path`);
   if (!Number.isInteger(report.review) || report.review < 1 || report.review > MAX_REVIEWS)
     add("review", `a run has at most ${MAX_REVIEWS} reviews`);
   if (!Number.isInteger(report.round) || report.round < 1 || report.round > MAX_ROUNDS)
     add("round", `must be 1 through ${MAX_ROUNDS}`);
-  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(String(report.commit || "")))
-    add("commit", "must be the full commit the review ran at");
+  if (!isGitObjectId(report.commit)) add("commit", "must be the full commit the review ran at");
   else if (options.commit && report.commit !== options.commit)
     add("commit", `the review ran at ${report.commit}, not at ${options.commit}`);
   if (report.recovery_policy !== RECOVERY_POLICY)
@@ -512,7 +553,7 @@ function checkDesignDirector(options = {}) {
     review: report.review,
     round: report.round,
     blockers: reasons,
-    follow_ups: (report.findings || [])
+    follow_ups: listOf(report.findings)
       .filter((finding) => isObject(finding) && finding.status === "filed")
       .map((finding) => finding.id),
     report_sha256: sha256(bytes),
