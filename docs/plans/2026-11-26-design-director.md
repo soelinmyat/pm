@@ -281,6 +281,11 @@ owner to confirm:
 Decisions recorded in the rubric's Part 4 still take precedence over the plan
 text above where they differ.
 
+Shipped: v1.14.68 made the director the default (PR 478). v1.14.69 closes four
+review findings: a parked run now blocks the session, the gate writer binds the
+recorded approval, measured styles need saved output, and the check runs from
+any directory.
+
 Next steps, in order:
 
 1. Replay the director on the twenty calibrated screens. It should find at

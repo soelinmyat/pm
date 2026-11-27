@@ -1423,6 +1423,10 @@ function validateResult(session, result, options = {}) {
   return errors;
 }
 
+// Anchors whose checked Design Director report parked its run. The anchor's
+// stored fields are closed, so the checker's verdict travels beside it.
+const PARKED_DIRECTOR_ANCHORS = new WeakSet();
+
 function validateScopedGateEvidence(session, result, errors) {
   const phase = session.phase;
   const history = session.evidence[phase]?.recovery_history || [];
@@ -1610,7 +1614,7 @@ function validateScopedGateEvidence(session, result, errors) {
     // Phase attempts include unavailable dependencies before any report exists.
     // Only checked report anchors establish report-round continuity; the report
     // checker validates any predecessor chain when importing a first anchor.
-    return {
+    const anchor = {
       attempt: result.attempt,
       round,
       run_id: report.run_id,
@@ -1622,6 +1626,8 @@ function validateScopedGateEvidence(session, result, errors) {
         sha256: crypto.createHash("sha256").update(input.bytes).digest("hex"),
       },
     };
+    if (checked.parks === true) PARKED_DIRECTOR_ANCHORS.add(anchor);
+    return anchor;
   } catch (error) {
     errors.push(issue("$.evidence", `${phase} report: ${error.message}`));
     return null;
@@ -3614,6 +3620,7 @@ function recordResult(session, result, options = {}) {
         : {}),
     };
   }
+  let parkedDirectorReport = null;
   if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
     if (["failed", "blocked"].includes(result.status) && next.evidence[priorPhase]) {
       next.evidence[priorPhase] = {
@@ -3636,6 +3643,7 @@ function recordResult(session, result, options = {}) {
       next.evidence[priorPhase] ||= { commit: null, records: [], recorded_at: timestamp };
       next.evidence[priorPhase].recovery_history ||= [];
       next.evidence[priorPhase].recovery_history.push(anchor);
+      if (PARKED_DIRECTOR_ANCHORS.has(anchor)) parkedDirectorReport = anchor.report.path;
     }
   }
   if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {
@@ -3693,6 +3701,19 @@ function recordResult(session, result, options = {}) {
         next.phase_attempt > QA_RECOVERY_THRESHOLD
           ? "QA recovery diagnosis required before repeating a failed approach"
           : "validated QA retry with continuous history";
+    } else if (parkedDirectorReport) {
+      // A parked Design Director run takes no further review. Recording it as
+      // an ordinary retry would tell a resuming worker to diagnose and continue.
+      next.phase_attempt += 1;
+      next.status = "blocked";
+      next.blockers.push({
+        code: "design-director-parked",
+        reason: `the Design Director rejected the work in its last round: ${parkedDirectorReport}`,
+        remediation: "Report the open findings to the owner; the work restarts in a new session",
+        phase: priorPhase,
+        recorded_at: timestamp,
+      });
+      reason = "blocked: design-director-parked";
     } else if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
       next.phase_attempt += 1;
       reason =

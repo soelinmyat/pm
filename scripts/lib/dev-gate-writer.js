@@ -225,6 +225,18 @@ function designDirectorRowFields(layout, session, head, evidence, deps, reportPa
     throw gateError(`design-director check failed: ${formatIssues(result?.issues || [])}`);
   if (result.outcome !== "passed")
     throw gateError("Design Critique requires an approved Design Director report");
+  // The row certifies the approval the session recorded, not whatever valid
+  // report now sits at that path.
+  const anchor = evidence.phaseEvidence.recovery_history?.at(-1);
+  if (
+    anchor?.outcome !== "passed" ||
+    anchor.report?.path !== reportPath ||
+    anchor.report.sha256 !== result.report_sha256 ||
+    anchor.run_id !== result.run_id ||
+    anchor.round !== result.review ||
+    anchor.commit !== result.commit
+  )
+    throw gateError("retained passing Design Director report binding changed");
   return { artifact: reportPath, evidence_kind: "design-director-report-v1" };
 }
 
