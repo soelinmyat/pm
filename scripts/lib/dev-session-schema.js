@@ -23,6 +23,7 @@ const {
   validateWorkUnits,
 } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
+const { validateResources } = require("./dev-session-resources");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
   appendTransition,
@@ -137,6 +138,7 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "history",
   "migration",
 ]);
+const SESSION_FIELDS_WITH_OPTIONAL = new Set([...SESSION_TOP_LEVEL_FIELDS, "resources"]);
 
 function resolvePhaseContract(session, options = {}) {
   const pluginRoot = path.resolve(options.pluginRoot || path.join(__dirname, "..", ".."));
@@ -192,8 +194,10 @@ function requireField(value, field, objectPath, errors) {
 function validateSession(session) {
   const errors = [];
   if (!isObject(session)) return [issue("$", "session must be an object")];
-  validateExactFields(session, SESSION_TOP_LEVEL_FIELDS, "$", errors);
+  validateExactFields(session, SESSION_FIELDS_WITH_OPTIONAL, "$", errors);
   for (const field of SESSION_TOP_LEVEL_FIELDS) requireField(session, field, "$", errors);
+  // The resource ledger is optional: sessions without one stay valid.
+  validateResources(session.resources, errors);
   if (session.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
     errors.push(issue("$.schema_version", `must equal ${DEV_SESSION_SCHEMA_VERSION}`));
   }

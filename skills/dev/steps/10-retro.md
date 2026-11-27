@@ -23,7 +23,7 @@ Extract evidence-supported durable learnings from the completed dev session, wri
 
 ## How
 
-Before the terminal record, inspect the run with `dev-session storage --session <session.json>`. Move disposable runtime outputs out of the session and preserve artifacts referenced by checks. Completion reports misplaced generated folders and requests a review for large archives. For necessary large evidence, pass `--retain-large-evidence "<reason>"` on the terminal record. Retry the same result after resolving storage issues.
+Before the terminal record, inspect the run with `dev-session storage --session <session.json>`. Completion removes misplaced `node_modules`, Xcode DerivedData outputs and stopped database clusters from the session and lists them as `storage_cleanup`. It keeps and blocks on a generated folder that holds referenced evidence or a running database; move that evidence out, or stop the server, and retry. Completion requests a review for large archives. For necessary large evidence, pass `--retain-large-evidence "<reason>"` on the terminal record. Retry the same result after resolving storage issues. After the terminal record, run `dev-session close --session <session.json> --json` again; it follows `completion.json` to the archived run.
 
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 

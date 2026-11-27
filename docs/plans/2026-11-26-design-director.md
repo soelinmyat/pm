@@ -339,6 +339,23 @@ out: the owner has not approved unattended merging, so nothing merges without a
 human. The code reviewer is still not checked to be a separate agent from the
 builder; Review allows a shared-orchestrator fallback.
 
+2026-11-27: delivery item 5 is built, not released. `session.json` takes an
+optional `resources` ledger, validated by `scripts/lib/dev-session-resources.js`
+and the Dev JSON schema. Sessions without one behave as before. New subcommands:
+`resource-add`, `resources`, `close [--dry-run]` and `sweep [--remove]`, and
+`scratch` registers its own directory. The ledger stores no shell commands.
+Directories, worktrees and processes are removed by kind, with path containment,
+symlink and identity checks at registration and again at removal. Databases,
+accounts and simulators need a teardown declared under `dev.teardown` in the
+project's PM config; without one close reports and leaves the entry. Dirty,
+locked or unpushed worktrees, and worktrees holding `.pm` files, are kept. No
+branch is deleted. The sweep reports by default and never touches active
+sessions or anything they use. Completion now removes the generated folders
+v1.14.67 detected, except those holding referenced evidence or a running
+database. Dev runs the sweep after init or resume and close on every outcome.
+A squash-merged worktree whose remote branch is deleted counts as unpushed and
+is kept for the owner to remove.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

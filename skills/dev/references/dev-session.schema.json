@@ -74,9 +74,110 @@
           }
         }
       ]
+    },
+    "resources": {
+      "description": "Optional resource ledger. Sessions without it are valid. The runtime also requires unique ids, normalized paths and removed_at exactly when status is removed or gone.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource_entry" }
     }
   },
   "$defs": {
+    "resource_close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "outcome", "reason", "bytes_freed"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "outcome": {
+          "enum": ["removed", "gone", "preserved", "refused", "failed", "no-teardown"]
+        },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "bytes_freed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resource_common": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "removal",
+        "created_by",
+        "created_at",
+        "label",
+        "status",
+        "removed_at",
+        "last_close"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^res_[a-f0-9]{16}$" },
+        "created_by": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "label": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "status": { "enum": ["registered", "removed", "gone"] },
+        "removed_at": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }]
+        },
+        "last_close": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resource_close" }]
+        }
+      }
+    },
+    "resource_path": { "type": "string", "pattern": "^/(?!.*//)(?!(?:.*/)?\\.\\.?(?:/|$)).*$" },
+    "resource_entry": {
+      "oneOf": [
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["path"],
+          "properties": {
+            "kind": { "const": "directory" },
+            "removal": { "const": "remove-directory" },
+            "path": { "$ref": "#/$defs/resource_path" }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["path", "branch"],
+          "properties": {
+            "kind": { "const": "worktree" },
+            "removal": { "const": "git-worktree-remove" },
+            "path": { "$ref": "#/$defs/resource_path" },
+            "branch": { "type": ["string", "null"], "minLength": 1, "maxLength": 500 }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["pid", "started_at", "command"],
+          "properties": {
+            "kind": { "const": "process" },
+            "removal": { "const": "terminate-process" },
+            "pid": { "type": "integer", "minimum": 2 },
+            "started_at": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "command": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["identifier", "teardown"],
+          "properties": {
+            "kind": { "enum": ["database", "account", "simulator"] },
+            "removal": { "const": "declared-teardown" },
+            "identifier": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+/=-]{0,199}$"
+            },
+            "teardown": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" }
+          }
+        }
+      ]
+    },
     "candidate_state": {
       "enum": [
         "implementation",

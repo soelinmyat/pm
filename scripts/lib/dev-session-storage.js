@@ -56,4 +56,105 @@ function inspectSessionStorage(root) {
   return report;
 }
 
-module.exports = { inspectSessionStorage };
+// Sum regular file sizes under a directory without following symlinks.
+function measureBytes(root) {
+  let bytes = 0;
+  const pending = [root];
+  while (pending.length) {
+    const current = pending.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const child = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(child);
+      else if (entry.isFile()) {
+        try {
+          bytes += fs.lstatSync(child).size;
+        } catch {
+          // Removed while measuring.
+        }
+      }
+    }
+  }
+  return bytes;
+}
+
+function isWithin(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+// Remove the generated folders inspectSessionStorage reports. Only those
+// classes are removed, never the session folder itself, never a folder that
+// holds a path the session references as evidence, and never a database
+// cluster whose server is still running. Everything kept stays in the
+// inspection so completion still blocks on it.
+function cleanGeneratedSessionData(root, { referenced = [] } = {}) {
+  const rootReal = fs.realpathSync(root);
+  const removed = [];
+  const kept = new Map();
+  for (let pass = 0; pass < 1000; pass++) {
+    const candidates = inspectSessionStorage(root)
+      .generated.filter((relative) => relative !== "." && !kept.has(relative))
+      .sort((a, b) => a.length - b.length || a.localeCompare(b));
+    if (!candidates.length) break;
+    let progressed = false;
+    for (const relative of candidates) {
+      const absolute = path.join(root, relative);
+      if (removed.some((item) => isWithin(path.join(root, item.path), absolute))) continue;
+      const reason = generatedRefusal(absolute, path.join(rootReal, relative), referenced);
+      if (reason) {
+        kept.set(relative, reason);
+        continue;
+      }
+      const bytes = measureBytes(absolute);
+      fs.rmSync(absolute, { recursive: true, maxRetries: 2 });
+      removed.push({ path: relative, bytes });
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+  removed.sort((a, b) => a.path.localeCompare(b.path));
+  return { removed, kept: [...kept].map(([relative, reason]) => ({ path: relative, reason })) };
+}
+
+function generatedRefusal(absolute, expectedReal, referenced) {
+  let stat;
+  try {
+    stat = fs.lstatSync(absolute);
+  } catch {
+    return "cannot be inspected";
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) return "is not a plain directory";
+  let real;
+  try {
+    real = fs.realpathSync(absolute);
+  } catch {
+    return "cannot be resolved";
+  }
+  if (real !== expectedReal) return "resolves outside the session";
+  const evidence = referenced.find((candidate) => isWithin(absolute, candidate));
+  if (evidence) return `holds evidence the session references: ${evidence}`;
+  try {
+    const pid = Number(
+      fs.readFileSync(path.join(absolute, "postmaster.pid"), "utf8").split("\n")[0]
+    );
+    if (Number.isSafeInteger(pid) && pid > 1) {
+      try {
+        process.kill(pid, 0);
+        return `a database server (pid ${pid}) is still running on it`;
+      } catch (error) {
+        if (error.code === "EPERM") return `a database server (pid ${pid}) is still running on it`;
+      }
+    }
+  } catch {
+    // No server pid file.
+  }
+  return null;
+}
+
+module.exports = { cleanGeneratedSessionData, inspectSessionStorage, measureBytes };

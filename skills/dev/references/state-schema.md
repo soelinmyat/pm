@@ -150,6 +150,50 @@ Allowed statuses are `passed`, `failed`, `blocked`, and `noop`. Process exit cod
 | 4 | Result invalid or evidence incomplete |
 | 5 | Session blocked on a user or external decision |
 | 6 | Retry budget exhausted |
+| 7 | `close` or `sweep --remove` left resources in place; the report names each one |
+
+### Resource ledger
+
+`session.json` may carry an optional top-level `resources` array. A session without it is valid and behaves as before. Each entry records one thing the run created outside committed source:
+
+| Field | Meaning |
+|---|---|
+| `id` | `res_` plus 16 hex characters |
+| `kind` | `directory`, `worktree`, `process`, `database`, `account` or `simulator` |
+| `removal` | Fixed by kind: `remove-directory`, `git-worktree-remove`, `terminate-process` or `declared-teardown` |
+| `path` | Directory and worktree: the resolved real path. A worktree also records `branch` |
+| `pid`, `started_at`, `command` | Process: the pid with its start time and command line read from `ps` |
+| `identifier`, `teardown` | Database, account, simulator: the identifier and the name of a declared teardown |
+| `created_by`, `created_at`, `label` | Who registered it, when, and an optional note |
+| `status`, `removed_at`, `last_close` | `registered`, `removed` or `gone`, and the last close outcome with bytes freed |
+
+The ledger never stores a shell command. Register each resource when you create it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" resource-add --session <session.json> \
+  --kind <kind> --created-by <phase-or-agent> \
+  (--path <dir> | --pid <n> | --identifier <id> --teardown <name>) [--label <text>]
+```
+
+`dev-session scratch` registers its own directory. `dev-session resources` lists the ledger.
+
+**Removal rules.** `dev-session close --session <session.json> [--dry-run]` removes every registered entry and reports bytes freed and what it kept. It runs on any status and follows `completion.json` to an archived run. It is safe to rerun.
+
+- A directory is removed only when its real path lies inside the OS temporary directory or `/tmp`. It must not be a symlink, the filesystem root, home or a parent of home, the repository root or a parent of it, inside any worktree of the repository, a shared cache, the session evidence folder or `.pm`, or the directory the command runs from. These checks run at registration and again at removal. Symlinks inside the tree are unlinked, never followed.
+- A worktree must be a linked worktree under `.worktrees/` or a temporary root. Close keeps it and reports why when it has uncommitted or untracked changes, commits not on any remote or other branch, a lock, or files under `.pm`. Removal uses `git worktree remove` without `--force`. No branch is ever deleted.
+- A process receives SIGTERM, then SIGKILL after the grace period, only while its start time and command line still match. Otherwise it is marked `gone`. Process groups, pid 1, and the calling process and its parent are never signalled.
+- Databases, accounts and simulators are removed only by a teardown the project declares in `.pm/config.json` or `pm.config.json`. Without one, close reports `no declared teardown` and leaves the entry:
+
+  ```json
+  { "dev": { "teardown": { "drop-test-db": { "kind": "database", "command": ["bin/drop-test-db", "{id}"], "timeout_ms": 120000 } } } }
+  ```
+
+  The command runs without a shell from the repository root. `{id}` becomes the identifier, which is also passed as `PM_RESOURCE_ID` with `PM_RESOURCE_KIND`.
+- Close never removes anything that another active session depends on: its worktree, its session folder, or its registered resources. A failure on one entry never stops the others.
+
+**Orphan sweep.** `dev-session sweep (--session <path> | --source-dir <dir>) [--remove]` reads every Dev session in the repository's registered worktrees, active and archived. A session is finished when it is complete, handed off or parked by the Design Director. It is abandoned when it is active or blocked, holds no live lock and has been idle for 72 hours. Everything else counts as active, including unreadable sessions. The sweep reports registered resources of finished and abandoned sessions that still exist, lists active sessions' entries as skipped, and never touches the current session. It removes them only with `--remove`, under each session's lock and the close rules.
+
+**Completion clean-up.** Before archiving, completion removes the generated folders that `dev-session storage` reports: `node_modules`, Xcode DerivedData outputs and PostgreSQL clusters. It keeps a folder that holds a path the session, result, `gates.json` or `runtime.json` references, and a cluster whose server is still running, and blocks on those as before. Removed folders are listed as `storage_cleanup` in the record output and as `cleaned_generated` in `completion.json`.
 
 ## Legacy Markdown Compatibility
 

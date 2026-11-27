@@ -28,3 +28,4 @@ under the [execution contract](../skills/dev/references/verification-execution.m
 Final repository checks and independent CI still execute.
 
 Keep build products and disposable services in a private run scratch directory. Inspect storage before completion and preserve the reports and files used as evidence.
+Register what the run creates with `dev-session resource-add`, run `dev-session sweep` at session start, and run `dev-session close` on every outcome.

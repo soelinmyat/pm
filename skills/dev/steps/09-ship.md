@@ -48,17 +48,19 @@ After delivery is verified but **before** deleting the feature branch or removin
 
 ### Worktree Cleanup
 
-Clean up any worktrees created during this session:
+Clean up what this session created:
 
-1. For each clean worktree created in Workspace or by dispatched agents, remove it:
+1. From the originating repository, preview and then run the ledger close:
    ```bash
-   git worktree remove <worktree-path>
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" close --session "{absolute_session_path}" --dry-run --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" close --session "{absolute_session_path}" --json
    ```
-2. Delete any leftover branches that were only used inside worktrees:
+   It removes registered scratch directories, clean worktrees and started processes, and runs declared teardowns. It keeps dirty, locked or unpushed worktrees and reports why. Exit 7 means something was kept; report each kept path and reason.
+2. Remove a clean worktree created before the ledger existed, or by an agent that did not register it, with `git worktree remove <worktree-path>`. Never pass `--force` without explicit approval.
+3. Delete any leftover branches that were only used inside worktrees:
    ```bash
    git branch -d <worktree-branch>
    ```
-3. If removal fails because the worktree is dirty or locked, preserve it and report the exact path. Never force-remove user changes without explicit approval.
 
 Do NOT skip this step. Leftover worktrees consume disk and confuse subsequent sessions.
 

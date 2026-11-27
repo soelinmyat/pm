@@ -349,19 +349,26 @@ test("completion moves the durable audit out of the active-session scan path", (
     const build = path.join(activeDir, "qa", "DerivedData", "Build");
     fs.mkdirSync(build, { recursive: true });
     fs.writeFileSync(path.join(build, "object.o"), "generated");
+    const project = path.join(activeDir, "qa", "DerivedData", "Example-abcd");
+    fs.mkdirSync(path.join(project, "Build"), { recursive: true });
+    fs.mkdirSync(path.join(project, "Index.noindex"));
+    // A generated folder the run's records reference is evidence: completion
+    // keeps it and blocks, while unreferenced generated output is removed.
+    const gatesPath = path.join(activeDir, "gates.json");
+    const gatesSource = fs.readFileSync(gatesPath, "utf8");
+    const referencing = JSON.parse(gatesSource);
+    referencing.gates.push({
+      artifact: ".pm/dev-sessions/archive-cli/qa/DerivedData/Build/object.o",
+    });
+    fs.writeFileSync(gatesPath, JSON.stringify(referencing));
     const blocked = repo.run([...record, "--retain-large-evidence", "QA requires capture.bin"]);
     assert.equal(blocked.status, 3, blocked.stderr);
-    assert.match(blocked.stderr, /DerivedData[/\\]Build/);
+    assert.match(blocked.stderr, /DerivedData[/\\]Build \(holds evidence the session references/);
     assert.equal(JSON.parse(fs.readFileSync(initialized.session_path)).phase, "retro");
-    const project = path.join(activeDir, "qa", "DerivedData", "Example-abcd");
-    fs.mkdirSync(project);
-    fs.renameSync(build, path.join(project, "Build"));
-    fs.mkdirSync(path.join(project, "Index.noindex"));
-    const nested = repo.run([...record, "--retain-large-evidence", "QA requires capture.bin"]);
-    assert.equal(nested.status, 3, nested.stderr);
-    assert.match(nested.stderr, /Example-abcd[/\\]Build/);
-    assert.match(nested.stderr, /Example-abcd[/\\]Index.noindex/);
-    fs.rmSync(project, { recursive: true });
+    assert.ok(fs.existsSync(path.join(build, "object.o")), "referenced evidence is kept");
+    assert.equal(fs.existsSync(path.join(project, "Build")), false);
+    assert.equal(fs.existsSync(path.join(project, "Index.noindex")), false);
+    fs.writeFileSync(gatesPath, gatesSource);
     const recorded = repo.run([
       "record",
       "--session",
@@ -373,8 +380,20 @@ test("completion moves the durable audit out of the active-session scan path", (
       "--json",
     ]);
     assert.equal(recorded.status, 0, recorded.stderr);
+    assert.deepEqual(JSON.parse(recorded.stdout).storage_cleanup, [
+      { path: path.join("qa", "DerivedData", "Build"), bytes: 9 },
+    ]);
     const archived = JSON.parse(recorded.stdout).session_path;
     assert.match(archived, /dev-sessions\/completed\/archive-cli\/dev_[^/]+\/session\.json$/);
+    assert.equal(
+      fs.existsSync(path.join(path.dirname(archived), "qa", "DerivedData", "Build")),
+      false
+    );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(activeDir, "completion.json"), "utf8"))
+        .cleaned_generated,
+      [{ path: path.join("qa", "DerivedData", "Build"), bytes: 9 }]
+    );
     assert.ok(fs.existsSync(archived));
     assert.ok(fs.existsSync(path.join(path.dirname(archived), "gates.json")));
     assert.ok(fs.existsSync(path.join(path.dirname(archived), "review.log")));

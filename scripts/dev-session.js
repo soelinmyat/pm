@@ -2,7 +2,8 @@
 "use strict";
 
 const os = require("node:os");
-const { inspectSessionStorage } = require("./lib/dev-session-storage");
+const { cleanGeneratedSessionData, inspectSessionStorage } = require("./lib/dev-session-storage");
+const resources = require("./lib/dev-session-resources");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -53,6 +54,7 @@ const EXIT = Object.freeze({
   RESULT_INVALID: 4,
   BLOCKED: 5,
   RETRY_EXHAUSTED: 6,
+  RESOURCES_REMAIN: 7,
 });
 const MAX_EVIDENCE_INPUT_BYTES = 4 * 1024 * 1024;
 
@@ -76,10 +78,31 @@ function main(argv) {
       if (tempRoot === stateRoot || tempRoot.startsWith(stateRoot + path.sep)) {
         throw cliError("choose a TMPDIR outside the PM state directory", EXIT.PRECONDITION);
       }
-      const directory = fs.mkdtempSync(path.join(tempRoot, "pm-dev-"));
-      emit(options, { directory }, directory + "\n");
+      const { directory, ...registration } = allocateScratch(sessionPath, tempRoot);
+      if (registration.refused) {
+        process.stderr.write(
+          `dev-session: scratch directory is not in the resource ledger: ${registration.refused}\n`
+        );
+      }
+      emit(
+        options,
+        {
+          directory,
+          resource: registration.resource || null,
+          ...(registration.refused ? { registration_refused: registration.refused } : {}),
+        },
+        directory + "\n"
+      );
       return EXIT.OK;
     }
+    case "resource-add":
+      return resourceAddCommand(options);
+    case "resources":
+      return resourcesCommand(options);
+    case "close":
+      return closeCommand(options);
+    case "sweep":
+      return sweepCommand(options);
     case "status":
       return statusCommand(options);
     case "next":
@@ -175,9 +198,17 @@ function parseArguments(argv) {
     "at",
     "name",
     "artifact",
+    "path",
+    "pid",
+    "identifier",
+    "teardown",
+    "created-by",
+    "label",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
+  spec["--dry-run"] = { key: "dryRun", type: "boolean" };
+  spec["--remove"] = { key: "remove", type: "boolean" };
   try {
     const parsed = parseCliArgs(argv.slice(1), spec);
     if (parsed.positionals.length > 0) {
@@ -432,14 +463,15 @@ function recordCommand(options) {
     if (session.history.at(-1)?.result_hash === resultHash) {
       let idempotentSession = session;
       let idempotentPath = sessionPath;
+      let cleaned = [];
       if (["complete", "handoff"].includes(session.status)) {
-        idempotentPath = archiveTerminalRun(
+        ({ persistedPath: idempotentPath, cleaned } = archiveTerminalRun(
           sessionPath,
           session,
           result,
           resultPath,
           options.retainLargeEvidence
-        );
+        ));
         idempotentSession = readSession(idempotentPath);
       }
       const decision = nextDecision(idempotentSession, idempotentPath);
@@ -450,6 +482,7 @@ function recordCommand(options) {
           session: idempotentSession,
           next: decision,
           idempotent: true,
+          ...(cleaned.length ? { storage_cleanup: cleaned } : {}),
         },
         `${decision.phase}\n`
       );
@@ -477,14 +510,15 @@ function recordCommand(options) {
       }
     }
     let persistedPath = sessionPath;
+    let cleaned = [];
     if (["complete", "handoff"].includes(updated.status)) {
-      persistedPath = archiveTerminalRun(
+      ({ persistedPath, cleaned } = archiveTerminalRun(
         sessionPath,
         updated,
         result,
         resultPath,
         options.retainLargeEvidence
-      );
+      ));
       updated = readSession(persistedPath);
     } else {
       writeSession(sessionPath, updated);
@@ -499,7 +533,13 @@ function recordCommand(options) {
     const decision = nextDecision(updated, persistedPath);
     emit(
       options,
-      { session_path: persistedPath, session: updated, next: decision, idempotent: false },
+      {
+        session_path: persistedPath,
+        session: updated,
+        next: decision,
+        idempotent: false,
+        ...(cleaned.length ? { storage_cleanup: cleaned } : {}),
+      },
       `${decision.phase}\n`
     );
     if (updated.status === "blocked") {
@@ -528,11 +568,17 @@ function archiveTerminalRun(sessionPath, session, result, resultPath, retentionR
   const archiveDir = path.join(sessionsDir, "completed", session.slug, session.run_id);
   const persistedPath = path.join(archiveDir, "session.json");
   if (fs.existsSync(archiveDir)) throw new Error(`terminal archive already exists: ${archiveDir}`);
+  const cleanup = cleanGeneratedSessionData(activeDir, {
+    referenced: referencedRunPaths(activeDir, session, result, resultPath),
+  });
   const storage = inspectSessionStorage(activeDir);
   if (storage.generated.length) {
+    const reasons = new Map(cleanup.kept.map((item) => [item.path, item.reason]));
     throw cliError(
       "Move generated runtime data outside the session before retrying: " +
-        storage.generated.join(", "),
+        storage.generated
+          .map((item) => (reasons.has(item) ? `${item} (${reasons.get(item)})` : item))
+          .join(", "),
       EXIT.PRECONDITION
     );
   }
@@ -573,8 +619,28 @@ function archiveTerminalRun(sessionPath, session, result, resultPath, retentionR
     ...(storage.oversized
       ? { retained_bytes: storage.bytes, retention_reason: retentionReason.trim() }
       : {}),
+    ...(cleanup.removed.length ? { cleaned_generated: cleanup.removed } : {}),
   });
-  return persistedPath;
+  return { persistedPath, cleaned: cleanup.removed };
+}
+
+// Paths the run's records point at. Completion never removes a generated
+// folder that holds one of them.
+function referencedRunPaths(activeDir, session, result, resultPath) {
+  const repoRoot = session.source.repo_root;
+  const found = new Set();
+  collectContractArtifactPaths(session, activeDir, repoRoot, found);
+  collectContractArtifactPaths(result, activeDir, repoRoot, found);
+  if (resultPath) found.add(path.resolve(resultPath));
+  for (const name of ["gates.json", "runtime.json"]) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(activeDir, name), "utf8"));
+      collectContractArtifactPaths(parsed, activeDir, repoRoot, found);
+    } catch {
+      // Absent or unreadable records reference nothing.
+    }
+  }
+  return [...found];
 }
 
 function recoverTerminalRetry(sessionPath, result) {
@@ -1264,6 +1330,402 @@ function projectCommand(options) {
   return EXIT.OK;
 }
 
+// ---------------------------------------------------------------------------
+// Resource ledger: resource-add, resources, close, sweep
+
+const TARGET_FLAGS = Object.freeze({
+  directory: ["path"],
+  worktree: ["path"],
+  process: ["pid"],
+  database: ["identifier", "teardown"],
+  account: ["identifier", "teardown"],
+  simulator: ["identifier", "teardown"],
+});
+
+// A completed run's active path holds only completion.json, which points at
+// the archive. Follow it so close works with the path Dev started with.
+function resolveLedgerSessionPath(value) {
+  const sessionPath = path.resolve(value);
+  if (fs.existsSync(sessionPath)) return sessionPath;
+  const completionPath = path.join(path.dirname(sessionPath), "completion.json");
+  let completion;
+  try {
+    completion = JSON.parse(fs.readFileSync(completionPath, "utf8"));
+  } catch {
+    throw cliError(`session does not exist: ${sessionPath}`, EXIT.PRECONDITION);
+  }
+  const archived =
+    typeof completion?.session_path === "string" ? path.resolve(completion.session_path) : null;
+  const archiveRoot = path.join(
+    path.dirname(path.dirname(sessionPath)),
+    "completed",
+    path.basename(path.dirname(sessionPath))
+  );
+  if (!archived || !isWithin(archiveRoot, archived) || !fs.existsSync(archived)) {
+    throw cliError(`completion pointer does not name this session's archive`, EXIT.PRECONDITION);
+  }
+  return archived;
+}
+
+function readRawSession(sessionPath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("not an object");
+    return raw;
+  } catch (error) {
+    throw cliError(`cannot read session ${sessionPath}: ${error.message}`, EXIT.INVALID);
+  }
+}
+
+function sessionKey(sessionPath) {
+  return resources.realOrNull(sessionPath) || sessionPath;
+}
+
+function ledgerContext(session, sessionPath, { protect = true } = {}) {
+  const repoRoot = resources.realOrNull(session.source?.repo_root);
+  const sessions = protect && repoRoot ? resources.discoverSessions(repoRoot) : [];
+  return resources.buildContext({
+    session,
+    sessionPath,
+    protectedTargets: protect ? resources.activeTargets(sessions, sessionKey(sessionPath)) : [],
+  });
+}
+
+// Lock first so the directory is never created for a session another
+// process holds.
+function allocateScratch(sessionPath, tempRoot) {
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    const session = readSession(sessionPath);
+    const directory = fs.mkdtempSync(path.join(tempRoot, "pm-dev-"));
+    const registration = registerScratch(session, sessionPath, directory);
+    return { directory, ...registration };
+  } finally {
+    releaseLock();
+  }
+}
+
+function registerScratch(session, sessionPath, directory) {
+  try {
+    const entry = resources.prepareEntry(
+      { kind: "directory", path: directory, createdBy: "dev-session scratch" },
+      ledgerContext(session, sessionPath, { protect: false })
+    );
+    writeSession(sessionPath, { ...session, resources: [...(session.resources || []), entry] });
+    return { resource: entry };
+  } catch (error) {
+    if (error.resourceRefusal) return { refused: error.message };
+    throw error;
+  }
+}
+
+function resourceAddCommand(options) {
+  requireOnlyOptions(options, [
+    "session",
+    "kind",
+    "createdBy",
+    "path",
+    "pid",
+    "identifier",
+    "teardown",
+    "label",
+    "json",
+  ]);
+  requireOptions(options, ["session", "kind", "createdBy"]);
+  const kind = options.kind;
+  if (!Object.hasOwn(TARGET_FLAGS, kind)) {
+    throw cliError(`--kind must be one of ${Object.keys(TARGET_FLAGS).join(", ")}`, EXIT.INVALID);
+  }
+  const unexpected = ["path", "pid", "identifier", "teardown"].find(
+    (flag) => options[flag] !== undefined && !TARGET_FLAGS[kind].includes(flag)
+  );
+  if (unexpected) throw cliError(`--kind ${kind} does not take --${unexpected}`, EXIT.INVALID);
+  requireOptions(options, TARGET_FLAGS[kind]);
+  if (kind === "process" && !/^\d+$/.test(options.pid)) {
+    throw cliError("--pid must be a positive integer", EXIT.INVALID);
+  }
+  for (const name of ["createdBy", "label"]) {
+    const value = options[name];
+    if (value !== undefined && (!value.trim() || value.length > 200)) {
+      throw cliError(`--${toKebab(name)} must be 1 to 200 characters`, EXIT.INVALID);
+    }
+  }
+  const sessionPath = path.resolve(options.session);
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    const session = readSession(sessionPath);
+    if (!["active", "blocked"].includes(session.status)) {
+      throw cliError("resource-add requires an active or blocked session", EXIT.PRECONDITION);
+    }
+    let entry;
+    try {
+      entry = resources.prepareEntry(
+        {
+          kind,
+          path: options.path,
+          pid: options.pid,
+          identifier: options.identifier,
+          teardown: options.teardown,
+          createdBy: options.createdBy.trim(),
+          label: options.label?.trim(),
+        },
+        ledgerContext(session, sessionPath, { protect: false })
+      );
+    } catch (error) {
+      if (!error.resourceRefusal) throw error;
+      throw cliError(
+        `refused: ${error.message}`,
+        error.resourceRefusal === "invalid" ? EXIT.INVALID : EXIT.PRECONDITION
+      );
+    }
+    const ledger = session.resources || [];
+    const existing = ledger.find(
+      (item) => item.status === "registered" && resources.sameTarget(item, entry)
+    );
+    if (!existing) writeSession(sessionPath, { ...session, resources: [...ledger, entry] });
+    const resource = existing || entry;
+    emit(
+      options,
+      { session_path: sessionPath, resource, idempotent: Boolean(existing) },
+      `${resource.id}: ${resource.kind} ${describeTarget(resource)}\n`
+    );
+    return EXIT.OK;
+  } finally {
+    releaseLock();
+  }
+}
+
+function resourcesCommand(options) {
+  requireOnlyOptions(options, ["session", "json"]);
+  requireOptions(options, ["session"]);
+  const sessionPath = resolveLedgerSessionPath(options.session);
+  const raw = readRawSession(sessionPath);
+  const ledger = Array.isArray(raw.resources) ? raw.resources : [];
+  emit(
+    options,
+    { session_path: sessionPath, resources: ledger },
+    ledger
+      .map((item) => `${item.id} ${item.status} ${item.kind} ${describeTarget(item)}\n`)
+      .join("")
+  );
+  return EXIT.OK;
+}
+
+function closeCommand(options) {
+  requireOnlyOptions(options, ["session", "dryRun", "json"]);
+  requireOptions(options, ["session"]);
+  const dryRun = Boolean(options.dryRun);
+  const sessionPath = resolveLedgerSessionPath(options.session);
+  const raw = readRawSession(sessionPath);
+  if (!Array.isArray(raw.resources) || raw.resources.length === 0) {
+    // No ledger: nothing to remove and nothing is written.
+    const report = {
+      session_path: sessionPath,
+      session_status: raw.status,
+      dry_run: dryRun,
+      entries: [],
+      bytes_freed: 0,
+      bytes_to_free: 0,
+      remaining: [],
+    };
+    emit(options, report, formatCloseReport(report));
+    return EXIT.OK;
+  }
+  const releaseLock = acquireSessionLock(sessionPath);
+  let report;
+  try {
+    report = closeSessionLedger(readSession(sessionPath), sessionPath, dryRun);
+  } finally {
+    releaseLock();
+  }
+  emit(options, report, formatCloseReport(report));
+  if (report.write_error) return EXIT.PRECONDITION;
+  return !dryRun && report.remaining.length ? EXIT.RESOURCES_REMAIN : EXIT.OK;
+}
+
+// Caller holds the session lock.
+function closeSessionLedger(session, sessionPath, dryRun) {
+  const outcome = resources.closeLedger(
+    session.resources || [],
+    ledgerContext(session, sessionPath),
+    {
+      dryRun,
+    }
+  );
+  const report = { session_path: sessionPath, session_status: session.status, ...outcome.report };
+  if (outcome.changed) {
+    try {
+      writeSession(sessionPath, { ...session, resources: outcome.resources });
+    } catch (error) {
+      report.write_error = error.message;
+    }
+  }
+  return report;
+}
+
+function sweepCommand(options) {
+  requireOnlyOptions(options, ["session", "sourceDir", "remove", "json"]);
+  if (Boolean(options.session) === Boolean(options.sourceDir)) {
+    throw cliError("sweep takes exactly one of --session or --source-dir", EXIT.INVALID);
+  }
+  const remove = Boolean(options.remove);
+  let repoRoot;
+  let currentKey = null;
+  if (options.session) {
+    const sessionPath = resolveLedgerSessionPath(options.session);
+    repoRoot = readRawSession(sessionPath).source?.repo_root;
+    currentKey = sessionKey(sessionPath);
+  } else {
+    repoRoot = findGitRoot(path.resolve(options.sourceDir));
+  }
+  repoRoot = resources.realOrNull(repoRoot);
+  if (!repoRoot) throw cliError("cannot find the repository to sweep", EXIT.PRECONDITION);
+  const sessions = resources.discoverSessions(repoRoot);
+  const report = {
+    repo_root: repoRoot,
+    dry_run: !remove,
+    sessions: [],
+    bytes_freed: 0,
+    bytes_to_free: 0,
+    remaining: [],
+  };
+  for (const found of sessions) {
+    if (found.key === currentKey) continue;
+    const ledger = Array.isArray(found.raw?.resources)
+      ? found.raw.resources.filter((item) => item?.status === "registered")
+      : [];
+    if (found.raw && !ledger.length) continue;
+    const ledgerErrors = [];
+    resources.validateResources(found.raw?.resources, ledgerErrors);
+    // An unreadable session or ledger is left alone and reported.
+    const classified = ledgerErrors.length
+      ? {
+          state: "active",
+          reason: `ledger is invalid: ${ledgerErrors[0].path} ${ledgerErrors[0].message}`,
+        }
+      : resources.classifySession(found);
+    const item = {
+      session_path: found.sessionPath,
+      slug: found.raw?.slug || path.basename(path.dirname(found.sessionPath)),
+      run_id: found.raw?.run_id || null,
+      status: found.raw?.status || null,
+      state: classified.state,
+      reason: classified.reason,
+      entries: [],
+    };
+    if (classified.state === "active") {
+      item.entries = ledger.map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        target: describeTarget(entry),
+        created_by: entry.created_by,
+        outcome: "skipped",
+        reason: `session is still active (${classified.reason})`,
+        bytes: 0,
+      }));
+    } else if (!remove) {
+      const outcome = resources.closeLedger(
+        ledger,
+        resources.buildContext({
+          session: found.raw,
+          sessionPath: found.sessionPath,
+          protectedTargets: resources.activeTargets(sessions, found.key),
+        }),
+        { dryRun: true }
+      );
+      // Report only what still exists.
+      item.entries = outcome.report.entries.filter((entry) => entry.outcome !== "gone");
+      report.bytes_to_free += outcome.report.bytes_to_free;
+      report.remaining.push(...outcome.report.remaining);
+    } else {
+      try {
+        const releaseLock = acquireSessionLock(found.sessionPath);
+        try {
+          const closed = closeSessionLedger(
+            readSession(found.sessionPath),
+            found.sessionPath,
+            false
+          );
+          item.entries = closed.entries.filter((entry) => entry.outcome !== "already-closed");
+          report.bytes_freed += closed.bytes_freed;
+          report.remaining.push(...closed.remaining);
+          if (closed.write_error) item.write_error = closed.write_error;
+        } finally {
+          releaseLock();
+        }
+      } catch (error) {
+        item.error = error.message;
+        item.entries = ledger.map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          target: describeTarget(entry),
+          created_by: entry.created_by,
+          outcome: "skipped",
+          reason: error.message,
+          bytes: 0,
+        }));
+        report.remaining.push(...item.entries);
+      }
+    }
+    if (item.entries.length || item.error) report.sessions.push(item);
+  }
+  emit(options, report, formatSweepReport(report));
+  return remove && report.remaining.length ? EXIT.RESOURCES_REMAIN : EXIT.OK;
+}
+
+function describeTarget(entry) {
+  if (entry.kind === "directory" || entry.kind === "worktree") return entry.path;
+  if (entry.kind === "process") return `pid ${entry.pid}`;
+  return entry.identifier;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+function formatEntryLines(entries) {
+  return entries
+    .map(
+      (entry) =>
+        `${entry.outcome} ${entry.kind} ${entry.target}: ${entry.reason}` +
+        (entry.bytes ? ` (${formatBytes(entry.bytes)})` : "") +
+        "\n"
+    )
+    .join("");
+}
+
+function formatCloseReport(report) {
+  const summary = report.dry_run
+    ? `Would free ${formatBytes(report.bytes_to_free)}; ${report.remaining.length} resource(s) would remain.\n`
+    : `Freed ${formatBytes(report.bytes_freed)}; ${report.remaining.length} resource(s) remain.\n`;
+  return (
+    formatEntryLines(report.entries) +
+    summary +
+    (report.write_error ? `Session not updated: ${report.write_error}\n` : "")
+  );
+}
+
+function formatSweepReport(report) {
+  if (!report.sessions.length) return "No orphaned resources.\n";
+  const body = report.sessions
+    .map(
+      (item) => `${item.slug} (${item.state}: ${item.reason})\n${formatEntryLines(item.entries)}`
+    )
+    .join("");
+  const summary = report.dry_run
+    ? `Would free ${formatBytes(report.bytes_to_free)}. Rerun with --remove to remove orphans.\n`
+    : `Freed ${formatBytes(report.bytes_freed)}; ${report.remaining.length} resource(s) remain.\n`;
+  return body + summary;
+}
+
 function writeTextAtomic(filePath, text) {
   writeAtomicText(filePath, text, { directoryMode: 0o700, fileMode: 0o600 });
 }
@@ -1319,6 +1781,10 @@ function helpText() {
     "  status --session <path> [--json]",
     "  storage --session <path> [--json]",
     "  scratch --session <path> [--json]",
+    "  resource-add --session <path> --kind <directory|worktree|process|database|account|simulator> --created-by <who> [--path <dir> | --pid <n> | --identifier <id> --teardown <name>] [--label <text>] [--json]",
+    "  resources --session <path> [--json]",
+    "  close --session <path> [--dry-run] [--json]",
+    "  sweep (--session <path> | --source-dir <path>) [--remove] [--json]",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
