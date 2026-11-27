@@ -79,9 +79,97 @@
       "description": "Optional resource ledger. Sessions without it are valid. The runtime also requires unique ids, normalized paths and removed_at exactly when status is removed or gone.",
       "type": "array",
       "items": { "$ref": "#/$defs/resource_entry" }
+    },
+    "follow_ups": {
+      "description": "Optional follow-up ledger, written only after a merged Design Director run. Sessions without it are valid. The runtime also requires unique keys and that a merged item names another item in the ledger.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "merge_sha", "items"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "merge_sha": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/follow_up_item" } }
+      }
     }
   },
   "$defs": {
+    "follow_up_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "class",
+        "dimension",
+        "scope",
+        "change",
+        "source",
+        "state",
+        "tracker",
+        "ref",
+        "action",
+        "into",
+        "updated_at"
+      ],
+      "properties": {
+        "key": { "type": "string", "pattern": "^fu_[a-f0-9]{16}$" },
+        "class": { "enum": ["system-note", "small", "elevation", "major"] },
+        "dimension": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["system", "local"] },
+        "change": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "source": {
+          "type": "string",
+          "pattern": "^design-critique/director/[a-z0-9][a-z0-9._-]{0,63}/review-[1-5]/report\\.json$"
+        },
+        "state": { "enum": ["pending", "filed", "merged", "declined"] },
+        "tracker": { "enum": [null, "linear", "backlog"] },
+        "ref": { "type": ["string", "null"] },
+        "action": { "enum": [null, "created", "occurrence-added"] },
+        "into": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^fu_[a-f0-9]{16}$" }] },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "state": { "const": "filed" },
+            "into": { "const": null }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "tracker": { "const": "linear" },
+                "ref": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]{0,8}$" },
+                "action": { "enum": ["created", "occurrence-added"] }
+              }
+            },
+            {
+              "properties": {
+                "tracker": { "const": "backlog" },
+                "ref": { "type": "string", "pattern": "^backlog/[a-z0-9][a-z0-9-]{0,199}\\.md$" },
+                "action": { "enum": ["created", "occurrence-added"] }
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "state": { "const": "merged" },
+            "tracker": { "const": null },
+            "ref": { "const": null },
+            "action": { "const": null },
+            "into": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "state": { "enum": ["pending", "declined"] },
+            "tracker": { "const": null },
+            "ref": { "const": null },
+            "action": { "const": null },
+            "into": { "const": null }
+          }
+        }
+      ]
+    },
     "resource_close": {
       "type": "object",
       "additionalProperties": false,

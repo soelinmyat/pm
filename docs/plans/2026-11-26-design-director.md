@@ -356,6 +356,22 @@ database. Dev runs the sweep after init or resume and close on every outcome.
 A squash-merged worktree whose remote branch is deleted counts as unpushed and
 is kept for the owner to remove.
 
+2026-11-27: follow-up items are built, not released. `dev-session.js
+follow-ups` reads every director report in the session and lists system notes
+that were not fixed and findings marked `filed`, one item per issue with a
+stable key. Repeat reviews of a finding and identical wording across runs merge;
+other duplicates are merged by the agent. A system note is a system item;
+other items are local, and one whose location names no declared surface is
+flagged for a scope check. Items become fileable only when the ship evidence
+holds a MERGED delivery receipt and the run is not parked; otherwise nothing is
+written and the items stay in the reports. Retro Step 6c searches for an open
+item first, then asks one batched question in Linear projects and files
+directly through the `pm:task` capture path in native projects. Each outcome
+goes into an optional `follow_ups` ledger in `session.json` through
+`follow-up-record`; a filed item is final, and pending items stay listed after
+completion. Parked runs in earlier sessions are not collected. Still open:
+whether native projects get the same confirmation.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

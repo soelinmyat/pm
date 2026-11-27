@@ -4,6 +4,7 @@
 const os = require("node:os");
 const { cleanGeneratedSessionData, inspectSessionStorage } = require("./lib/dev-session-storage");
 const resources = require("./lib/dev-session-resources");
+const followUpLedger = require("./lib/design-director-follow-ups");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -101,6 +102,10 @@ function main(argv) {
       return resourcesCommand(options);
     case "close":
       return closeCommand(options);
+    case "follow-ups":
+      return followUpsCommand(options);
+    case "follow-up-record":
+      return followUpRecordCommand(options);
     case "sweep":
       return sweepCommand(options);
     case "status":
@@ -204,6 +209,12 @@ function parseArguments(argv) {
     "teardown",
     "created-by",
     "label",
+    "key",
+    "tracker",
+    "ref",
+    "action",
+    "into",
+    "scope",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
@@ -1563,6 +1574,139 @@ function closeSessionLedger(session, sessionPath, dryRun) {
   return report;
 }
 
+// ---------------------------------------------------------------------------
+// Follow-up items from Design Director reports: follow-ups, follow-up-record
+
+function followUpsCommand(options) {
+  requireOnlyOptions(options, ["session", "json"]);
+  requireOptions(options, ["session"]);
+  const sessionPath = resolveLedgerSessionPath(options.session);
+  const sessionDir = path.dirname(sessionPath);
+  const session = readSession(sessionPath);
+  const collected = followUpLedger.collectFollowUps({
+    sessionDir,
+    designContext: session.task?.design_context,
+  });
+  const base = {
+    session_path: sessionPath,
+    reports: collected.reports,
+    skipped: collected.skipped,
+  };
+  if (collected.reports.length === 0) {
+    // No director report: nothing to file and nothing is written.
+    const report = {
+      ...base,
+      fileable: false,
+      reason: "no director reports",
+      merge_sha: null,
+      items: [],
+      counts: followUpLedger.countStates([]),
+    };
+    emit(options, report, "No Design Director reports.\n");
+    return EXIT.OK;
+  }
+  const delivery = followUpLedger.deliveryState(session);
+  let ledger = session.follow_ups;
+  if (delivery.merged && collected.items.length > 0) {
+    const releaseLock = acquireSessionLock(sessionPath);
+    try {
+      const current = readSession(sessionPath);
+      const synced = followUpLedger.syncLedger(
+        current.follow_ups,
+        collected.items,
+        delivery.merge_sha,
+        new Date().toISOString()
+      );
+      ledger = synced.ledger;
+      if (synced.changed) writeSession(sessionPath, { ...current, follow_ups: ledger });
+    } finally {
+      releaseLock();
+    }
+  }
+  const items = followUpLedger.withState(collected.items, ledger, delivery.merged);
+  const report = {
+    ...base,
+    fileable: delivery.merged,
+    reason: delivery.reason,
+    merge_sha: delivery.merge_sha,
+    items,
+    counts: followUpLedger.countStates(items),
+  };
+  emit(options, report, formatFollowUps(report));
+  return EXIT.OK;
+}
+
+function formatFollowUps(report) {
+  const header = report.fileable
+    ? `Follow-ups after merge ${report.merge_sha}:\n`
+    : `Follow-ups held in the reports (${report.reason}); nothing is filed:\n`;
+  const lines = report.items.map(
+    (item) =>
+      `${item.key} ${item.state} ${item.scope} ${item.class} ${item.dimension}: ${item.change}` +
+      (item.ref ? ` [${item.ref}]` : "") +
+      "\n"
+  );
+  return header + (lines.length ? lines.join("") : "None.\n");
+}
+
+function followUpRecordCommand(options) {
+  requireOnlyOptions(options, [
+    "session",
+    "key",
+    "state",
+    "tracker",
+    "ref",
+    "action",
+    "into",
+    "scope",
+    "json",
+  ]);
+  requireOptions(options, ["session", "key", "state"]);
+  const sessionPath = resolveLedgerSessionPath(options.session);
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    const session = readSession(sessionPath);
+    const delivery = followUpLedger.deliveryState(session);
+    if (!delivery.merged) {
+      throw cliError(
+        `follow-ups are filed only after a merge; this run is ${delivery.reason}`,
+        EXIT.PRECONDITION
+      );
+    }
+    let outcome;
+    try {
+      outcome = followUpLedger.applyRecord(
+        session.follow_ups,
+        {
+          key: options.key,
+          state: options.state,
+          tracker: options.tracker,
+          ref: options.ref,
+          action: options.action,
+          into: options.into,
+          scope: options.scope,
+        },
+        new Date().toISOString()
+      );
+    } catch (error) {
+      if (!error.followUpRefusal) throw error;
+      throw cliError(
+        error.message,
+        error.followUpRefusal === "invalid" ? EXIT.INVALID : EXIT.PRECONDITION
+      );
+    }
+    if (!outcome.idempotent) writeSession(sessionPath, { ...session, follow_ups: outcome.ledger });
+    emit(
+      options,
+      { session_path: sessionPath, item: outcome.item, idempotent: outcome.idempotent },
+      `${outcome.item.key} ${outcome.item.state}${outcome.item.ref ? ` ${outcome.item.ref}` : ""}\n`
+    );
+    return EXIT.OK;
+  } finally {
+    releaseLock();
+  }
+}
+
 function sweepCommand(options) {
   requireOnlyOptions(options, ["session", "sourceDir", "remove", "json"]);
   if (Boolean(options.session) === Boolean(options.sourceDir)) {
@@ -1784,6 +1928,8 @@ function helpText() {
     "  resource-add --session <path> --kind <directory|worktree|process|database|account|simulator> --created-by <who> [--path <dir> | --pid <n> | --identifier <id> --teardown <name>] [--label <text>] [--json]",
     "  resources --session <path> [--json]",
     "  close --session <path> [--dry-run] [--json]",
+    "  follow-ups --session <path> [--json]",
+    "  follow-up-record --session <path> --key <fu_key> --state <pending|filed|merged|declined> [--tracker <linear|backlog> --ref <id> --action <created|occurrence-added>] [--into <fu_key>] [--scope <system|local>] [--json]",
     "  sweep (--session <path> | --source-dir <path>) [--remove] [--json]",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",

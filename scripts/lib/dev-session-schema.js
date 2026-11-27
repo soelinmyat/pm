@@ -24,6 +24,7 @@ const {
 } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
 const { validateResources } = require("./dev-session-resources");
+const { validateFollowUps } = require("./design-director-follow-ups");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
   appendTransition,
@@ -138,7 +139,11 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "history",
   "migration",
 ]);
-const SESSION_FIELDS_WITH_OPTIONAL = new Set([...SESSION_TOP_LEVEL_FIELDS, "resources"]);
+const SESSION_FIELDS_WITH_OPTIONAL = new Set([
+  ...SESSION_TOP_LEVEL_FIELDS,
+  "resources",
+  "follow_ups",
+]);
 
 function resolvePhaseContract(session, options = {}) {
   const pluginRoot = path.resolve(options.pluginRoot || path.join(__dirname, "..", ".."));
@@ -198,6 +203,8 @@ function validateSession(session) {
   for (const field of SESSION_TOP_LEVEL_FIELDS) requireField(session, field, "$", errors);
   // The resource ledger is optional: sessions without one stay valid.
   validateResources(session.resources, errors);
+  // So is the follow-up ledger, written only after a merged director run.
+  validateFollowUps(session.follow_ups, errors);
   if (session.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
     errors.push(issue("$.schema_version", `must equal ${DEV_SESSION_SCHEMA_VERSION}`));
   }

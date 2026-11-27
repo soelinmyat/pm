@@ -235,7 +235,7 @@ A new commit after an approval makes the report stale. Never edit the report's c
 
 ## After the run
 
-- **Follow-ups.** Findings with status `filed` and all system notes are collected for the retro. They are filed after the merge under the project's existing rules for creating backlog items.
+- **Follow-ups.** Findings with status `filed` and system notes that were not fixed are collected for the retro by `dev-session.js follow-ups`, from every review of every director run in this session. They are filed only after the merge, under the project's existing rules for creating backlog items; see Step 6c of `steps/10-retro.md`. Parked or unmerged work files nothing, and its items stay in the report. A parked run in an earlier session is not collected: its work was rebuilt, and the new run's round 1 lists anything still true.
 - **Wrong-direction reset.** Record it for the retro. It suggests the grooming target was too loose.
 - **Parked work.** Report the open findings and the report path. Do not merge. This session is finished; the owner decides whether to start the work again in a new session.
 - **Mechanically blocked work.** Report the failing items and the checks file. Do not merge.

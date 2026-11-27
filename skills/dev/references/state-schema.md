@@ -195,6 +195,24 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" resource-add --session <sess
 
 **Completion clean-up.** Before archiving, completion removes the generated folders that `dev-session storage` reports: `node_modules`, Xcode DerivedData outputs and PostgreSQL clusters. It keeps a folder that holds a path the session, result, `gates.json` or `runtime.json` references, and a cluster whose server is still running, and blocks on those as before. Removed folders are listed as `storage_cleanup` in the record output and as `cleaned_generated` in `completion.json`.
 
+### Follow-up ledger
+
+`session.json` may carry an optional top-level `follow_ups` object. A session without one is valid and behaves as before. It is written only after an observed merge of a Design Director run: the ship evidence holds a delivery receipt with `state: MERGED` and a merge commit, and no `design-director-parked` blocker exists.
+
+`dev-session follow-ups --session <session.json> [--json]` reads every `design-critique/director/{run}/review-{N}/report.json` in the session folder. It lists each system note that was not fixed and each finding whose latest status is `filed`, as one item per issue: `key`, `class`, `dimension`, `scope`, `scope_basis`, `scope_check`, `location`, `observation`, `change`, `first_seen_round`, `report` (absolute path of the latest source) and `sources` (`report`, `run`, `review`, `finding_id`). It also returns `fileable`, `reason`, `merge_sha`, `reports`, `skipped` and state `counts`. With no director report it returns an empty list and writes nothing. Before a merge, items show state `held` and nothing is written. After a merge, new items are added to the ledger as `pending` and existing entries keep their state. It follows `completion.json` to an archived run.
+
+| Field | Meaning |
+|---|---|
+| `schema_version`, `merge_sha` | `1`, and the merge commit that made the items fileable |
+| `items[].key` | `fu_` plus 16 hex characters, from the normalized wanted change for a system note, and from class, dimension, location and wanted change otherwise |
+| `class`, `dimension`, `scope`, `change` | From the finding. `scope` is `system` or `local` and may be corrected when recording |
+| `source` | Latest report path relative to the session folder |
+| `state` | `pending`, `filed`, `merged` or `declined` |
+| `tracker`, `ref`, `action` | Filed items only: `linear` with an identifier such as `CLE-123`, or `backlog` with `backlog/{slug}.md`, and `created` or `occurrence-added` |
+| `into`, `updated_at` | Merged items only: the key they were merged into. The time of the last change |
+
+Record each outcome with `dev-session follow-up-record --session <session.json> --key <key> --state <state> [--tracker --ref --action] [--into <key>] [--scope system|local]`. It refuses before a merge. A filed item is final: recording the same filing again changes nothing, and any other change is refused, so a rerun never files twice.
+
 ## Legacy Markdown Compatibility
 
 Legacy Markdown is read only for migration and for tools not yet moved to v3. `dev-session migrate` retains the source file and writes a new canonical `session.json`; it never deletes or overwrites the Markdown input.
