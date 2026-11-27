@@ -22,11 +22,15 @@ The same five points apply to every dimension. The anchors under each dimension 
 
 - **Every score cites its evidence.** State the anchor clause it meets and the screenshot that shows it.
 - **A score below 4 links its findings.** Quote the anchor clause at 3 or lower and name the findings that meet it. Those findings are major.
-- **A 4 names the gap.** State the change that would make it a 5 and raise it as an elevation finding.
+- **A 4 names the gap.** State the change that would make it a 5 and raise it as an elevation finding. When the only gap is something that could not be examined, name that limit instead; it is not a finding.
 - **A 5 means nothing is left to raise.** No finding of any class is open on that dimension. It needs no reference screen.
 - **The owner's eye is the minimum.** If the product owner could find an issue on a quick look, the work is not there yet, and a director that missed it has failed.
 - **One finding, one dimension.** Each finding lowers only its primary dimension. Use the hunt list to place it.
 - **Scores move only on new evidence.** A score changes between rounds only with a newly cited observation.
+- **Count the majors.** A dimension with two or more major findings, or with a whole-screen problem (the screen reads as something it is not, has no starting point, or looks like a different product), scores 2. One major scores 3 at most. A finding that meets an anchor at 2 scores 2 on its own: counting never raises a score above its anchor.
+- **Judge the whole before the parts.** Hierarchy, composition, visual quality and consistency are scored from the whole-screen read first. Element-level findings may lower that score; they never raise it.
+- **Consistency is shown, not felt.** A consistency score of 4 or above lists what was compared with each comparable screen: navigation, back or close control, component weight, button order and density.
+- **Zoom-only differences are small.** A difference visible only at zoom does not lower a dimension below 4 unless it repeats.
 
 ## Dimensions
 
@@ -188,6 +192,7 @@ Each item belongs to one dimension. A finding lowers only that dimension.
 | Several regions with emphasis and no single focal point | Hierarchy |
 | The fact the user came for shown quieter than its surroundings | Hierarchy |
 | A read-only record that looks disabled | Hierarchy |
+| Helper text as heavy as the labels it explains, or values heavier than they need | Hierarchy |
 | A block that takes more space than its importance | Composition |
 | Important content below the first viewport | Composition |
 | Related things placed apart, unrelated things grouped | Composition |
@@ -198,6 +203,8 @@ Each item belongs to one dimension. A finding lowers only that dimension.
 | Generic or mismatched type, colour, icons or imagery | Visual quality |
 | A pattern that ignores the platform's convention | Visual quality |
 | A machine-made look: left-bordered cards, plain or heavy cards | Visual quality |
+| Components heavier or larger than their content needs | Visual quality |
+| The whole screen reading as switched off, unfinished or from another product | Visual quality |
 | A list of points shown as running text | Visual quality |
 | Padding and gaps that differ between like elements | Craft |
 | Double padding, double borders, a card inside a card | Craft |
@@ -212,6 +219,7 @@ Each item belongs to one dimension. A finding lowers only that dimension.
 | Primary and secondary buttons in a different order from elsewhere | Consistency |
 | The same control in two forms, such as two overflow icons | Consistency |
 | A control form that does not match the job, where the right one exists | Consistency |
+| A single-choice control used where several can be chosen | Consistency |
 | An extra step or decision | Flow and feedback |
 | An action with no visible result, or an unhandled wait | Flow and feedback |
 | A back link or tab whose destination is unclear | Flow and feedback |

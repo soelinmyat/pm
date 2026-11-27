@@ -33,7 +33,7 @@ Assemble one brief:
 2. **What changed.** The screens and components touched by the diff.
 3. **Approved target.** Its path and declared decisions, with the states grooming declared. Say so when there is none.
 4. **Access notes.** How to start the app, log in and reach each state. Seed data must reach awkward cases: long names, empty, many rows, a failure.
-5. **Comparable screen.** One named existing screen that does a similar job.
+5. **Comparable screens.** Two or three named existing screens: one that does a similar job, and others that share its navigation, buttons or components. One is not enough to judge whether the work belongs to the product.
 6. **Round.** The review number, the round number, and the prior report path for later rounds.
 7. **Builder's claims.** Self-check results and known departures, marked to be read last.
 8. **Review directory.** `.pm/dev-sessions/{slug}/design-critique/director/{run}/review-{N}/`, where `{run}` is a short lowercase name for this director run, such as `main`.
