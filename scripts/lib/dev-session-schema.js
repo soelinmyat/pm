@@ -1423,6 +1423,10 @@ function validateResult(session, result, options = {}) {
   return errors;
 }
 
+// Anchors whose checked Design Director report parked its run. The anchor's
+// stored fields are closed, so the checker's verdict travels beside it.
+const PARKED_DIRECTOR_ANCHORS = new WeakSet();
+
 function validateScopedGateEvidence(session, result, errors) {
   const phase = session.phase;
   const history = session.evidence[phase]?.recovery_history || [];
@@ -1610,7 +1614,7 @@ function validateScopedGateEvidence(session, result, errors) {
     // Phase attempts include unavailable dependencies before any report exists.
     // Only checked report anchors establish report-round continuity; the report
     // checker validates any predecessor chain when importing a first anchor.
-    return {
+    const anchor = {
       attempt: result.attempt,
       round,
       run_id: report.run_id,
@@ -1622,22 +1626,12 @@ function validateScopedGateEvidence(session, result, errors) {
         sha256: crypto.createHash("sha256").update(input.bytes).digest("hex"),
       },
     };
+    if (checked.parks === true) PARKED_DIRECTOR_ANCHORS.add(anchor);
+    return anchor;
   } catch (error) {
     errors.push(issue("$.evidence", `${phase} report: ${error.message}`));
     return null;
   }
-}
-
-// The path of a just-anchored Design Director rejection that parks its run.
-function parkedDirectorReportPath(session, anchor) {
-  const director = require("./design-director-report");
-  if (anchor.outcome !== "failed" || !director.isDirectorReportPath(anchor.report.path))
-    return null;
-  const root = fs.realpathSync(session.source.worktree);
-  const report = JSON.parse(readProjectInput(root, anchor.report.path, 4 * 1024 * 1024).bytes);
-  return report.round === director.MAX_ROUNDS || report.review === director.MAX_REVIEWS
-    ? anchor.report.path
-    : null;
 }
 
 function validateAstraRuntimeBinding(execution, runtime, errors, runtimePath) {
@@ -3649,7 +3643,7 @@ function recordResult(session, result, options = {}) {
       next.evidence[priorPhase] ||= { commit: null, records: [], recorded_at: timestamp };
       next.evidence[priorPhase].recovery_history ||= [];
       next.evidence[priorPhase].recovery_history.push(anchor);
-      parkedDirectorReport = parkedDirectorReportPath(session, anchor);
+      if (PARKED_DIRECTOR_ANCHORS.has(anchor)) parkedDirectorReport = anchor.report.path;
     }
   }
   if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {

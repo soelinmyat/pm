@@ -462,6 +462,8 @@ test("measured style values need saved measurement output", () => {
     messages(check(report)),
     /measurements: measured style values need the saved measurement output/
   );
-  const selfReferencing = approval({ measurements: [{ screen: "Orders", path: "report.json" }] });
-  assert.match(messages(check(selfReferencing)), /the report is not measurement output/);
+  for (const self of ["report.json", "./report.json", ".//report.json"]) {
+    const selfReferencing = approval({ measurements: [{ screen: "Orders", path: self }] });
+    assert.match(messages(check(selfReferencing)), /the report is not measurement output/, self);
+  }
 });

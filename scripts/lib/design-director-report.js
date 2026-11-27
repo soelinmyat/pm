@@ -297,7 +297,11 @@ function checkEvidence(report, root, directory, add) {
     add("measurements", "the standard sweep is required on every changed screen");
   if (isObject(exercised) && exercised.style_values_measured === true && !measurements.length)
     add("measurements", "measured style values need the saved measurement output");
-  if (measurements.some((entry) => isObject(entry) && entry.path === "report.json"))
+  if (
+    measurements.some(
+      (entry) => isObject(entry) && path.posix.normalize(String(entry.path)) === "report.json"
+    )
+  )
     add("measurements", "the report is not measurement output");
   measurements.forEach((entry, index) => {
     const at = `measurements[${index}]`;
