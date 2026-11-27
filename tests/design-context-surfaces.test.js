@@ -189,7 +189,13 @@ test("surface paths wrap only after a slash, never inside a segment", () => {
   assert.deepEqual(segments, long.split("/"));
   assert.equal((code.match(/<wbr>/g) || []).length, long.split("/").length - 1);
   assert.match(code, /^<span class="surface-path-segment">apps<\/span>\/<wbr>/);
-  assert.match(rendered.html, /\.surface-path-segment\s*\{[^}]*white-space:\s*nowrap/);
+  // A segment that fits stays whole and moves to the next line as one unit;
+  // only a segment longer than the line itself may break inside.
+  const segmentRule = rendered.html.match(/\.surface-path-segment\s*\{([^}]*)\}/)[1];
+  assert.match(segmentRule, /display:\s*inline-block/);
+  assert.match(segmentRule, /max-width:\s*100%/);
+  assert.match(segmentRule, /overflow-wrap:\s*anywhere/);
+  assert.doesNotMatch(segmentRule, /white-space:\s*nowrap/);
   assert.match(rendered.html, /code\.surface-path\s*\{[^}]*overflow-wrap:\s*normal/);
 });
 

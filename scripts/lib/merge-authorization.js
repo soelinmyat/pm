@@ -57,8 +57,10 @@ const OBSERVATION_MAX_FUTURE_MS = 30 * 1000;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
-const MERGE_MANUAL_LINE =
-  /^[ \t]*(?:[-*][ \t]+)?\**Merge\**[ \t]*:[ \t]*`?manual`?[ \t]*\.?[ \t]*$/im;
+// Read after Markdown formatting is stripped from the line: a key of exactly
+// "Merge" whose value starts with "manual". Anything after the value, such as
+// a note in brackets, still turns standing authorization off.
+const MERGE_MANUAL_SETTING = /^merge[ \t]*[:|][ \t]*manual\b/i;
 const INSTRUCTION_FILES = ["instructions.md", "instructions.local.md"];
 const MAX_INSTRUCTIONS_BYTES = 1024 * 1024;
 const SKIPPABLE_GATES = new Set(["tdd", "design-critique", "qa"]);
@@ -181,9 +183,21 @@ function readProjectMergeSetting(pmDir) {
       if (error.code === "ENOENT") continue;
       return { mode: "manual", source: file, reason: `cannot read: ${error.message}` };
     }
-    if (MERGE_MANUAL_LINE.test(bytes)) return { mode: "manual", source: file };
+    if (bytes.split(/\r?\n/).some(isMergeManualLine)) return { mode: "manual", source: file };
   }
   return { mode: "auto", source: null };
+}
+
+// Strip what Markdown wraps a setting in: quote and heading marks, list
+// bullets, table pipes, emphasis and code spans.
+function isMergeManualLine(line) {
+  const plain = line
+    .replace(/^[ \t>#]*/, "")
+    .replace(/^(?:[-*+][ \t]+|\d+[.)][ \t]+)/, "")
+    .replace(/^\|[ \t]*/, "")
+    .replace(/[*_`]/g, "")
+    .trim();
+  return MERGE_MANUAL_SETTING.test(plain);
 }
 
 // A canonical proposal lives at {pm_dir}/backlog/proposals/{slug}.json.

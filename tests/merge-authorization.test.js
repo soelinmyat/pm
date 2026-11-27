@@ -173,6 +173,38 @@ test("Merge: manual in either PM instructions file turns standing authorization 
     fs.rmSync(dir, { recursive: true, force: true });
   }
   assert.equal(auth.pmDirForProposal("/repo/pm/backlog/proposals/unit.json"), "/repo/pm");
+});
+
+test("Merge: manual is recognised however the instructions line is formatted", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-merge-setting-format-"));
+  const file = path.join(dir, "instructions.md");
+  try {
+    for (const line of [
+      "**Merge:** manual",
+      "- **Merge:** `manual`",
+      "* __Merge__: manual",
+      "Merge: manual (always ask me)",
+      "Merge: Manual.",
+      "  merge : manual",
+      "## Merge: manual",
+      "> Merge: manual",
+      "| Merge | manual |",
+    ]) {
+      fs.writeFileSync(file, `# Team\n\n${line}\n`);
+      assert.equal(auth.readProjectMergeSetting(dir).mode, "manual", line);
+    }
+    for (const line of [
+      "Merge: automatic",
+      "Merge strategy: squash; never manual rebases",
+      "We merge manually only on Fridays.",
+      "Mergeable: manual",
+    ]) {
+      fs.writeFileSync(file, `# Team\n\n${line}\n`);
+      assert.equal(auth.readProjectMergeSetting(dir).mode, "auto", line);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   assert.equal(auth.pmDirForProposal("/repo/elsewhere/unit.json"), null);
 });
 
