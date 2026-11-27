@@ -53,7 +53,10 @@ const DESIGN_CONTEXT_FIELDS = new Set([
   "critical_states",
   "experience_invariants",
   "visual_invariants",
+  "surfaces",
 ]);
+const SURFACE_FIELDS = ["name", "paths"];
+const MAX_SURFACES = 32;
 const PROTOTYPE_FIELDS = new Set(["path", "sha256", "manifest"]);
 const PROTOTYPE_MANIFEST_FIELDS = new Set(["schema_version", "files", "tree_sha256"]);
 const PROTOTYPE_MANIFEST_FILE_FIELDS = new Set(["path", "sha256"]);
@@ -418,6 +421,10 @@ function validateDesignContext(context, label = "design_context", options = {}) 
       throw new Error(`${label} is nonvisual, so prototype must be null`);
     }
   }
+  if (context.surfaces !== undefined) {
+    if (context.ui_impact !== true) throw new Error(`${label}.surfaces requires ui_impact true`);
+    validateSurfaces(context.surfaces, `${label}.surfaces`);
+  }
   const prototype = context.prototype;
   if (context.app_preview !== undefined) {
     if (context.ui_impact !== true || prototype !== null) {
@@ -478,6 +485,31 @@ function validateDesignContext(context, label = "design_context", options = {}) 
     verifyPrototypeBinding(prototype, `${label}.prototype`, options.repoRoot, options);
   }
   return context;
+}
+
+// Surfaces in scope: the screens and components grooming approved the change to touch,
+// each with the repo-relative path patterns that implement it.
+function validateSurfaces(surfaces, label) {
+  if (!Array.isArray(surfaces) || surfaces.length === 0 || surfaces.length > MAX_SURFACES) {
+    throw new TypeError(`${label} must be a non-empty array of at most ${MAX_SURFACES} entries`);
+  }
+  for (const [index, surface] of surfaces.entries()) {
+    const at = `${label}[${index}]`;
+    if (!isObject(surface)) throw new TypeError(`${at} must be an object`);
+    for (const field of Object.keys(surface)) {
+      if (!SURFACE_FIELDS.includes(field)) throw new Error(`${at} has unknown field ${field}`);
+    }
+    for (const field of SURFACE_FIELDS) {
+      if (!Object.hasOwn(surface, field)) throw new Error(`${at} requires ${field}`);
+    }
+    if (!nonEmpty(surface.name)) throw new TypeError(`${at}.name must be a non-empty string`);
+    validateUniqueStrings(surface.paths, `${at}.paths`);
+    for (const pattern of surface.paths) validateRepoRelativePattern(pattern, `${at}.paths`);
+  }
+  const names = surfaces.map((surface) => surface.name.trim());
+  if (new Set(names).size !== names.length) {
+    throw new Error(`${label} names must not contain duplicates`);
+  }
 }
 
 function validateUniqueStrings(value, label, { nonEmpty: requireValues = true } = {}) {

@@ -31,7 +31,7 @@ Assemble one brief. Before dispatch, read the builder's handoff note at `.pm/dev
 
 1. **Intent.** The user, the job and what the change is for, from the session's task and acceptance criteria.
 2. **What changed.** The screens and components touched by the diff.
-3. **Approved target.** Its path and declared decisions, with the states grooming declared. Say so when there is none.
+3. **Approved target.** Copy it from the build brief's Target and States sections, which come from the bound design context: the target path, the declared decisions (`visual_invariants`), the surfaces in scope (`surfaces`) and the declared states (`critical_states`). With no target, say so: Fidelity is then scored against the intent, and any declared states still go here.
 4. **Access notes.** The handoff note's `Access notes` section: how to start the app, log in and reach each state. Seed data must reach awkward cases: long names, empty, many rows, a failure.
 5. **Comparable screens.** Two or three named existing screens: one that does a similar job, and others that share its navigation, buttons or components. One is not enough to judge whether the work belongs to the product.
 6. **Round.** The review number, the round number, and the prior report path for later rounds.

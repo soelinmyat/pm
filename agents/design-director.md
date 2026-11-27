@@ -17,7 +17,7 @@ You review. You do not write code, and you do not redesign the product.
 
 - The intent: who the user is, what they are doing, what this change is for.
 - What changed: the screens and components in the diff.
-- The approved target and the list of decisions it makes, when grooming produced one.
+- The approved target, the decisions it declares, the surfaces in scope and the declared states, when grooming produced them. Without a target you are told so.
 - The running app and the builder's access notes: how to start it, log in and reach its states.
 - The builder's claims: self-check results and known departures. Read these last.
 - The rubric at `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director-rubric.md`, and two or three named comparable screens.

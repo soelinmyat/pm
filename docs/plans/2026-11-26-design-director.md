@@ -311,6 +311,19 @@ the implementer and worker references and `scripts/dev-prompt.js` load it for
 product UI. No session schema or gate change: Dev reads the note to assemble
 the brief and checks its `commit` against HEAD before dispatch.
 
+2026-11-27: delivery item 3 is built, not released. It reuses the bound
+`design_context` that already travels from the proposal through the RFC sidecar
+to Dev and its worker packets. `visual_invariants` are the declared decisions and
+`critical_states` the declared states. One optional field is new: `surfaces`,
+a list of `{name, paths}` for the screens and components in scope, allowed only
+when `ui_impact` is true. `validateDesignContext` and the Dev and RFC JSON
+schemas check it, and the proposal reader shows it to the approver. Groom Step 5
+writes all three lists for a rendered target and Handoff checks them. The build
+brief copies them into Target and States, and director brief item 3 copies the
+brief. Older contexts without `surfaces` still validate. Grooming has to write
+`surfaces`; no checker requires it yet, because a required field would fail
+proposals already approved.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

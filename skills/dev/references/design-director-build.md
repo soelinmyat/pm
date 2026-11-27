@@ -16,6 +16,11 @@ Use it for Dev work that changes product UI and is reviewed by the Design Direct
 
 1. **Read the rubric.** Read `design-director-rubric.md` in full: the scale, the anchors, the hunt list and the calibration. There is no separate reference set. The bar is the rubric's calibration section plus any examples in the project's PM instructions, which take precedence.
 2. **Write the build brief** at `.pm/dev-sessions/{slug}/implementation/build-brief.md`, using the template below. Fill every section. Write `none` where a section does not apply, with the reason.
+   Take the Target and declared states from the session's bound design context: `task.design_context`, or the work unit's `contract.design_context` on an RFC route. Copy the entries word for word. Never write them from memory or from the proposal prose.
+   - **Target.** `prototype.path`, or the `app_preview` observation evidence paths. Neither, or no design context at all, means there is no target.
+   - **Declared decisions.** The `visual_invariants` entries, when there is a target.
+   - **Surfaces in scope.** The `surfaces` entries, when present.
+   - **Declared states.** The `critical_states` entries, whenever there is a design context.
 3. **Start from the approved preview's code.** With an `app_preview` in the design context, adopt it as Step 05 item 4b describes. With other preview code, start from that code instead of rebuilding the screen. Record each change from it as a departure in the handoff note.
 4. **Seed realistic data before the first render.** Cover long names, an empty list or record, many rows and a failure, plus every declared state. Use the project's fixtures or seed setup; `design-critique-seed-conventions.md` shows one pattern. Commit seed code with the feature. Never use real customer data.
 
@@ -30,7 +35,7 @@ updated: YYYY-MM-DD
 # Build brief: {slug}
 
 ## Target
-Approved target path and its declared decisions, or none.
+Target path, its declared decisions and the surfaces in scope, copied from the design context. Or none, with the reason: no design context, or one with no prototype or preview.
 
 ## Components and tokens
 Existing components and tokens to use, with their paths. Any new component, and why no existing one fits.
@@ -43,7 +48,7 @@ Desktop: regions, order, what sits in the first viewport.
 Narrow: what stacks, moves or hides, and what stays in the first viewport.
 
 ## States
-Each state to build: declared states first, then empty, loading, error, disabled, read-only, long content and many rows where they apply. For each, the seed record or action that reaches it.
+Each state to build: the declared states from `critical_states` first, then empty, loading, error, disabled, read-only, long content and many rows where they apply. For each, the seed record or action that reaches it.
 
 ## Comparable screens
 Two or three named existing screens: one that does a similar job, and others that share its navigation, buttons or components.

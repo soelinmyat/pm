@@ -372,7 +372,24 @@ function designContextHtml(proposal) {
 <h3>Preview identity</h3>${context.app_preview ? appPreviewIdentityHtml(context.app_preview) : prototypeIdentityHtml(context.prototype)}
 <h3>Critical states</h3>${listOrEmptyHtml(context.critical_states)}
 <h3>Experience invariants</h3>${listOrEmptyHtml(context.experience_invariants)}
-<h3>Visual invariants</h3>${listOrEmptyHtml(context.visual_invariants)}`;
+<h3>Visual invariants</h3>${listOrEmptyHtml(context.visual_invariants)}${surfacesHtml(context.surfaces)}`;
+}
+
+function surfacesHtml(surfaces) {
+  if (!surfaces) return "";
+  const rows = surfaces.map(
+    (surface) =>
+      `<li>${h(surface.name)}: ${surface.paths.map((item) => `<code>${h(item)}</code>`).join(", ")}</li>`
+  );
+  return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
+}
+
+function surfacesMarkdown(surfaces) {
+  if (!surfaces) return "";
+  const rows = surfaces.map(
+    (surface) => `- ${surface.name}: ${surface.paths.map((item) => `\`${item}\``).join(", ")}`
+  );
+  return `\n\n### Surfaces in scope\n${rows.join("\n")}`;
 }
 
 function valueDecisionHtml(value) {
@@ -414,7 +431,7 @@ ${markdownListOrEmpty(context.critical_states)}
 ${markdownListOrEmpty(context.experience_invariants)}
 
 ### Visual invariants
-${markdownListOrEmpty(context.visual_invariants)}`;
+${markdownListOrEmpty(context.visual_invariants)}${surfacesMarkdown(context.surfaces)}`;
 }
 
 function approvalStateMatches(proposal, contentSha256, state) {
