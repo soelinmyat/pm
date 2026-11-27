@@ -19,7 +19,7 @@ Three agents, each separate from the others. Record the identity of each in the 
 
 | Role | Does | Must not |
 |---|---|---|
-| Builder | Implements, fixes findings, writes the access notes | Review its own work |
+| Builder | Implements, fixes findings, writes the handoff note | Review its own work |
 | Director | Reviews with the `pm:design-director` agent | Edit code |
 | First impression | Looks only at the director's screenshots | See findings, the diff or the brief's rationale |
 
@@ -27,15 +27,15 @@ Dispatch the director and the first-impression pass as fresh agents. Where the h
 
 ## What the director receives
 
-Assemble one brief:
+Assemble one brief. Before dispatch, read the builder's handoff note at `.pm/dev-sessions/{slug}/implementation/handoff.md`, written under `design-director-build.md`. If it is missing, or its `commit` is not current HEAD, have the builder write or update it first.
 
 1. **Intent.** The user, the job and what the change is for, from the session's task and acceptance criteria.
 2. **What changed.** The screens and components touched by the diff.
 3. **Approved target.** Its path and declared decisions, with the states grooming declared. Say so when there is none.
-4. **Access notes.** How to start the app, log in and reach each state. Seed data must reach awkward cases: long names, empty, many rows, a failure.
+4. **Access notes.** The handoff note's `Access notes` section: how to start the app, log in and reach each state. Seed data must reach awkward cases: long names, empty, many rows, a failure.
 5. **Comparable screens.** Two or three named existing screens: one that does a similar job, and others that share its navigation, buttons or components. One is not enough to judge whether the work belongs to the product.
 6. **Round.** The review number, the round number, and the prior report path for later rounds.
-7. **Builder's claims.** Self-check results and known departures, marked to be read last.
+7. **Builder's claims.** The handoff note's `Builder's claims` section: self-check results and known departures, marked to be read last.
 8. **Review directory.** `.pm/dev-sessions/{slug}/design-critique/director/{run}/review-{N}/`, where `{run}` is a short lowercase name for this director run, such as `main`.
 9. **Identities.** The session `run_id`, the director run name, and the builder's agent identity. The director writes all three into the report.
 
@@ -56,7 +56,7 @@ Give no state list beyond the declared states. Choosing what else to examine is 
 - A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. The recorder marks the session blocked with the code `design-director-parked`. Dev's usual diagnose-and-continue recovery does not apply here. A parked run takes no further review, a reset cannot reopen it, and this session cannot start another run. Continuing the work needs new direction from the owner and a new Dev session.
 - A run ends at its approval. When a later commit changes the reviewed UI, start a new director run: a new `{run}` name, `review-1`, round 1, no `prior_report`. A new run cannot start while the current one is unfinished or parked.
 
-After a rejection, give the builder the open findings and nothing else from the report. The builder fixes, commits, and updates the access notes.
+After a rejection, give the builder the open findings and nothing else from the report. The builder fixes, commits, and updates the handoff note at the fix commit.
 
 ## First impression
 

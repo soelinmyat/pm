@@ -299,6 +299,18 @@ Next steps, in order:
 3. Delivery item 4 holds the remaining mechanical checks: hardcoded values,
    declared surfaces and neighbour pixel comparison.
 
+2026-11-27: delivery item 2 is built, not released. A new reference,
+`skills/dev/references/design-director-build.md`, holds the builder's part: read
+the rubric, write a build brief at
+`.pm/dev-sessions/{slug}/implementation/build-brief.md`, start from the
+preview's code, seed awkward data, self-check each slice at desktop and narrow
+with the measurement tools, and write a handoff note at
+`.pm/dev-sessions/{slug}/implementation/handoff.md`. Its access notes and
+builder's claims sections feed items 4 and 7 of the director brief. Step 05,
+the implementer and worker references and `scripts/dev-prompt.js` load it for
+product UI. No session schema or gate change: Dev reads the note to assemble
+the brief and checks its `commit` against HEAD before dispatch.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

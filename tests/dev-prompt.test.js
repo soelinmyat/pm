@@ -80,6 +80,19 @@ test("UI tasks without an approved design context receive composition guidance w
   assert.doesNotMatch(result.prompt, /Approved design context:/);
 });
 
+test("UI implementation packets load the Design Director build reference before UI code", () => {
+  for (const overrides of [
+    { phase: "implementation", ui_impact: true },
+    { phase: "implementation", design_context: designContext() },
+  ]) {
+    const result = buildWorkerPrompt(validInput(overrides));
+    assert.match(result.prompt, /skills\/dev\/references\/design-director-build\.md/);
+    assert.match(result.prompt, /build brief/);
+    assert.match(result.prompt, /self-check results and known departures/);
+    assert.match(result.prompt, /capture review path/);
+  }
+});
+
 test("nonvisual and later-phase packets preserve experience context without first-slice visual instructions", () => {
   for (const overrides of [
     { phase: "implementation", design_context: designContext(false) },
@@ -89,7 +102,7 @@ test("nonvisual and later-phase packets preserve experience context without firs
     const result = buildWorkerPrompt(validInput(overrides));
     assert.doesNotMatch(
       result.prompt,
-      /Before accepting the first visible slice|product-ui-judgment\.md|repeated per-item controls/
+      /Before accepting the first visible slice|product-ui-judgment\.md|repeated per-item controls|design-director-build\.md/
     );
     if (overrides.design_context) assert.match(result.prompt, /Save, leave and resume/);
   }
