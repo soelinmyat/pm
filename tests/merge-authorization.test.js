@@ -189,6 +189,10 @@ test("Merge: manual is recognised however the instructions line is formatted", (
       "## Merge: manual",
       "> Merge: manual",
       "| Merge | manual |",
+      "Merge: manually",
+      "Merge: manually, after I review the PR",
+      "Merge: manual",
+      "Merge : manual",
     ]) {
       fs.writeFileSync(file, `# Team\n\n${line}\n`);
       assert.equal(auth.readProjectMergeSetting(dir).mode, "manual", line);

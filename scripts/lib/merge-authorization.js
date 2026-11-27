@@ -60,7 +60,9 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 // Read after Markdown formatting is stripped from the line: a key of exactly
 // "Merge" whose value starts with "manual". Anything after the value, such as
 // a note in brackets, still turns standing authorization off.
-const MERGE_MANUAL_SETTING = /^merge[ \t]*[:|][ \t]*manual\b/i;
+// "manual", "manually" and "manual-only" all qualify; \s also covers a
+// non-breaking space pasted from rich text.
+const MERGE_MANUAL_SETTING = /^merge\s*[:|]\s*manual/i;
 const INSTRUCTION_FILES = ["instructions.md", "instructions.local.md"];
 const MAX_INSTRUCTIONS_BYTES = 1024 * 1024;
 const SKIPPABLE_GATES = new Set(["tdd", "design-critique", "qa"]);
@@ -192,9 +194,9 @@ function readProjectMergeSetting(pmDir) {
 // bullets, table pipes, emphasis and code spans.
 function isMergeManualLine(line) {
   const plain = line
-    .replace(/^[ \t>#]*/, "")
-    .replace(/^(?:[-*+][ \t]+|\d+[.)][ \t]+)/, "")
-    .replace(/^\|[ \t]*/, "")
+    .replace(/^[\s>#]*/, "")
+    .replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, "")
+    .replace(/^\|\s*/, "")
     .replace(/[*_`]/g, "")
     .trim();
   return MERGE_MANUAL_SETTING.test(plain);
