@@ -70,7 +70,7 @@ Clean up what this session created:
    node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" close --session "{absolute_session_path}" --dry-run --json
    node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" close --session "{absolute_session_path}" --json
    ```
-   It removes registered scratch directories, clean worktrees and started processes, and runs declared teardowns. It keeps dirty, locked or unpushed worktrees and reports why. Exit 7 means something was kept; report each kept path and reason.
+   It removes registered scratch directories, clean worktrees and started processes, and runs declared teardowns. It keeps dirty, locked or unpushed worktrees, and any worktree that holds PM state under `.pm/`, which includes the worktree holding this session, and reports why. Exit 7 means something was kept; report each kept path and reason, and remove such a worktree yourself only after keeping the evidence you need.
 2. Remove a clean worktree created before the ledger existed, or by an agent that did not register it, with `git worktree remove <worktree-path>`. Never pass `--force` without explicit approval.
 3. Delete any leftover branches that were only used inside worktrees:
    ```bash

@@ -628,9 +628,19 @@ function runMechanicalChecks({ root, session, commit, base }) {
   if (scope.status === "fail")
     for (const entry of scope.outside.filter((item) => !item.disposition))
       issues.push({ check: "scope", message: `${entry.file} is outside every declared surface` });
-  if (tokens.status === "fail")
-    for (const hit of tokens.hits.filter((item) => !item.disposition))
+  if (tokens.status === "fail") {
+    const listed = tokens.hits.filter((item) => !item.disposition);
+    for (const hit of listed)
       issues.push({ check: "tokens", message: `${hit.file}:${hit.line} hardcodes ${hit.value}` });
+    // The result lists at most MAX_HITS hits. Every unexplained value past
+    // them still fails the run, so count the ones not listed.
+    const unlisted = tokens.open - listed.length;
+    if (unlisted > 0)
+      issues.push({
+        check: "tokens",
+        message: `${unlisted} more unexplained hardcoded value(s) beyond the ${MAX_HITS} listed hits`,
+      });
+  }
   if (neighbourResult.status === "fail")
     for (const screen of neighbourResult.screens.filter((item) => item.blocking))
       issues.push({

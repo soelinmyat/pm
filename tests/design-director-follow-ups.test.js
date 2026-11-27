@@ -179,6 +179,32 @@ test("the same system issue raised in two runs becomes one item with both source
   );
 });
 
+test("system notes written in other scripts keep distinct keys", () => {
+  const root = workspace();
+  write(
+    root,
+    1,
+    approval({
+      run_id: "main",
+      findings: [
+        finding("s-01", "system-note", "visual-quality", "filed", {
+          location: "設定",
+          change: "共有ボタンの角丸トークンを統一する",
+        }),
+        finding("s-02", "system-note", "consistency", "filed", {
+          location: "Настройки",
+          change: "Привести отступы карточек к общему токену",
+        }),
+      ],
+    })
+  );
+  const notes = collectFollowUps({ sessionDir: sessionDir(root) }).items.filter(
+    (item) => item.class === "system-note"
+  );
+  assert.equal(notes.length, 2);
+  assert.notEqual(notes[0].key, notes[1].key);
+});
+
 test("keys are stable across collections and differ between items", () => {
   const root = workspace();
   writeMainRun(root);

@@ -61,10 +61,14 @@ function issue(pathValue, message) {
 }
 
 function normalize(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return (
+    String(value || "")
+      .normalize("NFKC")
+      .toLowerCase()
+      // Letters and digits in any script; everything else separates words.
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+  );
 }
 
 function words(value) {

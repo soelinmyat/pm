@@ -466,6 +466,51 @@ test("the full run diffs the session against its base and fails until every item
   assert.match(passed.stdout, /Mechanical checks pass/);
 });
 
+test("an unexplained value past the listed hits still fails the run", (t) => {
+  const repo = sessionRepo(t);
+  // 210 explained hits sort before the one unexplained value, so it falls
+  // outside the hits the result lists.
+  fs.writeFileSync(
+    path.join(repo.root, "apps/web/src/invoices/list/a.css"),
+    Array.from({ length: 210 }, (_, i) => `.row-${i} { margin: 3px; }`).join("\n") + "\n"
+  );
+  fs.writeFileSync(
+    path.join(repo.root, "apps/web/src/invoices/list/z.css"),
+    ".late { color: #123456; }\n"
+  );
+  git(repo.root, ["add", "."]);
+  git(repo.root, ["commit", "-qm", "many values"]);
+  repo.writeChecks({
+    dispositions: [
+      { check: "scope", file: "apps/web/src/settings/page.tsx", kind: "decision", ref: "d-2" },
+      { check: "tokens", file: "apps/web/src/invoices/list/a.css", kind: "token", ref: "--space" },
+      {
+        check: "tokens",
+        file: "apps/web/src/invoices/list/table.tsx",
+        kind: "token",
+        ref: "--danger",
+      },
+    ],
+  });
+  const result = runMechanicalChecks({
+    root: repo.root,
+    session: repo.session,
+    commit: repo.head(),
+  });
+  assert.equal(result.tokens.truncated, true);
+  assert.equal(result.tokens.status, "fail");
+  assert.equal(result.tokens.open, 1);
+  assert.ok(
+    !result.tokens.hits.some((hit) => hit.value === "#123456"),
+    "the unexplained value is past the listed hits"
+  );
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => issue.check === "tokens"));
+
+  const cli = repo.run(["--session", repo.sessionPath, "--json"]);
+  assert.equal(cli.status, 1, cli.stdout + cli.stderr);
+});
+
 test("without declared surfaces the run reports and never fails", (t) => {
   const repo = sessionRepo(t, { surfaces: null });
   const result = runMechanicalChecks({
