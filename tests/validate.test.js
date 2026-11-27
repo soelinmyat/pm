@@ -1057,7 +1057,8 @@ test("PM-170: plugin.config.json has expected commands (no merge, has loop, feat
 // general-purpose. The full agents/ contract is now enforced by agents.test.js.
 // The "no stale agent names" guard below is retained — it rejects only the
 // specific names from the earlier aborted attempt (code-reviewer,
-// engineering-manager, etc.), not the current 7 persona slugs.
+// engineering-manager, etc.), not the current persona slugs. design-director
+// left the list when it became a real agent.
 
 test("PM-170: no stale agent names in skill files", () => {
   const staleAgentNames = [
@@ -1066,7 +1067,6 @@ test("PM-170: no stale agent names in skill files", () => {
     "engineering-manager",
     "system-architect",
     "integration-engineer",
-    "design-director",
     "qa-lead",
     "design-system-lead",
     "design-reviewer",

@@ -1708,3 +1708,272 @@ test("Design phase recording refuses to advance or publish if the attempt cannot
   assert.deepEqual(fs.readFileSync(repo.sessionPath), before);
   assert.deepEqual(fs.readFileSync(repo.gatesPath), priorGate);
 });
+
+const directorFixture = require("./helpers/design-director-fixture");
+
+function directorResult(repo, session, status, artifact) {
+  return {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: session.phase,
+    attempt: session.phase_attempt,
+    status,
+    summary: `Design Director ${status}.`,
+    commit: repo.head(),
+    files_changed: [],
+    evidence: [
+      { kind: "review", command: "node scripts/design-director-check.js", exit_code: 0, artifact },
+    ],
+    blocker: null,
+    runtime: { provider: "inline", model: "inherit", reasoning: "inherit", session_id: null },
+  };
+}
+
+function directorRepo() {
+  const repo = makeRepo();
+  const session = repo.session();
+  session.phase = "design-critique";
+  repo.saveSession(session);
+  repo.recordEvidence("implementation", passingTest);
+  assert.equal(repo.gate(["--name", "tdd"]).status, 0);
+  repo.record = (result) => {
+    const file = path.join(path.dirname(repo.sessionPath), "director-result.json");
+    fs.writeFileSync(file, JSON.stringify(result));
+    return repo.run(["record", "--session", repo.sessionPath, "--result", file, "--json"]);
+  };
+  return repo;
+}
+
+test("an approved Design Director report at HEAD passes the Design Critique gate", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const report = directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() });
+  const written = directorFixture.write(repo.root, 1, report, "gate-cli");
+  const recorded = repo.record(directorResult(repo, session, "passed", written.absolutePath));
+  assert.equal(recorded.status, 0, recorded.stderr + recorded.stdout);
+  const row = repo.gates().gates.find((gate) => gate.name === "design-critique");
+  assert.equal(row.status, "passed");
+  assert.equal(row.commit, repo.head());
+  assert.equal(row.artifact, written.reportPath);
+  assert.equal(row.evidence_kind, "design-director-report-v1");
+  assert.notEqual(repo.session().phase, "design-critique");
+  const checked = repo.check([
+    "--manifest",
+    repo.gatesPath,
+    "--require",
+    "design-critique",
+    "--json",
+  ]);
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+});
+
+test("a Design Director report cannot pass the gate when it rejects, is stale or self-approved", (t) => {
+  for (const [name, mutate, pattern] of [
+    [
+      "stale commit",
+      (report) => {
+        report.commit = "f".repeat(40);
+      },
+      /the review ran at f{40}/,
+    ],
+    [
+      "builder approved its own work",
+      (report) => {
+        report.agents.director = report.agents.builder;
+      },
+      /separate agent from the builder/,
+    ],
+    [
+      "another run",
+      (report) => {
+        report.session_run_id = "dev_other";
+      },
+      /must equal the session run/,
+    ],
+    [
+      "score below the floor",
+      (report) => {
+        report.findings = [directorFixture.finding("f-01", "major", "craft")];
+        directorFixture.setScore(report, "craft", 3, {
+          finding_ids: ["f-01"],
+          to_reach_5: "Align the toolbar",
+        });
+      },
+      /cannot approve/,
+    ],
+  ]) {
+    const repo = directorRepo();
+    t.after(() => repo.cleanup());
+    const session = repo.session();
+    const report = directorFixture.approval({
+      session_run_id: session.run_id,
+      commit: repo.head(),
+    });
+    mutate(report);
+    const written = directorFixture.write(repo.root, 1, report, "gate-cli");
+    const before = fs.readFileSync(repo.sessionPath);
+    const recorded = repo.record(directorResult(repo, session, "passed", written.absolutePath));
+    assert.notEqual(recorded.status, 0, name);
+    assert.match(recorded.stderr + recorded.stdout, pattern, name);
+    assert.deepEqual(fs.readFileSync(repo.sessionPath), before, name);
+    assert.equal(
+      repo.gates().gates.some((gate) => gate.name === "design-critique"),
+      false,
+      name
+    );
+  }
+});
+
+test("a Design Director rejection is retained and the next review continues its lineage", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  let session = repo.session();
+  const rejected = directorFixture.approval({
+    session_run_id: session.run_id,
+    commit: repo.head(),
+    verdict: "reject",
+    outcome: "failed",
+    first_impression: null,
+    first_impression_answers: [],
+    findings: [directorFixture.finding("f-01", "major", "hierarchy")],
+  });
+  directorFixture.setScore(rejected, "hierarchy", 3, {
+    finding_ids: ["f-01"],
+    to_reach_5: "One primary action",
+  });
+  const first = directorFixture.write(repo.root, 1, rejected, "gate-cli");
+  const failed = repo.record(directorResult(repo, session, "failed", first.absolutePath));
+  assert.equal(failed.status, 0, failed.stderr + failed.stdout);
+  session = repo.session();
+  assert.equal(session.phase, "design-critique");
+  assert.equal(session.phase_attempt, 2);
+  const [anchor] = session.evidence["design-critique"].recovery_history;
+  assert.deepEqual(
+    { round: anchor.round, outcome: anchor.outcome, report: anchor.report },
+    { round: 1, outcome: "failed", report: { path: first.reportPath, sha256: first.sha256 } }
+  );
+
+  fs.writeFileSync(path.join(repo.root, "scripts", "feature.js"), "module.exports = 2;\n");
+  git(repo.root, ["commit", "-qam", "fix hierarchy"]);
+  const approved = directorFixture.approval({
+    session_run_id: session.run_id,
+    commit: repo.head(),
+    review: 2,
+    round: 2,
+    prior_report: { path: first.reportPath, sha256: first.sha256 },
+    findings: [directorFixture.finding("f-01", "major", "hierarchy", "fixed")],
+  });
+  const unlinked = { ...approved, prior_report: null };
+  const orphan = directorFixture.write(repo.root, 2, unlinked, "gate-cli");
+  const refused = repo.record(directorResult(repo, session, "passed", orphan.absolutePath));
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr + refused.stdout, /prior_report/);
+
+  const second = directorFixture.write(repo.root, 2, approved, "gate-cli");
+  const passed = repo.record(directorResult(repo, session, "passed", second.absolutePath));
+  assert.equal(passed.status, 0, passed.stderr + passed.stdout);
+  const row = repo.gates().gates.find((gate) => gate.name === "design-critique");
+  assert.equal(row.artifact, second.reportPath);
+  assert.equal(repo.session().evidence["design-critique"].recovery_history.length, 2);
+});
+
+test("the Design Director's third round can pass after two retained rejections", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  let prior = null;
+  for (const review of [1, 2]) {
+    const session = repo.session();
+    const rejected = directorFixture.approval({
+      session_run_id: session.run_id,
+      commit: repo.head(),
+      review,
+      round: review,
+      prior_report: prior,
+      verdict: "reject",
+      outcome: "failed",
+      first_impression: null,
+      first_impression_answers: [],
+      findings: [directorFixture.finding("f-01", "major", "hierarchy")],
+    });
+    directorFixture.setScore(rejected, "hierarchy", 3, {
+      finding_ids: ["f-01"],
+      to_reach_5: "One primary action",
+    });
+    const written = directorFixture.write(repo.root, review, rejected, "gate-cli");
+    const failed = repo.record(directorResult(repo, session, "failed", written.absolutePath));
+    assert.equal(failed.status, 0, failed.stderr + failed.stdout);
+    prior = { path: written.reportPath, sha256: written.sha256 };
+    fs.writeFileSync(
+      path.join(repo.root, "scripts", "feature.js"),
+      `module.exports = ${review + 10};\n`
+    );
+    git(repo.root, ["commit", "-qam", `fix round ${review}`]);
+  }
+  const session = repo.session();
+  assert.equal(session.phase_attempt, 3);
+  const approved = directorFixture.approval({
+    session_run_id: session.run_id,
+    commit: repo.head(),
+    review: 3,
+    round: 3,
+    prior_report: prior,
+    findings: [
+      directorFixture.finding("f-01", "major", "hierarchy", "fixed"),
+      directorFixture.finding("f-02", "small", "microcopy", "filed", {
+        first_seen_round: 3,
+        late: { ui: "changed-by-fix" },
+      }),
+    ],
+  });
+  directorFixture.setScore(approved, "microcopy", 4, {
+    finding_ids: ["f-02"],
+    to_reach_5: "Shorten the empty text",
+  });
+  const written = directorFixture.write(repo.root, 3, approved, "gate-cli");
+  const passed = repo.record(directorResult(repo, session, "passed", written.absolutePath));
+  assert.equal(passed.status, 0, passed.stderr + passed.stdout);
+  assert.equal(
+    repo.gates().gates.find((gate) => gate.name === "design-critique").artifact,
+    written.reportPath
+  );
+});
+
+test("a commit after a Design Director approval is reviewed as a new run", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const first = directorFixture.write(
+    repo.root,
+    1,
+    directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() }),
+    "gate-cli"
+  );
+  assert.equal(repo.record(directorResult(repo, session, "passed", first.absolutePath)).status, 0);
+
+  fs.writeFileSync(path.join(repo.root, "scripts", "feature.js"), "module.exports = 9;\n");
+  git(repo.root, ["commit", "-qam", "change the UI after approval"]);
+  const stale = repo.gate(["--name", "design-critique"]);
+  assert.notEqual(stale.status, 0, "the earlier approval does not cover the new commit");
+
+  const reopened = repo.session();
+  reopened.phase = "design-critique";
+  reopened.phase_attempt = 2;
+  repo.saveSession(reopened);
+  const second = directorFixture.write(
+    repo.root,
+    1,
+    directorFixture.approval({
+      run_id: "after-approval",
+      session_run_id: session.run_id,
+      commit: repo.head(),
+    }),
+    "gate-cli"
+  );
+  const recorded = repo.record(directorResult(repo, reopened, "passed", second.absolutePath));
+  assert.equal(recorded.status, 0, recorded.stderr + recorded.stdout);
+  const row = repo.gates().gates.find((gate) => gate.name === "design-critique");
+  assert.equal(row.commit, repo.head());
+  assert.equal(row.artifact, second.reportPath);
+  assert.match(row.artifact, /director\/after-approval\/review-1/);
+});
