@@ -53,7 +53,7 @@ Give no state list beyond the declared states. Choosing what else to examine is 
 - Each review runs at a new commit that contains the builder's fixes, and gets the next `review-{N}` directory.
 - A review continues the one before it: `prior_report` binds the earlier report's path and SHA-256, and every earlier finding stays in the list with its current status.
 - One reset per run restarts the round count at 1. Reviews keep counting. A run has at most five reviews.
-- A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. Dev's usual diagnose-and-continue recovery does not apply here. A parked run takes no further review, a reset cannot reopen it, and this session cannot start another run. Continuing the work needs new direction from the owner and a new Dev session.
+- A rejection in round 3, or in the fifth review, parks the work. Record the rejection, leave the work unmerged with the report, and stop. The recorder marks the session blocked with the code `design-director-parked`. Dev's usual diagnose-and-continue recovery does not apply here. A parked run takes no further review, a reset cannot reopen it, and this session cannot start another run. Continuing the work needs new direction from the owner and a new Dev session.
 - A run ends at its approval. When a later commit changes the reviewed UI, start a new director run: a new `{run}` name, `review-1`, round 1, no `prior_report`. A new run cannot start while the current one is unfinished or parked.
 
 After a rejection, give the builder the open findings and nothing else from the report. The builder fixes, commits, and updates the access notes.
@@ -164,7 +164,7 @@ Field rules the check enforces:
 - **First impression.** Until the pass has run, write `"first_impression": null`, an empty `first_impression_answers`, and no `agents.first_impression`. A rejection passes the check in that form. An approval passes only after the points, the first-impression agent's identity and an answer to every point have been added.
 - **Prior report.** `null` for the first review of a run. Otherwise `{"path": "<project-relative path of the previous review's report.json>", "sha256": "<hex SHA-256 of its bytes>"}`. Unlike screenshot paths, this path starts at `.pm/`.
 - **Reset.** `{"used": true, "reason": "rebuild | wrong-direction | invalid-round", "at_review": N}`, carried unchanged into later reports. A reset is declared in place of the next round, at review 2 or 3; it cannot follow a round 3 rejection.
-- **Limits.** `screenshots-only`, or `style_values_measured: false`, needs `measurement_limits` and caps craft at 4.
+- **Limits.** `screenshots-only`, or `style_values_measured: false`, needs `measurement_limits` and caps craft at 4. `style_values_measured: true` needs at least one saved measurement file.
 - **Verdict.** An approval has no score below 4, no open major finding or regression, and in rounds 1 and 2 no open small finding or elevation. A rejection has at least one of those.
 
 ## Check and record
@@ -177,7 +177,7 @@ Field rules the check enforces:
 
    Exit 0 means the report is complete, current and consistent with its verdict. It does not mean the work passed.
 2. Record the phase result through `dev-session.js record` with one `review` evidence record whose `artifact` is the absolute `report.json`. Use status `passed` for an approval and `failed` for a rejection.
-3. The recorder reruns the check, requires the report's commit to equal the result commit, and keeps each report as an anchor in the phase's recovery history. On an approval it writes the Design Critique gate row pointing at the report.
+3. The recorder reruns the check, requires the report's commit to equal the result commit, and keeps each report as an anchor in the phase's recovery history. On an approval it writes the Design Critique gate row pointing at the report. Do not edit an approved report: a later gate write refuses bytes that differ from the recorded approval.
 
 A new commit after an approval makes the report stale. Never edit the report's commit. When the commit changed the reviewed UI, return the session to this phase and review it as a new director run. When it did not, Dev's existing recertification rules decide whether the approval carries forward.
 

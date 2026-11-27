@@ -295,6 +295,10 @@ function checkEvidence(report, root, directory, add) {
     add("measurement_limits", "must state what could not be measured");
   if (measurements.length === 0 && !limits.some(text))
     add("measurements", "the standard sweep is required on every changed screen");
+  if (isObject(exercised) && exercised.style_values_measured === true && !measurements.length)
+    add("measurements", "measured style values need the saved measurement output");
+  if (measurements.some((entry) => isObject(entry) && entry.path === "report.json"))
+    add("measurements", "the report is not measurement output");
   measurements.forEach((entry, index) => {
     const at = `measurements[${index}]`;
     if (!isObject(entry) || !text(entry.screen)) return add(at, "needs the screen it measured");
@@ -561,6 +565,8 @@ function checkDesignDirector(options = {}) {
     verdict: report.verdict,
     review: report.review,
     round: report.round,
+    run_id: report.run_id,
+    commit: report.commit,
     blockers: reasons,
     follow_ups: listOf(report.findings)
       .filter((finding) => isObject(finding) && finding.status === "filed")

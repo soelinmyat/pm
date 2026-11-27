@@ -1977,3 +1977,86 @@ test("a commit after a Design Director approval is reviewed as a new run", (t) =
   assert.equal(row.artifact, second.reportPath);
   assert.match(row.artifact, /director\/after-approval\/review-1/);
 });
+
+test("a Design Director rejection in round 3 blocks the session as parked", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  let prior = null;
+  for (const review of [1, 2, 3]) {
+    const session = repo.session();
+    const rejected = directorFixture.approval({
+      session_run_id: session.run_id,
+      commit: repo.head(),
+      review,
+      round: review,
+      prior_report: prior,
+      verdict: "reject",
+      outcome: "failed",
+      first_impression: null,
+      first_impression_answers: [],
+      findings: [directorFixture.finding("f-01", "major", "hierarchy")],
+    });
+    directorFixture.setScore(rejected, "hierarchy", 3, {
+      finding_ids: ["f-01"],
+      to_reach_5: "One primary action",
+    });
+    const written = directorFixture.write(repo.root, review, rejected, "gate-cli");
+    const failed = repo.record(directorResult(repo, session, "failed", written.absolutePath));
+    // Recording a parked run succeeds in writing a blocked session, which the
+    // CLI reports with its blocked exit status.
+    if (review < 3) assert.equal(failed.status, 0, failed.stderr + failed.stdout);
+    else assert.match(failed.stdout, /design-director-parked/);
+    prior = { path: written.reportPath, sha256: written.sha256 };
+    assert.equal(repo.session().status, review < 3 ? "active" : "blocked");
+    fs.writeFileSync(
+      path.join(repo.root, "scripts", "feature.js"),
+      `module.exports = ${review + 20};\n`
+    );
+    git(repo.root, ["commit", "-qam", `fix round ${review}`]);
+  }
+  const parked = repo.session();
+  assert.equal(parked.phase, "design-critique");
+  const blocker = parked.blockers.at(-1);
+  assert.equal(blocker.code, "design-director-parked");
+  assert.match(blocker.reason, /director\/main\/review-3\/report\.json/);
+  assert.equal(parked.evidence["design-critique"].recovery_history.length, 3);
+});
+
+test("a gate repair refuses a Design Director report edited after its approval", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const report = directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() });
+  const written = directorFixture.write(repo.root, 1, report, "gate-cli");
+  assert.equal(
+    repo.record(directorResult(repo, session, "passed", written.absolutePath)).status,
+    0
+  );
+  assert.equal(repo.gate(["--name", "design-critique"]).status, 0, "unchanged bytes re-certify");
+
+  report.scores[0].anchor = "Edited after the approval was recorded";
+  fs.writeFileSync(written.absolutePath, JSON.stringify(report, null, 2));
+  const repaired = repo.gate(["--name", "design-critique"]);
+  assert.notEqual(repaired.status, 0);
+  assert.match(repaired.stderr, /retained passing Design Director report binding changed/);
+});
+
+test("the Design Director check runs from a subdirectory with an absolute report path", (t) => {
+  const repo = directorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const written = directorFixture.write(
+    repo.root,
+    1,
+    directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() }),
+    "gate-cli"
+  );
+  const checker = path.resolve(__dirname, "..", "scripts", "design-director-check.js");
+  const run = spawnSync(
+    process.execPath,
+    [checker, "--report", written.absolutePath, "--run-id", session.run_id, "--json"],
+    { cwd: path.join(repo.root, "scripts"), encoding: "utf8" }
+  );
+  assert.equal(run.status, 0, run.stderr + run.stdout);
+  assert.equal(JSON.parse(run.stdout).verdict, "approve");
+});

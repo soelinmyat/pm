@@ -5,6 +5,7 @@
 // complete, current and consistent with its verdict, whether that verdict is
 // an approval or a rejection. Only an approved report can pass the gate.
 
+const fs = require("node:fs");
 const path = require("node:path");
 const { requireValue } = require("./lib/check-cli");
 const { gitExec } = require("./lib/git-env");
@@ -18,6 +19,7 @@ function usage() {
     "The report lives at",
     ".pm/dev-sessions/{slug}/design-critique/director/{run}/review-{N}/report.json.",
     "Without --commit, the report must have been made at the current HEAD.",
+    "Without --root, the project is the Git work tree containing the current directory.",
   ].join("\n");
 }
 
@@ -43,10 +45,22 @@ function main(argv = process.argv.slice(2)) {
     process.stderr.write(`${error.message}\n${usage()}\n`);
     return 2;
   }
-  const root = path.resolve(options.root || process.cwd());
-  const reportPath = path.isAbsolute(options.report)
-    ? path.relative(root, options.report)
-    : options.report;
+  // Resolve the project root and the report through symlinks, so the check
+  // works from a subdirectory and with the absolute path the docs give.
+  let root;
+  let reportPath;
+  try {
+    const start = path.resolve(options.root || process.cwd());
+    root = fs.realpathSync(
+      options.root ? start : gitExec(start, ["rev-parse", "--show-toplevel"]).trim()
+    );
+    reportPath = path.isAbsolute(options.report)
+      ? path.relative(root, fs.realpathSync(options.report))
+      : options.report;
+  } catch (error) {
+    process.stderr.write(`cannot locate the project or report: ${error.message}\n`);
+    return 2;
+  }
   let commit = options.commit;
   if (!commit) {
     try {

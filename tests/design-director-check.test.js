@@ -455,3 +455,13 @@ test("an approval needs a first-impression pass that reported something", () => 
   const report = approval({ first_impression: { points: [] }, first_impression_answers: [] });
   assert.match(messages(check(report)), /at least one point/);
 });
+
+test("measured style values need saved measurement output", () => {
+  const report = approval({ measurements: [], measurement_limits: ["Could not reach the drawer"] });
+  assert.match(
+    messages(check(report)),
+    /measurements: measured style values need the saved measurement output/
+  );
+  const selfReferencing = approval({ measurements: [{ screen: "Orders", path: "report.json" }] });
+  assert.match(messages(check(selfReferencing)), /the report is not measurement output/);
+});

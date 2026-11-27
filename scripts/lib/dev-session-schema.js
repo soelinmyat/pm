@@ -1628,6 +1628,18 @@ function validateScopedGateEvidence(session, result, errors) {
   }
 }
 
+// The path of a just-anchored Design Director rejection that parks its run.
+function parkedDirectorReportPath(session, anchor) {
+  const director = require("./design-director-report");
+  if (anchor.outcome !== "failed" || !director.isDirectorReportPath(anchor.report.path))
+    return null;
+  const root = fs.realpathSync(session.source.worktree);
+  const report = JSON.parse(readProjectInput(root, anchor.report.path, 4 * 1024 * 1024).bytes);
+  return report.round === director.MAX_ROUNDS || report.review === director.MAX_REVIEWS
+    ? anchor.report.path
+    : null;
+}
+
 function validateAstraRuntimeBinding(execution, runtime, errors, runtimePath) {
   if (!isObject(execution) || !isObject(runtime)) return;
   try {
@@ -3614,6 +3626,7 @@ function recordResult(session, result, options = {}) {
         : {}),
     };
   }
+  let parkedDirectorReport = null;
   if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
     if (["failed", "blocked"].includes(result.status) && next.evidence[priorPhase]) {
       next.evidence[priorPhase] = {
@@ -3636,6 +3649,7 @@ function recordResult(session, result, options = {}) {
       next.evidence[priorPhase] ||= { commit: null, records: [], recorded_at: timestamp };
       next.evidence[priorPhase].recovery_history ||= [];
       next.evidence[priorPhase].recovery_history.push(anchor);
+      parkedDirectorReport = parkedDirectorReportPath(session, anchor);
     }
   }
   if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {
@@ -3693,6 +3707,19 @@ function recordResult(session, result, options = {}) {
         next.phase_attempt > QA_RECOVERY_THRESHOLD
           ? "QA recovery diagnosis required before repeating a failed approach"
           : "validated QA retry with continuous history";
+    } else if (parkedDirectorReport) {
+      // A parked Design Director run takes no further review. Recording it as
+      // an ordinary retry would tell a resuming worker to diagnose and continue.
+      next.phase_attempt += 1;
+      next.status = "blocked";
+      next.blockers.push({
+        code: "design-director-parked",
+        reason: `the Design Director rejected the work in its last round: ${parkedDirectorReport}`,
+        remediation: "Report the open findings to the owner; the work restarts in a new session",
+        phase: priorPhase,
+        recorded_at: timestamp,
+      });
+      reason = "blocked: design-director-parked";
     } else if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
       next.phase_attempt += 1;
       reason =
