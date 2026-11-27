@@ -157,10 +157,53 @@ test("canonical proposals accept declared surfaces and show them to the approver
   const rendered = renderProposal(proposal, { version: "test" });
   assert.match(rendered.html, /<strong>Surfaces in scope<\/strong>/);
   assert.match(rendered.html, /Invoice filter bar/);
-  assert.match(rendered.html, /apps\/web\/src\/invoices\/filter-bar\.tsx/);
+  assert.ok(
+    renderedPaths(rendered.html).includes("apps/web/src/invoices/filter-bar.tsx"),
+    "the path's text is intact"
+  );
   assert.match(rendered.markdown, /### Surfaces in scope/);
   assert.match(rendered.markdown, /Invoice list/);
   assert.match(rendered.markdown, /apps\/web\/src\/invoices\/list\/\*\*/);
+});
+
+// The text a reader copies from each rendered surface path.
+function renderedPaths(html) {
+  return [...html.matchAll(/<code class="surface-path">([\s\S]*?)<\/code>/g)].map((match) =>
+    match[1].replace(/<[^>]+>/g, "")
+  );
+}
+
+test("surface paths wrap only after a slash, never inside a segment", () => {
+  const proposal = strongProposal();
+  const long =
+    "apps/web/src/organisation-level-payment-preferences/recurring-invoice-export.module.css";
+  proposal.design_context.surfaces = [{ name: "Payment preferences", paths: [long] }];
+  const rendered = renderProposal(proposal, { version: "test" });
+
+  assert.deepEqual(renderedPaths(rendered.html), [long]);
+  const code = rendered.html.match(/<code class="surface-path">([\s\S]*?)<\/code>/)[1];
+  // Each segment is one unbreakable span; the only break opportunity is after a slash.
+  const segments = [...code.matchAll(/<span class="surface-path-segment">([^<]*)<\/span>/g)].map(
+    (match) => match[1]
+  );
+  assert.deepEqual(segments, long.split("/"));
+  assert.equal((code.match(/<wbr>/g) || []).length, long.split("/").length - 1);
+  assert.match(code, /^<span class="surface-path-segment">apps<\/span>\/<wbr>/);
+  assert.match(rendered.html, /\.surface-path-segment\s*\{[^}]*white-space:\s*nowrap/);
+  assert.match(rendered.html, /code\.surface-path\s*\{[^}]*overflow-wrap:\s*normal/);
+});
+
+test("dependencies and constraints are labelled separately", () => {
+  const proposal = strongProposal();
+  proposal.handoff.dependencies = [];
+  proposal.handoff.constraints = ["Keep the existing export format."];
+  const rendered = renderProposal(proposal, { version: "test" });
+  const section = rendered.html.slice(rendered.html.indexOf("Dependencies and constraints"));
+  assert.match(
+    section,
+    /<strong>Dependencies<\/strong>[\s\S]*?No dependencies declared\.[\s\S]*?<strong>Constraints<\/strong>[\s\S]*?Keep the existing export format\./
+  );
+  assert.doesNotMatch(section.slice(0, section.indexOf("Keep the existing")), /None declared\./);
 });
 
 test("proposals without surfaces render no surfaces section", () => {

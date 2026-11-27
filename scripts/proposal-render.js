@@ -207,8 +207,8 @@ function proposalReaderGroups(proposal, identity) {
           id: "handoff",
           title: "Dependencies and constraints",
           body:
-            listOrEmptyHtml(proposal.handoff.dependencies) +
-            listOrEmptyHtml(proposal.handoff.constraints),
+            `<p><strong>Dependencies</strong></p>${labelledListOrEmptyHtml(proposal.handoff.dependencies, "No dependencies declared.")}` +
+            `<p><strong>Constraints</strong></p>${labelledListOrEmptyHtml(proposal.handoff.constraints, "No constraints declared.")}`,
         },
       ],
     },
@@ -378,10 +378,18 @@ function designContextHtml(proposal) {
 function surfacesHtml(surfaces) {
   if (!surfaces) return "";
   const rows = surfaces.map(
-    (surface) =>
-      `<li>${h(surface.name)}: ${surface.paths.map((item) => `<code>${h(item)}</code>`).join(", ")}</li>`
+    (surface) => `<li>${h(surface.name)}: ${surface.paths.map(surfacePathHtml).join(", ")}</li>`
   );
   return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
+}
+
+// A path wraps only after a slash. Each segment is unbreakable, so hyphens
+// and file extensions never split and the copied text stays exact.
+function surfacePathHtml(pattern) {
+  const segments = pattern
+    .split("/")
+    .map((segment) => `<span class="surface-path-segment">${h(segment)}</span>`);
+  return `<code class="surface-path">${segments.join("/<wbr>")}</code>`;
 }
 
 function surfacesMarkdown(surfaces) {
@@ -451,7 +459,11 @@ function uiImpactText(context) {
 }
 
 function listOrEmptyHtml(items) {
-  return Array.isArray(items) && items.length ? listHtml(items) : "<p>None declared.</p>";
+  return labelledListOrEmptyHtml(items, "None declared.");
+}
+
+function labelledListOrEmptyHtml(items, empty) {
+  return Array.isArray(items) && items.length ? listHtml(items) : `<p>${h(empty)}</p>`;
 }
 
 function markdownListOrEmpty(items) {
