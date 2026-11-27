@@ -8,3 +8,5 @@ Read the skill file at ${CLAUDE_PLUGIN_ROOT}/skills/ship/SKILL.md and follow it 
 During delivery route selection, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/capability-guidance.md`.
 
 PM automatically discovers repository-native delivery capabilities with zero consumer edits. Ship uses every proven-safe capability, but requires an explicitly authorized machine-readable candidate-publication policy for the optimized route; otherwise, including for CleanLog's current contract, it keeps comprehensive Review → Push → PR → CI ordering. `PM_DELIVERY_COMPREHENSIVE=1` is the single comprehensive kill switch. Guidance is read-only and setup requires separate explicit authority.
+
+Merge asks for the user's confirmation unless the session carries a standing merge authorization from a grooming approval. Under one, Ship merges only after `dev-session merge-check --record` passes at the exact PR head, and otherwise leaves the PR open with the recorded reasons.

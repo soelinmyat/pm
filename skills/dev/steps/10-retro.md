@@ -207,6 +207,14 @@ Skip this step silently when the session has no Design Director report.
 7. **Record each outcome** as it happens: `dev-session.js follow-up-record --session <session.json> --key <key> --state filed --tracker linear|backlog --ref <CLE-123 | backlog/{slug}.md> --action created|occurrence-added`. Use `--state declined` or `--state merged --into <key>` for the others. A filed item is final, so a rerun skips it.
 8. **Report.** List in the retro summary what was filed, with each reference, what was merged or declined, and what is still pending. Pending items stay in the session; `follow-ups` still lists them after completion.
 
+### Step 6d: State how the merge was decided
+
+Read `session.json` `merge_authorization.decisions`. When the last decision is `merge`, open the retro summary with:
+
+> Merged automatically, with no human review of the merge, under the standing authorization {approved_by} gave at {approved_at} when approving {proposal_id} revision {revision}. merge-check passed at {commit}: CI {ci.status} ({check names}), gates {name: status at commit, each}, Design Director {verdict} ({report path}) with mechanical checks {pass|fail}.
+
+Take each value from that decision's `evidence`. When the last decision is `refuse`, say the work was not merged, list every reason code and message, and name the open PR. When there is no decision, say nothing about it.
+
 ---
 
 ### Step 7: Record the retro result

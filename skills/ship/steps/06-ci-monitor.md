@@ -110,4 +110,4 @@ tip, or the report states the precise failed/pending/missing/unavailable outcome
 or independently verified no-required-checks policy. Every CI-fix commit has
 current Review/gate artifacts plus a passing `dev-gate-check` before its push.
 
-**Advance:** proceed to Step 07 (Merge Loop) only with a satisfied required-check policy, explicit merge authority, and enabled merge behavior. Otherwise stop with the observed CI state; emit the green-PR early-exit report only for `passed`, and report `not-required` explicitly without claiming CI passed.
+**Advance:** proceed to Step 07 (Merge Loop) only with a satisfied required-check policy, explicit merge authority or a standing merge authorization that applies, and enabled merge behavior. A standing authorization needs `passed`; `not-required` cannot merge automatically. Otherwise stop with the observed CI state; emit the green-PR early-exit report only for `passed`, and report `not-required` explicitly without claiming CI passed.

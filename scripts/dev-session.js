@@ -5,6 +5,7 @@ const os = require("node:os");
 const { cleanGeneratedSessionData, inspectSessionStorage } = require("./lib/dev-session-storage");
 const resources = require("./lib/dev-session-resources");
 const followUpLedger = require("./lib/design-director-follow-ups");
+const mergeAuthorization = require("./lib/merge-authorization");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -106,6 +107,12 @@ function main(argv) {
       return followUpsCommand(options);
     case "follow-up-record":
       return followUpRecordCommand(options);
+    case "merge-authorization":
+      return mergeAuthorizationCommand(options);
+    case "merge-authorization-revoke":
+      return mergeAuthorizationRevokeCommand(options);
+    case "merge-check":
+      return mergeCheckCommand(options);
     case "sweep":
       return sweepCommand(options);
     case "status":
@@ -215,11 +222,16 @@ function parseArguments(argv) {
     "action",
     "into",
     "scope",
+    "observation",
+    "gates",
+    "root",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
   spec["--dry-run"] = { key: "dryRun", type: "boolean" };
   spec["--remove"] = { key: "remove", type: "boolean" };
+  spec["--apply"] = { key: "apply", type: "boolean" };
+  spec["--record"] = { key: "record", type: "boolean" };
   try {
     const parsed = parseCliArgs(argv.slice(1), spec);
     if (parsed.positionals.length > 0) {
@@ -1707,6 +1719,227 @@ function followUpRecordCommand(options) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Standing merge authorization: merge-authorization, merge-check, revoke
+
+const MERGE_CHECK_EXIT = Object.freeze({ merge: 0, refuse: 1, manual: EXIT.PRECONDITION });
+const MAX_MERGE_INPUT_BYTES = 1024 * 1024;
+
+function readOptionalJson(file) {
+  try {
+    return { value: readBoundedJsonFile(file, MAX_MERGE_INPUT_BYTES), error: null };
+  } catch (error) {
+    return { value: null, error: error.code === "ENOENT" ? "missing" : error.message };
+  }
+}
+
+function readProposalApproval(ledger) {
+  if (!ledger?.proposal?.path) return { value: null, error: "no proposal path" };
+  return readOptionalJson(ledger.proposal.path.replace(/\.json$/, ".approval.json"));
+}
+
+function mergeAuthorizationState(session) {
+  const ledger = session.merge_authorization;
+  const projectSetting = mergeAuthorization.readProjectMergeSetting(
+    mergeAuthorization.pmDirForProposal(ledger?.proposal?.path || session.task?.proposal?.path)
+  );
+  const approval = readProposalApproval(ledger);
+  const reasons = mergeAuthorization.authorizationReasons({
+    session,
+    projectSetting,
+    approval: approval.value,
+    approvalError: approval.error,
+  });
+  return { ledger, projectSetting, approval, reasons, applies: reasons.length === 0 };
+}
+
+function mergeAuthorizationCommand(options) {
+  requireOnlyOptions(options, ["session", "apply", "json"]);
+  requireOptions(options, ["session"]);
+  const sessionPath = path.resolve(options.session);
+  let session = readSession(sessionPath);
+  const state = mergeAuthorizationState(session);
+  if (options.apply && state.applies) {
+    // Pushing the branch and opening the PR are the steps toward the merge the
+    // approver authorized; the merge itself waits for merge-check.
+    const reason = mergeAuthorization.standingDeliveryReason(state.ledger);
+    session = mutateSession(sessionPath, (current) =>
+      grantAuthority(current, ["push_feature_branch", "create_pr"], reason)
+    );
+  }
+  const report = {
+    session_path: sessionPath,
+    applies: state.applies,
+    reasons: state.reasons.map(({ code, message, class: kind }) => ({
+      code,
+      message,
+      class: kind,
+    })),
+    record: state.ledger?.record ?? null,
+    revoked: state.ledger?.revoked ?? null,
+    project_setting: state.projectSetting,
+    decisions: state.ledger?.decisions?.length ?? 0,
+    authority: session.authority,
+  };
+  emit(
+    options,
+    report,
+    state.applies
+      ? `Standing merge authorization applies (approved by ${state.ledger.record.approved_by} at ${state.ledger.record.approved_at}).\n`
+      : `Standing merge authorization does not apply: ${state.reasons
+          .map((item) => item.code)
+          .join(", ")}\n`
+  );
+  return state.applies ? EXIT.OK : EXIT.PRECONDITION;
+}
+
+function mergeAuthorizationRevokeCommand(options) {
+  requireOnlyOptions(options, ["session", "reason", "json"]);
+  requireOptions(options, ["session", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      mergeAuthorization.revokeMergeAuthorization(session, options.reason)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    { session_path: sessionPath, revoked: updated.merge_authorization.revoked },
+    `Standing merge authorization revoked: ${updated.merge_authorization.revoked.reason}\n`
+  );
+  return EXIT.OK;
+}
+
+// Decides whether the merge may proceed automatically and, with --record,
+// writes the decision to the session. Only a merge decision grants the merge
+// authority Ship's transaction requires. The PR and CI state come from an
+// observation file Ship reads through the contracted repository API.
+function mergeCheckCommand(options) {
+  requireOnlyOptions(options, [
+    "session",
+    "observation",
+    "commit",
+    "gates",
+    "root",
+    "record",
+    "json",
+  ]);
+  requireOptions(options, ["session", "observation", "commit"]);
+  const sessionPath = path.resolve(options.session);
+  const session = readSession(sessionPath);
+  const root = path.resolve(options.root || session.source.worktree || session.source.repo_root);
+  const gatesPath = path.resolve(
+    options.gates || path.join(root, ".pm", "dev-sessions", session.slug, "gates.json")
+  );
+  const shipDir = path.join(path.dirname(gatesPath), "ship");
+  const observation = readOptionalJson(path.resolve(options.observation));
+  if (observation.error)
+    throw cliError(`cannot read observation: ${observation.error}`, EXIT.INVALID);
+  const gates = readOptionalJson(gatesPath).value;
+  const state = mergeAuthorizationState(session);
+  const commit = options.commit;
+  const gateCheck = gates ? fullGateCheck({ root, session, gates, gatesPath, commit }) : null;
+  const director = directorEvidence({ root, session, gates, commit });
+  const result = mergeAuthorization.evaluateAutoMerge({
+    session,
+    commit,
+    projectSetting: state.projectSetting,
+    approval: state.approval.value,
+    approvalError: state.approval.error,
+    gates,
+    gateCheck,
+    directorCheck: director.check,
+    directorReport: director.report,
+    mechanical: director.mechanical,
+    observation: observation.value,
+    deliveryContract: readOptionalJson(path.join(shipDir, "delivery-contract.json")).value,
+    releaseTransaction: readOptionalJson(path.join(shipDir, "release-transaction.json")).value,
+  });
+  let recorded = false;
+  if (options.record && session.merge_authorization) {
+    try {
+      mutateSession(sessionPath, (current) => {
+        if (current.updated_at !== session.updated_at)
+          throw new Error("the session changed during merge-check; run it again");
+        return mergeAuthorization.recordMergeDecision(current, result, grantAuthority);
+      });
+      recorded = true;
+    } catch (error) {
+      throw cliError(error.message, EXIT.PRECONDITION);
+    }
+  }
+  emit(
+    options,
+    { ...result, session_path: sessionPath, recorded },
+    result.decision === "merge"
+      ? `Merge may proceed automatically at ${commit}.\n`
+      : `${result.decision === "manual" ? "No standing authorization applies" : "Merge refused"}: ${result.reasons
+          .map((item) => `${item.code} (${item.message})`)
+          .join("; ")}\n`
+  );
+  return MERGE_CHECK_EXIT[result.decision];
+}
+
+function fullGateCheck({ root, session, gates, gatesPath, commit }) {
+  try {
+    const checker = require("./dev-gate-check");
+    const context = checker.resolveEnforcementContext({
+      cwd: root,
+      session,
+      enforce: true,
+      currentCommit: commit,
+      currentBranch: session.source.branch,
+      remote: session.source.delivery_remote || "origin",
+    });
+    return checker.checkGateManifest(gates, {
+      currentCommit: commit,
+      currentBranch: context.currentBranch,
+      manifestPath: gatesPath,
+      changedFiles: context.changedFiles,
+      runId: session.run_id,
+      canonicalSession: session,
+      requireSessionBinding: true,
+      authoritativeBaseRef: context.authoritativeBaseRef,
+      authoritativeBaseCommit: context.authoritativeBaseCommit,
+      authoritativePushUrlSha256: context.authoritativePushUrlSha256,
+      reviewEvidenceMode: "enforce",
+      artifactRoot: root,
+      requiredAuthorities: [],
+    });
+  } catch (error) {
+    return { ok: false, issues: [{ message: error.message }] };
+  }
+}
+
+function directorEvidence({ root, session, gates, commit }) {
+  const row = Array.isArray(gates?.gates)
+    ? gates.gates.find((item) => item?.name === "design-critique")
+    : null;
+  const { checkDesignDirector, isDirectorReportPath } = require("./lib/design-director-report");
+  if (row?.status !== "passed" || !isDirectorReportPath(row.artifact))
+    return { check: null, report: null, mechanical: null };
+  const check = checkDesignDirector({
+    root,
+    reportPath: row.artifact,
+    commit: row.commit,
+    runId: session.run_id,
+  });
+  let mechanical;
+  try {
+    mechanical = require("./lib/design-director-mechanical").runMechanicalChecks({
+      root,
+      session,
+      commit,
+    });
+  } catch (error) {
+    mechanical = { ok: false, issues: [{ check: "mechanical", message: error.message }] };
+  }
+  return { check, report: row.artifact, mechanical };
+}
+
 function sweepCommand(options) {
   requireOnlyOptions(options, ["session", "sourceDir", "remove", "json"]);
   if (Boolean(options.session) === Boolean(options.sourceDir)) {
@@ -1931,6 +2164,9 @@ function helpText() {
     "  follow-ups --session <path> [--json]",
     "  follow-up-record --session <path> --key <fu_key> --state <pending|filed|merged|declined> [--tracker <linear|backlog> --ref <id> --action <created|occurrence-added>] [--into <fu_key>] [--scope <system|local>] [--json]",
     "  sweep (--session <path> | --source-dir <path>) [--remove] [--json]",
+    "  merge-authorization --session <path> [--apply] [--json]",
+    "  merge-authorization-revoke --session <path> --reason <text> [--json]",
+    "  merge-check --session <path> --observation <pr-ci.json> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",

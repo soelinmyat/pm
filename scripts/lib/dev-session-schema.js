@@ -25,6 +25,7 @@ const {
 const { isRfc3339DateTime } = require("./iso-time");
 const { validateResources } = require("./dev-session-resources");
 const { validateFollowUps } = require("./design-director-follow-ups");
+const { buildSessionLedger, validateSessionMergeAuthorization } = require("./merge-authorization");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
   appendTransition,
@@ -143,6 +144,7 @@ const SESSION_FIELDS_WITH_OPTIONAL = new Set([
   ...SESSION_TOP_LEVEL_FIELDS,
   "resources",
   "follow_ups",
+  "merge_authorization",
 ]);
 
 function resolvePhaseContract(session, options = {}) {
@@ -205,6 +207,8 @@ function validateSession(session) {
   validateResources(session.resources, errors);
   // So is the follow-up ledger, written only after a merged director run.
   validateFollowUps(session.follow_ups, errors);
+  // So is the standing merge authorization carried from the grooming approval.
+  validateSessionMergeAuthorization(session, errors, issue);
   if (session.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
     errors.push(issue("$.schema_version", `must equal ${DEV_SESSION_SCHEMA_VERSION}`));
   }
@@ -2411,6 +2415,53 @@ function createSession(options) {
   return session;
 }
 
+// The standing merge authorization travels with the approved proposal. A
+// direct proposal route carries it from the proposal's approval audit. An RFC
+// route names the approved proposal it was derived from in
+// `merge_authorization_proposal_path`; the proposal must share the RFC's slug
+// and exact design context. Anything else carries no authorization.
+function standingMergeLedger({
+  proposalIdentity,
+  proposalApproval,
+  facts,
+  rfcSidecar,
+  designContext,
+  previewSourceRoot,
+}) {
+  if (proposalIdentity) {
+    if (facts.merge_authorization_proposal_path !== undefined)
+      throw new Error("merge_authorization_proposal_path applies only to an RFC route");
+    if (!proposalApproval?.merge_authorization) return null;
+    return buildSessionLedger(proposalApproval.merge_authorization, proposalIdentity);
+  }
+  const named = facts.merge_authorization_proposal_path;
+  if (named === undefined || named === null) return null;
+  if (!rfcSidecar)
+    throw new Error("merge_authorization_proposal_path needs an approved RFC sidecar route");
+  if (typeof named !== "string" || !path.isAbsolute(named))
+    throw new Error("merge_authorization_proposal_path must be an absolute path");
+  const proposalPath = fs.realpathSync(named);
+  const canonical = readApprovedProposal(proposalPath, {
+    projectRoot: fs.realpathSync(findGitRoot(path.dirname(proposalPath))),
+    previewSourceRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
+  if (canonical.contract.slug !== rfcSidecar.slug)
+    throw new Error("the merge authorization proposal must share the RFC's slug");
+  if (canonicalJson(canonical.contract.design_context ?? null) !== canonicalJson(designContext))
+    throw new Error("the merge authorization proposal's design context differs from the RFC's");
+  if (!canonical.approval.merge_authorization) return null;
+  return buildSessionLedger(canonical.approval.merge_authorization, {
+    path: proposalPath,
+    proposal_id: canonical.contract.proposal_id,
+    slug: canonical.contract.slug,
+    revision: canonical.contract.revision,
+    content_sha256: canonical.contract.content_sha256,
+    decision_id: canonical.approval.decision_id,
+  });
+}
+
 function applyRouting(session, facts, options = {}) {
   assertValidSession(session);
   if (session.status !== "active" || session.phase !== "intake") {
@@ -2424,6 +2475,7 @@ function applyRouting(session, facts, options = {}) {
     throw new Error("preview_source_root must be an explicitly selected absolute worktree path");
   let effectiveFacts = facts;
   let proposalIdentity = null;
+  let proposalApproval = null;
   let proposalDesignContext = null;
   if (typeof facts.proposal_path === "string" && facts.proposal_path.trim()) {
     const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
@@ -2465,6 +2517,7 @@ function applyRouting(session, facts, options = {}) {
       acceptance_criteria: contractCriteria,
       design_context: proposalDesignContext,
     };
+    proposalApproval = canonical.approval;
     proposalIdentity = {
       path: proposalPath,
       kind: canonical.kind,
@@ -2528,6 +2581,16 @@ function applyRouting(session, facts, options = {}) {
     next.task.preview_source_root = fs.realpathSync(previewSourceRoot);
   else delete next.task.preview_source_root;
   next.task.proposal = proposalIdentity;
+  const mergeLedger = standingMergeLedger({
+    proposalIdentity,
+    proposalApproval,
+    facts,
+    rfcSidecar: options.rfcSidecar,
+    designContext: effectiveDesignContext,
+    previewSourceRoot,
+  });
+  if (mergeLedger) next.merge_authorization = mergeLedger;
+  else delete next.merge_authorization;
   next.task.design_context = effectiveDesignContext
     ? structuredClone(effectiveDesignContext)
     : null;

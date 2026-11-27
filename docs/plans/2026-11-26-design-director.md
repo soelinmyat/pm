@@ -372,6 +372,22 @@ goes into an optional `follow_ups` ledger in `session.json` through
 completion. Parked runs in earlier sessions are not collected. Still open:
 whether native projects get the same confirmation.
 
+2026-11-27: the standing merge authorization from delivery item 4 is built,
+not released. By the owner's decision of 2026-11-27 it is on by default.
+`groom-session.js approve` records a `merge_authorization` beside the decision
+and binds it into the decision hash; the approval audit carries it and Dev
+routing copies it into `session.json`. `--merge manual` declines it for one
+proposal and a line `Merge: manual` in the project's PM instructions turns it
+off. `dev-session.js merge-check` decides each merge from the session, the gate
+rows and `dev-gate-check`, the director report and mechanical checks, an
+injected PR and CI observation and the release transaction. Only a pass grants
+`merge`, and `dev-gate-check` holds that grant to the checked commit. A refusal
+records its reasons and leaves the PR open. Work without an approved groomed
+proposal keeps today's confirmation. Loop `merge_pr: true` now also requires a
+passing check. Still true from the risks: the replay did not pass, so the
+director's bar is untuned, and the code reviewer is not checked to be a separate
+agent from the builder. These merges rest on that.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

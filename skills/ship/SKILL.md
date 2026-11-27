@@ -39,12 +39,13 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR desc
 - **You don't get to classify findings as "nits."** Follow the review step's severity rubric — advisory findings are evaluated, not dismissed.
 - **The PR description is for the reviewer, not the author** — a meaningful title and enough context, not a terse note.
 - **Before done:** PR created with a meaningful title/description, CI passed (not just running), review comments evaluated and addressed (not blindly resolved), merge state verified as MERGED (not just armed), and the feature branch cleaned up.
+- **Standing merge authorization merges only through `merge-check`.** A grooming approval authorizes the merge of that proposal's work, on by default, unless declined or the project's PM instructions say `Merge: manual`. Merge under it only after `dev-session merge-check --record` exits 0 at the exact head; on any refusal, leave the PR open, record why and stop. Never arm auto-merge on this path, never use `--admin`, force-push or delete the branch on failure. Work with no approved groomed proposal keeps the user's own merge confirmation.
 - Every phase records current evidence and advances only from an observed remote state. Push, PR creation, merge, and tracker effects require their exact persisted authority; preferences never supply consent.
 
 ## Red Flags — Self-Check
 
 - **"The diff is tiny, so CI is enough."** Stop and read the exact contracted diff before pushing.
-- **"Auto-merge is enabled, so merge is authorized."** Check persisted merge authority separately from preference.
+- **"Auto-merge is enabled, so merge is authorized."** Check persisted merge authority separately from preference. A standing authorization is not a merge either: only a passing `merge-check` at this head is.
 - **"The PR is green, so its comments and description are still current."** Check feedback and freshly attest the exact reviewer-handoff body before Merge.
 - **"The hook is flaky."** Stop and diagnose it; never use `--no-verify`.
 - **"The command timed out, so retry it."** The effect may have completed; use the release transaction's observer first.
@@ -100,5 +101,5 @@ The following reference files provide detailed guidance for specific ship phases
 ## Before Marking Done
 
 - [ ] The prepared tree, release transaction, delivery contract, exact PR-description bytes, fresh pre-merge body attestation, gate evidence, delivery receipt, and required Product Memory artifacts are saved and identity-bound.
-- [ ] The user granted each requested external effect, including merge when applicable.
+- [ ] The user granted each requested external effect, including merge when applicable, or a standing merge authorization applied and `merge-check` passed and was recorded at the merged head.
 - [ ] Diff review, conflict, hook, CI, feedback, remote identity, merge verification, optional main-tag verification, tracker, and cleanup gates passed.

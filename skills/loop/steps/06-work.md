@@ -118,9 +118,11 @@ A card's lifecycle spans multiple wakes by design — ship is event-driven
   each wake checks out the existing branch and runs ONE bounded cycle —
   assess CI + new review comments, fix what's actionable, push, stop. Rounds
   of remote review each get absorbed by a subsequent wake. With
-  `autonomy.merge_pr: true` the cycle verifies the MERGED PR identity and marks
-  the card done; with `false` it parks the green PR as `needs-human` for your
-  merge. A `waiting` result preserves `shipping` with a bounded `retry_after`,
+  `autonomy.merge_pr: true` the cycle merges only after `dev-session
+  merge-check --record` exits 0 under the grooming approval's standing merge
+  authorization, then verifies the MERGED PR identity and marks the card done;
+  with `false`, no standing authorization, or a refusal, it parks the green PR
+  as `needs-human` for your merge. A `waiting` result preserves `shipping` with a bounded `retry_after`,
   and selectors skip the card until that wake time.
 
 When summarizing the JSON result:

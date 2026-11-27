@@ -418,8 +418,11 @@ function buildPrompt(plan, config = {}) {
   // one engine run. Each wake runs ONE bounded ship cycle against the durable
   // PR; the wake cadence is the iteration loop.
   if (stage === "ship" || stage === "review") {
+    // merge_pr is the loop's own opt-in. It never grants merge authority: the
+    // loop merges under the same rule as attended Ship, the standing
+    // authorization from the grooming approval checked by merge-check.
     const mergeRule = mergeAutonomy
-      ? "- Merge only when every review gate and CI check is green; never bypass a failing check."
+      ? "- Merge only when every review gate and CI check is green and `dev-session.js merge-check --session <session> --observation <pr-ci.json> --commit <PR head> --record` exits 0 for the exact PR head; otherwise leave the PR open and return ready-for-human (exit 3: no standing authorization) or blocked (exit 1: a condition failed, with its reasons). Never bypass a failing check, never --admin, never force-push, never delete the branch on failure."
       : "- Do NOT merge. When the PR is green and review threads are resolved, return ready-for-human.";
     return [
       "You are an autonomous PM loop worker running ONE bounded ship cycle for an existing pull request.",

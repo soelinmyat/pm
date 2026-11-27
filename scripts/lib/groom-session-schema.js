@@ -22,6 +22,7 @@ const {
   reviewQuestionsForTier,
 } = require("./groom-review-contract.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
+const { buildMergeAuthorization, mergeAuthorizationIssues } = require("./merge-authorization.js");
 const {
   assertAstraProfileIntegrity,
   assertRuntimeMatchesAstraProfile,
@@ -416,6 +417,14 @@ function approveSession(session, input, options = {}) {
       throw new Error(
         "delivery delegation cannot be added or changed on an approval retry; revise and request a new product decision"
       );
+    if (
+      input.mergeAuthorization !== undefined &&
+      input.mergeAuthorization.explicit === true &&
+      session.approval.merge_authorization?.status !== input.mergeAuthorization.status
+    )
+      throw new Error(
+        "standing merge authorization cannot be added or changed on an approval retry; revise and request a new product decision"
+      );
     return structuredClone(session);
   }
   if (session.phase !== "approval" || session.status !== "awaiting_approval")
@@ -443,11 +452,18 @@ function approveSession(session, input, options = {}) {
           approvedAt: now,
           confirmedContentSha256: input.delegateContentSha256,
         });
+  // Standing merge authorization is recorded with the product decision only
+  // when the caller states it; the Groom CLI always does, granted by default.
+  const mergeAuthorization =
+    input.mergeAuthorization === undefined
+      ? null
+      : buildApprovalMergeAuthorization(currentProposal, session, input, now);
   const decision = currentProposal.review_contract
     ? deriveApprovalDecision(currentProposal, {
         approvedBy: input.approvedBy,
         approvedAt: now,
         deliveryDelegation,
+        mergeAuthorization,
       })
     : {
         id: `groom-approval:${session.run_id}`,
@@ -473,6 +489,7 @@ function approveSession(session, input, options = {}) {
     decision_id: decisionId,
     decision_sha256: decisionSha256,
     ...(deliveryDelegation ? { delivery_delegation: structuredClone(deliveryDelegation) } : {}),
+    ...(mergeAuthorization ? { merge_authorization: structuredClone(mergeAuthorization) } : {}),
   };
   next.status = "approved";
   next.phase = "handoff";
@@ -488,6 +505,26 @@ function approveSession(session, input, options = {}) {
   );
   assertValidSession(next);
   return next;
+}
+
+function buildApprovalMergeAuthorization(proposal, session, input, approvedAt) {
+  const choice = input.mergeAuthorization;
+  if (!isObject(choice) || !["granted", "declined"].includes(choice.status))
+    throw new Error("merge authorization choice must be granted or declined");
+  if (!proposal.review_contract || proposal.review_contract.session_id !== session.run_id)
+    throw new Error(
+      "standing merge authorization requires the canonical current Groom review session"
+    );
+  return buildMergeAuthorization({
+    status: choice.status,
+    basis: choice.basis || (choice.status === "granted" ? "default" : "user-declined"),
+    groomRunId: session.run_id,
+    proposalId: proposal.id,
+    revision: proposal.revision,
+    contentSha256: session.proposal.content_hash,
+    approvedBy: input.approvedBy,
+    approvedAt,
+  });
 }
 
 function reviseSession(session, input, options = {}) {
@@ -625,6 +662,7 @@ function buildApprovalAudit(session) {
     decisionId: session.approval.decision_id,
     decisionSha256: session.approval.decision_sha256,
     deliveryDelegation: session.approval.delivery_delegation || null,
+    mergeAuthorization: session.approval.merge_authorization || null,
   });
 }
 
@@ -1333,6 +1371,9 @@ function validateSession(session) {
       ...(Object.hasOwn(session.approval || {}, "delivery_delegation")
         ? ["delivery_delegation"]
         : []),
+      ...(Object.hasOwn(session.approval || {}, "merge_authorization")
+        ? ["merge_authorization"]
+        : []),
     ],
     "$.approval",
     errors
@@ -1350,6 +1391,22 @@ function validateSession(session) {
     )
       errors.push(
         issue("$.approval.delivery_delegation", "must retain its explicit exact-product decision")
+      );
+  }
+  if (session.approval?.merge_authorization !== undefined) {
+    const record = session.approval.merge_authorization;
+    for (const message of mergeAuthorizationIssues(record, "$.approval.merge_authorization"))
+      errors.push(issue("$.approval.merge_authorization", message));
+    if (
+      session.approval.status !== "approved" ||
+      record?.groom_run_id !== session.run_id ||
+      record?.content_sha256 !== session.approval.proposal_hash ||
+      record?.revision !== session.approval.proposal_revision ||
+      record?.approved_by !== session.approval.approved_by ||
+      record?.approved_at !== session.approval.approved_at
+    )
+      errors.push(
+        issue("$.approval.merge_authorization", "must belong to this session's approval decision")
       );
   }
   if (isObject(session.approval)) {

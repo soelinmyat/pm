@@ -14,7 +14,43 @@ Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, freshly attest the exact live PR body, plan `merge` for the exact PR/prepared commit/base/method/body hash, call `begin`, and require canonical and snapshotted `merge: true`. On the optimized route, reload and require candidate state `merge-ready` before begin and every observe-first recovery; invalidation blocks new mutation and requires cancelling any armed auto-merge before remediation. If the exact PR has already merged, reconcile that irreversible observation instead of leaving the journal ambiguous. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, freshly attest the exact live PR body, plan `merge` for the exact PR/prepared commit/base/method/body hash, call `begin`, and require canonical and snapshotted `merge: true`. On the optimized route, reload and require candidate state `merge-ready` before begin and every observe-first recovery; invalidation blocks new mutation and requires cancelling any armed auto-merge before remediation. If the exact PR has already merged, reconcile that irreversible observation instead of leaving the journal ambiguous. If merge was not explicitly requested and persisted before the action, or granted by a recorded passing `merge-check` under a standing authorization, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
+
+### Standing merge authorization (HARD-GATE)
+
+Run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" merge-authorization --session "{session_path}" --json`. Exit 3 means no standing authorization applies; skip this section and merge only with the user's own persisted `merge` grant, as before.
+
+Exit 0 means the grooming approval authorized this merge, provided `merge-check` passes. Do not ask the user. Then:
+
+1. Read the PR through the contracted repository API and save `.pm/dev-sessions/{slug}/ship/observations/merge-check.json`, with `observed_at` taken when the response is read:
+
+   ```json
+   {
+     "repository": "acme/widget",
+     "pr_number": 42,
+     "state": "OPEN",
+     "draft": false,
+     "base": "main",
+     "default_branch": "main",
+     "head_oid": "{40-hex head}",
+     "mergeable": "MERGEABLE",
+     "observed_at": "2026-11-27T10:00:00.000Z",
+     "checks": {
+       "requirements_known": true,
+       "observation_complete": true,
+       "required": [{ "name": "test", "app_id": null }],
+       "runs": [{ "name": "test", "app_id": null, "head_sha": "{head}", "status": "completed", "conclusion": "success" }]
+     }
+   }
+   ```
+
+   `default_branch` comes from the repository API, `mergeable` from the PR, `required` from branch protection and `runs` from the check runs on the head. Use the same observations as Step 06; never fill a field from memory.
+2. Run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" merge-check --session "{session_path}" --observation ".pm/dev-sessions/{slug}/ship/observations/merge-check.json" --commit "$remote_tip" --record --json` from the source worktree. It checks the authorization, the session, every routed gate at the commit, the director report and mechanical checks, `dev-gate-check`, CI, the PR and the release transaction, and records its decision in `session.json`.
+3. **Exit 0:** the decision is recorded and `authority.merge` is granted with the authorization as the reason. Copy that boolean into the delivery contract's `authorization.merge` and `recorded_at` through the explicit grant path in `delivery-contract.md`, then continue below. Do not arm GitHub auto-merge on this path: take the manual merge path in `merge-loop.md` with `--squash`, never `--admin` or `--auto`.
+4. **Exit 1:** park. Do not merge. Leave the PR open with the reports, and tell the user every reason code and message from the output. Do not force-push, use `--admin`, bypass branch protection or required reviews, or delete the branch. Do not rerun with a changed observation, gate set or commit to get a pass. A new commit needs the full recertification protocol and a new `merge-check`. Then run close-out and stop.
+5. **Exit 3 at this step** means the authorization was revoked or turned off since Step 05; stop at the green PR as when merge authority is missing.
+
+Any commit after the check, including a fix in the merge loop, invalidates the decision: `dev-gate-check --require-authority merge` fails until a new `merge-check` passes at the new head.
 
 ### Pre-merge gate attestation (HARD-GATE)
 
@@ -135,6 +171,7 @@ The canonical session and ship transaction must retain equivalent gate-monitorin
 **Review:** [N issues found and fixed by review agents]
 **CI:** [exact-head required-check summary: passed with check names, or not-required with independently observed policy; include fix rounds only when observed]
 **Merged to:** {DEFAULT_BRANCH} ([short sha])
+**Merge decided by:** [your confirmation / standing authorization from {approved_by} at {approved_at}, merge-check passed at {commit}, no human review of the merge]
 **Remote branch:** [branch] — deleted
 **Local branch:** [branch] — deleted
 **Worktree:** [removed at path / n/a]
@@ -173,6 +210,6 @@ Before cleanup, verify the backlog entry was written:
 
 ## Done-when
 
-The exact contracted PR and merge effects are verified, the canonical reviewer-handoff body has a fresh one-use pre-merge attestation plus matching post-merge observation, every delivery-loop fix was advanced and recertified before push, any versioned main-tag effect is verified at the merge SHA, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
+Under a standing authorization, `merge-check` exited 0 at the merged head and its decision is recorded, or it refused and the PR is parked open with the refusal recorded. The exact contracted PR and merge effects are verified, the canonical reviewer-handoff body has a fresh one-use pre-merge attestation plus matching post-merge observation, every delivery-loop fix was advanced and recertified before push, any versioned main-tag effect is verified at the merge SHA, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
 
 Say: "Ship complete. PR merged and cleanup finished. What would you like to work on next?"

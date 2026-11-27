@@ -60,9 +60,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUG
 - **Merge autonomy:** `autonomy.merge_pr: false` (default) means every child
   stops at an open PR for your review. Setting it to `true` grants full
   epic autonomy: implement → test → merge to main → next child, with no human
-  stop between children. Only the workflow's own gates (TDD, review,
-  verification, green CI) stand between the engine and main — confirm the
-  user wants that before enabling.
+  stop between children. A child merges only when its grooming approval
+  carries a standing merge authorization and `dev-session merge-check`
+  passes at the PR head: every routed gate current, CI green, PR mergeable to
+  the default branch, nothing parked or blocked. Confirm the user wants that
+  before enabling.
 - **Budgets:** review `budgets.max_runs_per_day` and
   `max_runtime_seconds_per_run`. Every engine run costs real money.
 - **Kill switch:** show how to halt everything:

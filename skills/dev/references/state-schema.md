@@ -213,6 +213,16 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" resource-add --session <sess
 
 Record each outcome with `dev-session follow-up-record --session <session.json> --key <key> --state <state> [--tracker --ref --action] [--into <key>] [--scope system|local]`. It refuses before a merge. A filed item is final: recording the same filing again changes nothing, and any other change is refused, so a rerun never files twice.
 
+## Standing merge authorization
+
+`session.json` takes an optional `merge_authorization`, written by `route` from the approved proposal's approval audit: `schema_version: 1`, `proposal` (`path`, `proposal_id`, `slug`, `revision`, `content_sha256`, `decision_id`, equal to `task.proposal` on a direct route), `record` (the audit's `merge_authorization`: `status` `granted` or `declined`, `basis` `default`, `user-declined` or `project-merge-manual`, `groom_run_id`, `proposal_id`, `revision`, `content_sha256`, `approved_by`, `approved_at`, `record_sha256`), `revoked` (null or `{revoked_at, reason}`) and `decisions` (at most 50 `{decided_at, commit, decision, reasons, evidence}`). Sessions without it are valid and never merge automatically.
+
+- `dev-session merge-authorization --session <path> [--apply] [--json]` exits 0 when the authorization applies and 3 when it does not, with reason codes. `--apply` records `push_feature_branch,create_pr`.
+- `dev-session merge-authorization-revoke --session <path> --reason <text>` records a revocation once.
+- `dev-session merge-check --session <path> --observation <pr-ci.json> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]` decides. Exit 0 `merge`, 1 `refuse`, 3 `manual` (no authorization applies), 2 bad input. `--record` appends the decision and, only for `merge`, grants `merge` with a reason starting `standing-merge-authorization:`.
+
+Refusal codes: `commit-invalid`, `authorization-invalid`, `authorization-proposal-mismatch`, `authorization-approval-mismatch`, `session-parked`, `mechanically-blocked`, `open-blocker`, `session-blocked`, `session-not-at-ship`, `gates-missing`, `gates-session-mismatch`, `gate-missing`, `gate-not-passed`, `gate-stale`, `gate-check-failed`, `design-director-not-approved`, `design-director-mechanical-failed`, `observation-missing`, `observation-stale`, `pr-not-open`, `pr-draft`, `pr-base-not-default`, `pr-not-mergeable`, `pr-head-moved`, `pr-repository-mismatch`, `delivery-contract-missing`, `release-transaction-missing`, `prepared-commit-mismatch`, `ci-not-green`. Manual codes: `no-approved-proposal`, `no-standing-authorization`, `authorization-declined`, `authorization-revoked`, `project-merge-manual`.
+
 ## Legacy Markdown Compatibility
 
 Legacy Markdown is read only for migration and for tools not yet moved to v3. `dev-session migrate` retains the source file and writes a new canonical `session.json`; it never deletes or overwrites the Markdown input.

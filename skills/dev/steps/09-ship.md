@@ -44,6 +44,21 @@ Ship maintains `.pm/dev-sessions/{slug}/ship/release-transaction.json`. Every ex
 
 Before any external effect, read the canonical authority envelope. Push/PR, merge, and tracker updates run only when their corresponding booleans are true. In interactive mode, missing merge authority stops at the reviewed PR boundary with a structured blocker naming the exact grant required. In headless `PM_LOOP_WORKER=1` mode, that reviewed open-PR boundary is the required successful terminal: do not request merge authority and do not treat the mandated handoff as a blocker.
 
+### Standing merge authorization
+
+When Dev routed from an approved groomed proposal, `session.json` may carry a `merge_authorization` from that approval. Before Push, run:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" merge-authorization --session "{absolute_session_path}" --apply --json
+```
+
+- **Exit 0:** the authorization applies. It records `push_feature_branch` and `create_pr` with the authorization as the reason. Do not ask the user for push, PR or merge confirmation. Ship decides the merge with `merge-check` at the merge commit; read `skills/ship/steps/07-merge-loop.md`.
+- **Exit 3:** it does not apply (no approved proposal, none recorded, declined, revoked, or `Merge: manual`). Ship asks and confirms exactly as before.
+
+Sessions without an approved groomed proposal, such as direct tasks, bug fixes and ad-hoc work, never get a standing authorization. Never pass `merge_authorization_proposal_path` for them.
+
+If `merge-check` refuses, the work is parked: leave the PR open with the reports, record the refusal (`--record` does this), tell the user each reason, run close-out and stop. Do not merge, retry by weakening a condition, force-push, use `--admin`, bypass branch protection or required reviews, or delete the branch.
+
 After delivery is verified but **before** deleting the feature branch or removing its worktree, write a strict `delivery-receipt.schema.json` artifact containing the PR number/URL/state, merge SHA (null only for the headless OPEN boundary), head branch, feature commit, exact `release_transaction_sha256`, and `release_tag` (null for delivery-only). The receipt must agree with the verified Merge effect and, for a versioned transaction, the verified main-tag receipt. Record the ship phase result using the verified prepared feature HEAD as `commit` and that receipt as `delivery` evidence. The runner independently reads current PR state and head OID with `gh`; a claimed receipt cannot advance the phase by itself. Interactive mode requires `MERGED` plus the observed merge SHA and advances to retro. Headless mode requires `OPEN` at the exact feature commit and terminates as a durable `handoff`. Only after interactive mode advances to retro may cleanup remove the feature worktree.
 
 ### Worktree Cleanup
@@ -221,10 +236,10 @@ When task_count > 1, announce progress at every stage transition and after each 
 Do NOT append "Approve to proceed?" or any equivalent question. After RFC approval, ship is autonomous. The only stops are the structured Blocked escalations from the merge loop (`references/merge-loop.md` — Escalation format section).
 </HARD-RULE>
 
-Ship is done only when the PR is confirmed **MERGED** (verify PR state — not just auto-merge armed), worktrees are cleaned up, all status updates are complete (local backlog → done, Linear → Done if available), and the state file records the merge SHA. Then proceed to retro.
+Ship is done only when the PR is confirmed **MERGED** (verify PR state — not just auto-merge armed), worktrees are cleaned up, all status updates are complete (local backlog → done, Linear → Done if available), and the state file records the merge SHA. Then proceed to retro. A refused `merge-check` ends Ship at the open PR instead: record it, run close-out and proceed to retro without status updates to done.
 
 ## Done-when
 
-The root has verified the merged PR, preserved or safely cleaned worktrees, and completed authorized local/tracker updates.
+The root has verified the merged PR, preserved or safely cleaned worktrees, and completed authorized local/tracker updates. Or `merge-check` refused, the refusal is recorded in the session, and the PR stays open.
 
 **Advance:** record the verified delivery result and proceed to Step 10 (Retro).

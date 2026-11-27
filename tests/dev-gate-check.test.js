@@ -2899,3 +2899,46 @@ test("delivery accepts policy-valid UI skips without inventing passing phase evi
     false
   );
 });
+
+test("a merge grant from a standing authorization needs a recorded merge decision at the commit", () => {
+  // The checker keeps its own copy of the prefix; this binds the two.
+  const { GRANT_REASON_PREFIX } = require("../scripts/lib/merge-authorization");
+  const standing = `${GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
+  const session = (log, decisions) => ({
+    run_id: "standing-merge",
+    slug: "example",
+    source: { branch: "feature" },
+    routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+    evidence: {},
+    authority: { push_feature_branch: true, merge: true },
+    authority_log: log,
+    ...(decisions ? { merge_authorization: { decisions } } : {}),
+  });
+  const rows = ["design-critique", "qa"].map((name) =>
+    gate(name, "abc123", { status: "skipped", artifact: "", reason: "No UI impact: CLI only." })
+  );
+  const check = (canonicalSession) =>
+    checkGateManifest(manifest(rows, { run_id: "standing-merge" }), {
+      canonicalSession,
+      requireDeliveryEvidence: true,
+      requiredAuthorities: ["merge"],
+      requiredGates: ["design-critique", "qa"],
+      currentCommit: "abc123",
+      currentBranch: "feature",
+      changedFiles: ["scripts/cli.js"],
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+    });
+  const blocked = (result) =>
+    result.issues.some((row) => row.message.includes("standing merge authorization"));
+  const grant = [{ actions: ["merge"], reason: standing }];
+  const decision = (value, commit = "abc123") => ({ decision: value, commit });
+
+  assert.equal(blocked(check(session(grant, [decision("merge")]))), false);
+  assert.equal(check(session(grant, [decision("merge")])).ok, true);
+  assert.equal(blocked(check(session(grant, [decision("merge"), decision("refuse")]))), true);
+  assert.equal(blocked(check(session(grant, [decision("merge", "oldhead")]))), true);
+  assert.equal(blocked(check(session(grant, null))), true);
+  // A human's own merge grant keeps today's behaviour.
+  const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
+  assert.equal(blocked(check(session(human, [decision("refuse")]))), false);
+});

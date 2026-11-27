@@ -31,7 +31,7 @@ Highlight these fields when explaining the output:
 - `version: 2` enables exact-plan preflight and trusted host configuration.
 - `sync_required_for_mutation` must remain true for cross-machine safety.
 - `autonomy.start_dev` defaults false and gates implementation pickup.
-- `autonomy.merge_pr` defaults false and gates auto-merge.
+- `autonomy.merge_pr` defaults false and gates auto-merge. When true, a child still merges only under its grooming approval's standing merge authorization and a passing `dev-session merge-check`.
 - `budgets.lease_ttl_seconds` controls lease expiry. The default is 7,200
   seconds; legacy `lease_ttl_minutes` values migrate to seconds before
   validation.

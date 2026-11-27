@@ -142,6 +142,18 @@ function checkGateManifest(manifest, opts = {}) {
     );
     if (canonicalSession.authority?.[action] !== true || !logged)
       issues.push(issue(manifestPath, `canonical session does not grant authority ${action}`));
+    else if (action === "merge" && standingMergeOnly(canonicalSession)) {
+      // A merge granted only by a grooming approval's standing authorization
+      // holds only while the latest recorded merge-check allowed this commit.
+      const latest = canonicalSession.merge_authorization?.decisions?.at?.(-1);
+      if (latest?.decision !== "merge" || latest.commit !== currentCommit)
+        issues.push(
+          issue(
+            manifestPath,
+            "standing merge authorization requires a recorded merge-check decision of merge at this commit"
+          )
+        );
+    }
   }
   if (
     ((opts.requiredAuthorities || []).length > 0 || opts.requireDeliveryEvidence === true) &&
@@ -1119,6 +1131,23 @@ function usage() {
     `Default skip-allowed gates: ${DEFAULT_ALLOW_SKIPPED_GATES.join(", ")}`,
     "Default review evidence mode: enforce (inspect is migration-only and cannot authorize delivery)",
   ].join("\n");
+}
+
+// Keep equal to GRANT_REASON_PREFIX in scripts/lib/merge-authorization.js. It
+// is copied, not required, because the pre-push hook runs this file alone.
+const STANDING_MERGE_REASON_PREFIX = "standing-merge-authorization:";
+
+function standingMergeOnly(session) {
+  const grants = (session.authority_log || []).filter(
+    (entry) => Array.isArray(entry?.actions) && entry.actions.includes("merge")
+  );
+  return (
+    grants.length > 0 &&
+    grants.every(
+      (entry) =>
+        typeof entry.reason === "string" && entry.reason.startsWith(STANDING_MERGE_REASON_PREFIX)
+    )
+  );
 }
 
 // These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js

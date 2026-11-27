@@ -33,6 +33,15 @@ node "$PM_PLUGIN_ROOT/scripts/dev-session.js" authorize \
 
 Never edit `authority` or `authority_log` by hand. Existing authority from a Dev-routed session remains valid only for actions actually requested by the user; workers and preferences cannot broaden it.
 
+### Standing merge authorization
+
+A user's grooming approval is a request for the full Ship lifecycle of that proposal's work, unless they declined it or the project's PM instructions say `Merge: manual`. It reaches the session as `merge_authorization`, bound to the approved proposal. Two commands record it, and nothing else may:
+
+- `dev-session merge-authorization --apply` records `push_feature_branch,create_pr` while it applies.
+- `dev-session merge-check --record` records `merge` only when every merge condition passes at the exact commit. Its reason starts with `standing-merge-authorization:`.
+
+A merge grant whose every log entry has that prefix holds only while the latest recorded `merge-check` decision is `merge` at the commit being merged; `dev-gate-check --require-authority merge` enforces this. When no standing authorization applies, the table above and today's confirmation apply unchanged. A standing authorization never covers a session without an approved groomed proposal.
+
 An existing explicit task request or applicable standing user instruction can
 authorize PR metadata updates without asking again, when it clearly covers the
 specific PR, work and requested title/description change. If its basis is not yet
@@ -45,7 +54,8 @@ Routine title/body revisions within the covered work do not change that scope.
 
 When recording an applicable user grant not yet persisted, including previously
 supplied task or standing authorization, or when the user grants an additional
-action after contract creation, run `dev-session authorize` first. Revalidate
+action after contract creation, run `dev-session authorize` first, or the
+standing-authorization command above that recorded it. Revalidate
 every frozen identity field, then atomically replace only the contract's copied
 `authorization` booleans and `recorded_at`. This explicit grant path is the sole
 allowed authority-snapshot update; it never permits a remote, owner/repo, head,
@@ -56,7 +66,7 @@ Before each mutation, enforce its independent boolean:
 
 - `git push` requires `push_feature_branch: true`.
 - Creating, updating metadata or externally commenting on a PR requires `create_pr: true`, with the user's explicit scope covering the particular action.
-- Arming auto-merge or invoking any merge command requires `merge: true`.
+- Arming auto-merge or invoking any merge command requires `merge: true`. Under a standing authorization, never arm auto-merge; merge directly after `merge-check` passes at the current head.
 
 If the required boolean is false, stop at the last authorized boundary and name the exact grant required. Read-only PR and CI inspection may continue when useful.
 

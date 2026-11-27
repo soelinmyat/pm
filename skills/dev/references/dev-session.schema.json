@@ -90,9 +90,105 @@
         "merge_sha": { "type": "string", "minLength": 1, "maxLength": 200 },
         "items": { "type": "array", "items": { "$ref": "#/$defs/follow_up_item" } }
       }
+    },
+    "merge_authorization": {
+      "description": "Optional standing merge authorization, copied at routing from the approved proposal's approval audit. Sessions without it are valid and never merge automatically. The runtime also checks the record digest and that the record and proposal identity match task.proposal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "proposal", "record", "revoked", "decisions"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "proposal_id", "slug", "revision", "content_sha256", "decision_id"],
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "proposal_id": { "type": "string", "minLength": 1 },
+            "slug": { "type": "string", "minLength": 1 },
+            "revision": { "type": "integer", "minimum": 1 },
+            "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "decision_id": { "type": "string", "minLength": 1 }
+          }
+        },
+        "record": { "$ref": "#/$defs/merge_authorization_record" },
+        "revoked": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["revoked_at", "reason"],
+              "properties": {
+                "revoked_at": { "type": "string", "format": "date-time" },
+                "reason": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        },
+        "decisions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["decided_at", "commit", "decision", "reasons", "evidence"],
+            "properties": {
+              "decided_at": { "type": "string", "format": "date-time" },
+              "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+              "decision": { "enum": ["merge", "refuse", "manual"] },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["code", "message"],
+                  "properties": {
+                    "code": { "type": "string", "minLength": 1 },
+                    "message": { "type": "string", "minLength": 1 }
+                  }
+                }
+              },
+              "evidence": { "type": "object" }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
+    "merge_authorization_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "status",
+        "basis",
+        "scope",
+        "groom_run_id",
+        "proposal_id",
+        "revision",
+        "content_sha256",
+        "approved_by",
+        "approved_at",
+        "record_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "standing-merge-authorization" },
+        "status": { "enum": ["granted", "declined"] },
+        "basis": { "enum": ["default", "user-declined", "project-merge-manual"] },
+        "scope": { "const": "merge-to-remote-default-branch-when-all-gates-pass" },
+        "groom_run_id": { "type": "string", "pattern": "^groom_[A-Za-z0-9_-]+$" },
+        "proposal_id": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "record_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
     "follow_up_item": {
       "type": "object",
       "additionalProperties": false,
