@@ -63,6 +63,8 @@ function summary(result) {
           .join("; ")}`
   );
   for (const item of result.issues) lines.push(`- ${item.check}: ${item.message}`);
+  for (const item of result.advisories || [])
+    lines.push(`- ${item.check}: ${item.message} (advisory)`);
   lines.push(
     result.ok ? "Mechanical checks pass." : "Mechanical checks fail: fix or explain each item."
   );

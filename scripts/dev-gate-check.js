@@ -145,8 +145,16 @@ function checkGateManifest(manifest, opts = {}) {
     else if (action === "merge" && standingMergeOnly(canonicalSession)) {
       // A merge granted only by a grooming approval's standing authorization
       // holds only while the latest recorded merge-check allowed this commit.
+      // A revocation withdraws it even when a merge decision was recorded first.
       const latest = canonicalSession.merge_authorization?.decisions?.at?.(-1);
-      if (latest?.decision !== "merge" || latest.commit !== currentCommit)
+      if (canonicalSession.merge_authorization?.revoked)
+        issues.push(
+          issue(
+            manifestPath,
+            "standing merge authorization was revoked; merging needs the user's own confirmation"
+          )
+        );
+      else if (latest?.decision !== "merge" || latest.commit !== currentCommit)
         issues.push(
           issue(
             manifestPath,
@@ -1134,7 +1142,8 @@ function usage() {
 }
 
 // Keep equal to GRANT_REASON_PREFIX in scripts/lib/merge-authorization.js. It
-// is copied, not required, because the pre-push hook runs this file alone.
+// is copied, not required, because the pre-push hook runs this file alone, and
+// standingMergeOnly below mirrors the function of the same name there.
 const STANDING_MERGE_REASON_PREFIX = "standing-merge-authorization:";
 
 function standingMergeOnly(session) {

@@ -175,8 +175,10 @@ function approveCommand(options) {
 
 // Standing merge authorization is on by default. `--merge manual` declines it
 // for this proposal; `Merge: manual` in the project's PM instructions turns it
-// off for every proposal. Legacy proposals without a bound review session get
-// no record and keep today's merge confirmation.
+// off for every proposal, and so does a proposal outside
+// {pm_dir}/backlog/proposals, whose instructions cannot be found. Legacy
+// proposals without a bound review session get no record and keep today's
+// merge confirmation.
 function mergeChoice(session, flag) {
   // Only a proposal bound to this Groom review session can carry a record.
   let reviewBound = false;
@@ -201,9 +203,12 @@ function mergeNotice(session) {
     return "No standing merge authorization was recorded. Merging this work needs a separate confirmation.";
   if (record.status === "granted")
     return "This approval also authorizes merging the finished work to the remote default branch without another review, but only when every gate, CI and the merge check pass at the merge commit. Anything that fails stays an open PR. Revoke it any time with dev-session merge-authorization-revoke, or set Merge: manual in the project's PM instructions.";
-  return record.basis === "project-merge-manual"
-    ? "The project's PM instructions say Merge: manual, so this approval does not authorize a merge. Ship will ask before merging."
-    : "Standing merge authorization was declined for this proposal. Ship will ask before merging.";
+  if (record.basis !== "project-merge-manual")
+    return "Standing merge authorization was declined for this proposal. Ship will ask before merging.";
+  const setting = readProjectMergeSetting(pmDirForProposal(session.proposal?.json_path));
+  if (setting.mode === "manual" && !setting.source)
+    return `Merge: manual is assumed because ${setting.reason}. This approval does not authorize a merge. Ship will ask before merging.`;
+  return "The project's PM instructions say Merge: manual, so this approval does not authorize a merge. Ship will ask before merging.";
 }
 
 function approvalAuditCommand(options) {

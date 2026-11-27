@@ -507,12 +507,82 @@ function changedFiles(root, base, commit) {
     .filter(Boolean);
 }
 
-function addedLinesFor(root, base, commit, files) {
+// Git writes an unusual path in a diff header as a C-style quoted string.
+function unquoteGitPath(value) {
+  if (!value.startsWith('"') || !value.endsWith('"') || value.length < 2) return value;
+  const bytes = [];
+  const body = value.slice(1, -1);
+  const named = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char !== "\\") {
+      bytes.push(...Buffer.from(char, "utf8"));
+      continue;
+    }
+    const next = body[index + 1];
+    if (/[0-7]/.test(next || "")) {
+      bytes.push(parseInt(body.slice(index + 1, index + 4), 8));
+      index += 3;
+    } else {
+      bytes.push(named[next] ?? next.charCodeAt(0));
+      index += 1;
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+// The new-side path of a `+++` header, or null for a deleted file.
+function headerPath(line) {
+  let value = line.slice(4);
+  if (value === "/dev/null") return null;
+  // Git ends a header whose path contains a space with a tab.
+  if (value.endsWith("\t")) value = value.slice(0, -1);
+  value = unquoteGitPath(value);
+  return value.startsWith("b/") ? value.slice(2) : value;
+}
+
+// Splits one multi-file `-U0` diff into added lines per requested file.
+// `unmatched` lists header paths that are not among `files`, so the caller can
+// fall back to diffing those files one by one.
+function splitAddedLines(diff, files) {
+  const wanted = new Set(files);
+  const chunks = new Map(files.map((file) => [file, []]));
+  const unmatched = [];
+  let current = null;
+  let previous = "";
+  for (const line of String(diff).split("\n")) {
+    const header = line.startsWith("+++ ") && previous.startsWith("--- ");
+    previous = line;
+    if (line.startsWith("diff --git ")) current = null;
+    // A header pair is "--- old" then "+++ new"; an added line that happens to
+    // start with "++ " is content.
+    else if (header) {
+      const file = headerPath(line);
+      current = null;
+      if (file === null) continue;
+      if (wanted.has(file)) current = chunks.get(file);
+      else unmatched.push(file);
+      continue;
+    }
+    if (current) current.push(line);
+  }
   const added = {};
-  for (const file of files)
-    added[file] = parseAddedLines(
-      git(root, ["diff", ...DIFF_FLAGS, "-U0", base, commit, "--", file])
-    );
+  for (const [file, lines] of chunks) added[file] = parseAddedLines(lines.join("\n"));
+  return { added, unmatched };
+}
+
+// One diff for every UI file. A path the split cannot place is diffed alone,
+// so an unusual file name never loses its added lines.
+function addedLinesFor(root, base, commit, files) {
+  if (!files.length) return {};
+  const diff = git(root, ["diff", ...DIFF_FLAGS, "-U0", base, commit, "--", ...files]);
+  const { added, unmatched } = splitAddedLines(diff, files);
+  if (unmatched.length)
+    for (const file of files)
+      if (!added[file].length)
+        added[file] = parseAddedLines(
+          git(root, ["diff", ...DIFF_FLAGS, "-U0", base, commit, "--", file])
+        );
   return added;
 }
 
@@ -544,7 +614,11 @@ function runMechanicalChecks({ root, session, commit, base }) {
     enforced,
     used,
   });
-  const issues = checks.issues.map((message) => ({ check: "checks", message }));
+  // An unreadable checks file fails only a run that enforces; a session with
+  // no declared surfaces reports it and still passes.
+  const checkProblems = checks.issues.map((message) => ({ check: "checks", message }));
+  const issues = enforced ? checkProblems : [];
+  const advisories = enforced ? [] : checkProblems;
   for (const entry of neighbours)
     if (text(entry.surface) && enforced && !surfaceNames.includes(entry.surface))
       issues.push({
@@ -577,6 +651,7 @@ function runMechanicalChecks({ root, session, commit, base }) {
     tokens,
     neighbours: neighbourResult,
     issues,
+    advisories,
     unused_dispositions: dispositions.filter((entry) => !used.has(entry)),
   };
 }
@@ -598,4 +673,5 @@ module.exports = {
   runMechanicalChecks,
   scanTokens,
   sessionSurfaces,
+  splitAddedLines,
 };

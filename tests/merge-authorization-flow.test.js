@@ -33,7 +33,7 @@ try {
   // Optional dev dependency.
 }
 
-function groomForApproval(repo) {
+function groomForApproval(repo, proposalDir = "pm/backlog/proposals") {
   repo.root = fs.realpathSync(repo.root);
   repo.own("structured-groom");
   const session = groom.createSession({
@@ -70,7 +70,7 @@ function groomForApproval(repo) {
   };
   materializeProposalSources(repo.root, proposal);
   proposal.review.content_sha256 = proposalSchema.proposalContentHash(proposal);
-  const proposalPath = path.join(repo.root, "pm/backlog/proposals/structured-groom.json");
+  const proposalPath = path.join(repo.root, proposalDir, "structured-groom.json");
   fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
   fs.writeFileSync(proposalPath, JSON.stringify(proposal));
   const { approval_snapshot_sha256: _snapshot, ...identity } = groom.proposalIdentityFromPath(
@@ -389,6 +389,93 @@ test("merge-authorization grants push and PR creation only while the authorizati
     assert.equal(off.status, 3, off.stderr);
     assert.equal(JSON.parse(off.stdout).applies, false);
   } finally {
+    repo.cleanup();
+  }
+});
+
+test("a proposal outside {pm_dir}/backlog/proposals is read as Merge: manual at approval", () => {
+  // Without the PM directory the project setting cannot be read, so the
+  // approval must not grant a standing authorization.
+  const repo = makeRfcRepo();
+  try {
+    const prepared = groomForApproval(repo, "pm/drafts");
+    const approved = approve(repo, prepared);
+    assert.equal(approved.status, 0, approved.stderr);
+    const payload = JSON.parse(approved.stdout);
+    assert.equal(payload.session.approval.merge_authorization.status, "declined");
+    assert.equal(payload.session.approval.merge_authorization.basis, "project-merge-manual");
+    assert.match(payload.merge_authorization_notice, /PM directory/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("merge-check reads Merge: manual when the session's proposal has no PM directory", () => {
+  const repo = makeRfcRepo();
+  try {
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const devSession = devSessionFrom(repo, prepared.proposalPath);
+    // Move the proposal and its audit out of backlog/proposals.
+    const moved = path.join(repo.root, "pm", "drafts", "structured-groom.json");
+    fs.mkdirSync(path.dirname(moved), { recursive: true });
+    fs.copyFileSync(prepared.proposalPath, moved);
+    fs.copyFileSync(
+      prepared.proposalPath.replace(/\.json$/, ".approval.json"),
+      moved.replace(/\.json$/, ".approval.json")
+    );
+    devSession.task.proposal.path = moved;
+    devSession.merge_authorization.proposal.path = moved;
+    const sessionPath = writeDevSession(repo, devSession);
+    const status = runDev(["merge-authorization", "--session", sessionPath, "--json"], repo.root);
+    assert.equal(status.status, 3, status.stderr);
+    const report = JSON.parse(status.stdout);
+    assert.equal(report.applies, false);
+    assert.equal(report.project_setting.mode, "manual");
+    assert.match(report.project_setting.reason, /PM directory/);
+    assert.ok(report.reasons.some((item) => item.code === "project-merge-manual"));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a merge-check whose decision cannot be recorded exits 8, never as manual or merge", () => {
+  const repo = makeRfcRepo();
+  const sessionDir = () => path.join(repo.root, ".pm/dev-sessions/structured-groom");
+  try {
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const sessionPath = writeDevSession(repo, devSessionFrom(repo, prepared.proposalPath));
+    const observationPath = path.join(repo.root, "pr.json");
+    fs.writeFileSync(observationPath, JSON.stringify({ state: "OPEN" }));
+    const before = fs.readFileSync(sessionPath, "utf8");
+    // The session folder cannot be written, so neither the lock nor the
+    // decision can be.
+    fs.chmodSync(sessionDir(), 0o555);
+    const checked = runDev(
+      [
+        "merge-check",
+        "--session",
+        sessionPath,
+        "--observation",
+        observationPath,
+        "--commit",
+        repo.head(),
+        "--record",
+        "--json",
+      ],
+      repo.root
+    );
+    fs.chmodSync(sessionDir(), 0o755);
+    assert.equal(checked.status, 8, checked.stdout + checked.stderr);
+    assert.match(checked.stderr, /could not record/);
+    assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+  } finally {
+    if (fs.existsSync(sessionDir())) fs.chmodSync(sessionDir(), 0o755);
     repo.cleanup();
   }
 });

@@ -66,7 +66,7 @@ Before each mutation, enforce its independent boolean:
 
 - `git push` requires `push_feature_branch: true`.
 - Creating, updating metadata or externally commenting on a PR requires `create_pr: true`, with the user's explicit scope covering the particular action.
-- Arming auto-merge or invoking any merge command requires `merge: true`. Under a standing authorization, never arm auto-merge; merge directly after `merge-check` passes at the current head.
+- Arming auto-merge or invoking any merge command requires `merge: true`. Under a standing authorization, never arm auto-merge; merge directly after `merge-check` passes at the current head, with `gh pr merge --squash --match-head-commit <checked commit>` and no `--admin` or `--auto`. `merge-check` reads an observation the agent wrote, so the merge command carries the check to GitHub: it refuses the merge when the head moved, and branch protection still enforces the required checks. `merge-check` already refuses when no required checks exist.
 
 If the required boolean is false, stop at the last authorized boundary and name the exact grant required. Read-only PR and CI inspection may continue when useful.
 

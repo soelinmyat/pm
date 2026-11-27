@@ -492,3 +492,99 @@ test("the session ledger must bind the session's own approved proposal", () => {
   auth.validateSessionMergeAuthorization(none, noneErrors, issue);
   assert.deepEqual(noneErrors, []);
 });
+
+test("revocation clears a merge authority the standing authorization granted, and says so", () => {
+  const grantAuthority = (s, actions, why, options) => {
+    const next = structuredClone(s);
+    next.authority = { ...(next.authority || {}), merge: true };
+    next.authority_log = [
+      ...(next.authority_log || []),
+      { actions, reason: why, granted_at: options.now },
+    ];
+    return next;
+  };
+  const base = session({ session: { authority: { merge: false }, authority_log: [] } });
+  const merged = auth.recordMergeDecision(base, auth.evaluateAutoMerge(input()), grantAuthority);
+  assert.equal(merged.authority.merge, true);
+  const revoked = auth.revokeMergeAuthorization(merged, "owner asked", NOW);
+  assert.equal(revoked.authority.merge, false, "the standing merge grant is withdrawn");
+  assert.deepEqual(revoked.merge_authorization.revoked, {
+    revoked_at: NOW,
+    reason: "owner asked",
+    cleared_authority: ["merge"],
+  });
+  assert.deepEqual(auth.ledgerIssues(revoked.merge_authorization), []);
+
+  // A merge grant a human gave is theirs; revoking the standing one keeps it.
+  const human = structuredClone(merged);
+  human.authority_log.push({
+    actions: ["merge"],
+    reason: "User requested: merge it",
+    granted_at: NOW,
+  });
+  const kept = auth.revokeMergeAuthorization(human, "owner asked", NOW);
+  assert.equal(kept.authority.merge, true);
+  assert.deepEqual(kept.merge_authorization.revoked, { revoked_at: NOW, reason: "owner asked" });
+
+  const bad = structuredClone(revoked.merge_authorization);
+  bad.revoked.cleared_authority = ["push_feature_branch"];
+  assert.ok(auth.ledgerIssues(bad).some((item) => /cleared_authority/.test(item)));
+});
+
+test("Merge: manual is recognised inside quotes, brackets, parentheses and task lists", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-merge-setting-wrapped-"));
+  const file = path.join(dir, "instructions.md");
+  try {
+    for (const line of [
+      'Merge: "manual"',
+      "Merge: 'manual'",
+      "Merge: “manual”",
+      "Merge: [manual]",
+      "Merge: (manual)",
+      "- [x] Merge: manual",
+      "- [ ] Merge: manual",
+      "* [X] **Merge:** `manual`",
+      "[x] Merge: manual",
+      '| Merge | "manual" |',
+      'Merge: `"manual"`',
+    ]) {
+      fs.writeFileSync(file, `# Team\n\n${line}\n`);
+      assert.equal(auth.readProjectMergeSetting(dir).mode, "manual", line);
+    }
+    for (const line of [
+      "Merge: automatic",
+      'Merge: "automatic"',
+      "Merge strategy: squash; never manual rebases",
+      "We merge manually only on Fridays.",
+      "Mergeable: manual",
+      "Merge: not manual",
+      "Merge: [not manual]",
+      "Auto-merge: manual review first",
+      "Merge conflicts: resolve manually",
+      "Merge requests: manual review",
+      "- [x] Merge strategy: manual",
+    ]) {
+      fs.writeFileSync(file, `# Team\n\n${line}\n`);
+      assert.equal(auth.readProjectMergeSetting(dir).mode, "auto", line);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a PM directory that cannot be determined reads as Merge: manual", () => {
+  for (const missing of [null, undefined, "", "  "]) {
+    const setting = auth.readProjectMergeSetting(missing);
+    assert.equal(setting.mode, "manual", String(missing));
+    assert.equal(setting.source, null);
+    assert.match(setting.reason, /PM directory/);
+  }
+  const reasons = auth.authorizationReasons({
+    session: session(),
+    projectSetting: auth.readProjectMergeSetting(auth.pmDirForProposal("/repo/elsewhere/u.json")),
+    approval: approvalFor(session()),
+  });
+  const manual = reasons.find((item) => item.code === "project-merge-manual");
+  assert.ok(manual, JSON.stringify(reasons));
+  assert.match(manual.message, /PM directory/);
+});

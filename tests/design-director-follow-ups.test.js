@@ -660,3 +660,19 @@ test("a parked run is never fileable", () => {
     repo.cleanup();
   }
 });
+
+test("follow-ups read director reports by the report checker's own path rules", () => {
+  // One definition of a run name, a review folder and the review limit.
+  const report = require("../scripts/lib/design-director-report");
+  assert.equal(typeof report.DIRECTOR_RUN_RE?.test, "function");
+  assert.equal(typeof report.DIRECTOR_REVIEW_RE?.exec, "function");
+  assert.equal(typeof report.SESSION_REPORT_RE?.test, "function");
+  assert.ok(report.SESSION_REPORT_RE.test("design-critique/director/run-1/review-5/report.json"));
+  assert.ok(!report.SESSION_REPORT_RE.test("design-critique/director/run-1/review-6/report.json"));
+  assert.equal(report.DIRECTOR_REVIEW_RE.exec(`review-${report.MAX_REVIEWS}`)[1], "5");
+  const source = fs.readFileSync(
+    path.join(__dirname, "../scripts/lib/design-director-follow-ups.js"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /review-\[1-5\]|\{0,63\}/, "no second copy of the path rules");
+});

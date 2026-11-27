@@ -17,6 +17,7 @@ const { spawnSync } = require("node:child_process");
 const { cleanGitEnv } = require("./git-env");
 const { isRfc3339DateTime } = require("./iso-time");
 const { measureBytes } = require("./dev-session-storage");
+const { readBoundedJsonFile } = require("./safe-json-file");
 
 const REMOVAL_BY_KIND = Object.freeze({
   directory: "remove-directory",
@@ -700,6 +701,13 @@ function closeProjectResource(entry, ctx, dryRun) {
       reason: "the session's repository is missing, so no teardown can be read",
       bytes: 0,
     };
+  // The same database, account or simulator registered by a session still in
+  // use is kept, as paths and processes are.
+  const inUse = ctx.protectedTargets.find(
+    (target) => target.kind === entry.kind && target.identifier === entry.identifier
+  );
+  if (inUse)
+    return { outcome: "preserved", reason: `is in use by active session ${inUse.slug}`, bytes: 0 };
   const teardown = declaredTeardown(ctx.repoRoot, entry);
   if (teardown.missing)
     return {
@@ -826,8 +834,7 @@ function discoverSessions(repoRoot) {
     let raw = null;
     let error = null;
     try {
-      if (stat.size > MAX_SESSION_BYTES) throw new Error("session file is too large");
-      raw = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+      raw = readBoundedJsonFile(sessionPath, MAX_SESSION_BYTES);
       if (!isPlainObject(raw)) throw new Error("session is not an object");
     } catch (readError) {
       error = readError.message;
@@ -863,15 +870,18 @@ function lockOwnerAlive(sessionPath) {
   }
 }
 
-// finished: complete, handoff, or parked by the Design Director.
+// finished: complete, or parked by the Design Director.
 // abandoned: active or blocked, unlocked, and untouched for ABANDONED_AFTER_MS.
 // active: everything else, including anything unreadable. When unsure, leave it.
+// A handed-off session is active however long it has been idle: the headless
+// loop worker still owns it and runs merge-check against its resources.
 function classifySession(found, now = Date.now()) {
   const { raw, error, sessionPath } = found;
   if (error || !raw) return { state: "active", reason: `unreadable: ${error || "empty"}` };
   if (lockOwnerAlive(sessionPath)) return { state: "active", reason: "a process holds its lock" };
-  if (raw.status === "complete" || raw.status === "handoff")
-    return { state: "finished", reason: raw.status };
+  if (raw.status === "complete") return { state: "finished", reason: raw.status };
+  if (raw.status === "handoff")
+    return { state: "active", reason: "handed off to the loop worker, which still owns it" };
   const blocker = Array.isArray(raw.blockers)
     ? raw.blockers.filter((item) => item && !item.resolved_at).at(-1)
     : null;
@@ -895,8 +905,8 @@ function classifySession(found, now = Date.now()) {
   return { state: "active", reason: `${raw.status} and recently updated` };
 }
 
-// Paths and pids that sessions still in use depend on. Close and the sweep
-// never remove anything overlapping them.
+// Paths, pids and project resources that sessions still in use depend on.
+// Close and the sweep never remove anything overlapping them.
 function activeTargets(sessions, excludeKey) {
   const targets = [];
   for (const found of sessions) {
@@ -917,6 +927,8 @@ function activeTargets(sessions, excludeKey) {
       if (item.kind === "directory" || item.kind === "worktree") add(item.path);
       if (item.kind === "process" && Number.isSafeInteger(item.pid))
         targets.push({ slug, pid: item.pid });
+      if (PROJECT_KINDS.has(item.kind) && typeof item.identifier === "string")
+        targets.push({ slug, kind: item.kind, identifier: item.identifier });
     }
   }
   return targets;

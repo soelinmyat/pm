@@ -161,7 +161,7 @@ function proposalReaderGroups(proposal, identity) {
           body:
             subordinate(decisionsHtml(proposal)) +
             (proposal.advisory_debt.length
-              ? `<p><strong>Advisory items</strong></p>${listHtml(proposal.advisory_debt.map((item) => `${item.summary} — ${item.severity} severity · ${item.status}`))}`
+              ? `<p class="reader-label"><strong>Advisory items</strong></p>${listHtml(proposal.advisory_debt.map((item) => `${item.summary} — ${item.severity} severity · ${item.status}`))}`
               : ""),
         },
       ],
@@ -207,8 +207,8 @@ function proposalReaderGroups(proposal, identity) {
           id: "handoff",
           title: "Dependencies and constraints",
           body:
-            `<p><strong>Dependencies</strong></p>${labelledListOrEmptyHtml(proposal.handoff.dependencies, "No dependencies declared.")}` +
-            `<p><strong>Constraints</strong></p>${labelledListOrEmptyHtml(proposal.handoff.constraints, "No constraints declared.")}`,
+            `<p class="reader-label"><strong>Dependencies</strong></p>${labelledListOrEmptyHtml(proposal.handoff.dependencies, "No dependencies declared.")}` +
+            `<p class="reader-label"><strong>Constraints</strong></p>${labelledListOrEmptyHtml(proposal.handoff.constraints, "No constraints declared.")}`,
         },
       ],
     },
@@ -406,7 +406,7 @@ function valueDecisionHtml(value) {
   const claim = (label, row) =>
     `<p><strong>${h(label)}.</strong> ${h(row.statement)} <small>${h(refs(row))}</small></p>`;
   return `${claim("Beneficiary", value.beneficiary)}${claim(`Buyer (${value.buyer.status})`, value.buyer)}${claim("User outcome", value.user_outcome)}${claim("Commercial hypothesis", value.commercial_hypothesis)}${claim(`Counterevidence (${value.counterevidence.status})`, value.counterevidence)}
-<p><strong>Uncertainty.</strong></p>${listHtml(value.uncertainties.map((row) => `${row.statement} — ${refs(row)}`))}
+<p class="reader-label"><strong>Uncertainty.</strong></p>${listHtml(value.uncertainties.map((row) => `${row.statement} — ${refs(row)}`))}
 <p><strong>${h(value.recommendation.decision)}.</strong> ${h(value.recommendation.rationale)} <small>${h(refs(value.recommendation))}</small></p>
 <p><strong>Discriminating test.</strong> ${h(value.discriminating_test.action)}</p>
 <p><strong>Observable result.</strong> ${h(value.discriminating_test.observable_result)}</p>
@@ -472,11 +472,20 @@ function markdownListOrEmpty(items) {
     : "- None declared.";
 }
 
+// A label and its value in one unit, so print never ends a page between them.
+function labelValue(label, valueHtml) {
+  return `<span class="label-value"><strong>${h(label)}.</strong> ${valueHtml}</span>`;
+}
+
+function codeValue(value) {
+  return `<code>${h(value)}</code>`;
+}
+
 function prototypeIdentityHtml(prototype) {
   if (!prototype) return "<p>No prototype approved.</p>";
-  const entry = `<p><strong>Entry.</strong> <code>${h(prototype.path)}</code><br><strong>Entry SHA-256.</strong> <code>${h(prototype.sha256)}</code></p>`;
+  const entry = `<p>${labelValue("Entry", codeValue(prototype.path))}<br>${labelValue("Entry SHA-256", codeValue(prototype.sha256))}</p>`;
   if (!prototype.manifest) return entry;
-  return `${entry}<p><strong>Bound tree.</strong> <code>${h(prototype.manifest.tree_sha256)}</code> · ${prototype.manifest.files.length} bound files</p>${tableHtml(
+  return `${entry}<p>${labelValue("Bound tree", codeValue(prototype.manifest.tree_sha256))} · ${prototype.manifest.files.length} bound files</p>${tableHtml(
     ["Bound file", "SHA-256"],
     prototype.manifest.files.map((file) => [file.path, file.sha256])
   )}`;
@@ -619,7 +628,7 @@ function appPreviewHeroHtml(proposal) {
 }
 
 function appPreviewIdentityHtml(preview) {
-  return `<p><strong>Identity.</strong> <code>${h(preview.sha256)}</code><br><strong>Source.</strong> ${h(preview.source.repository)} · <code>${h(preview.source.head_commit)}</code><br><strong>Base.</strong> <code>${h(preview.source.base_commit)}</code><br><strong>Fixtures.</strong> <code>${h(preview.fixtures.sha256)}</code></p><p><strong>Launch recipe.</strong> <code>${h(JSON.stringify(preview.launch))}</code></p>${tableHtml(
+  return `<p>${labelValue("Identity", codeValue(preview.sha256))}<br>${labelValue("Source", `${h(preview.source.repository)} · ${codeValue(preview.source.head_commit)}`)}<br>${labelValue("Base", codeValue(preview.source.base_commit))}<br>${labelValue("Fixtures", codeValue(preview.fixtures.sha256))}</p><p>${labelValue("Launch recipe", codeValue(JSON.stringify(preview.launch)))}</p>${tableHtml(
     ["Reviewed starting code", "SHA-256"],
     preview.reviewed_starting_code.map((row) => [row.path, row.sha256 || "deleted"])
   )}`;
@@ -652,7 +661,7 @@ function evidenceHtml(proposal) {
   const evidence = proposal.evidence
     .map((item) => {
       const lineage = lineageByPath.get(item.path);
-      return `<div class="annotation"><span class="annotation-label">${h(item.id)} · ${h(item.kind)}</span><p>${h(item.summary)}</p><p><strong>Source.</strong> <code>${h(item.path)}</code><br><strong>Observed.</strong> ${h(item.observed_at)}${lineage ? `<br><strong>SHA-256.</strong> <code>${h(lineage.sha256)}</code>` : ""}</p></div>`;
+      return `<div class="annotation"><span class="annotation-label">${h(item.id)} · ${h(item.kind)}</span><p>${h(item.summary)}</p><p>${labelValue("Source", codeValue(item.path))}<br>${labelValue("Observed", h(item.observed_at))}${lineage ? `<br>${labelValue("SHA-256", codeValue(lineage.sha256))}` : ""}</p></div>`;
     })
     .join("");
   const lineage = tableHtml(

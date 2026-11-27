@@ -488,3 +488,94 @@ test("the CLI exits 2 on bad arguments", (t) => {
   assert.equal(repo.run(["--session", path.join(repo.root, "missing.json")]).status, 2);
   assert.equal(repo.run(["--session", repo.sessionPath, "--bogus"]).status, 2);
 });
+
+test("an invalid checks file only reports when the session declares no surfaces", (t) => {
+  const reportOnly = sessionRepo(t, { surfaces: null });
+  fs.writeFileSync(path.join(reportOnly.root, ".pm/dev-sessions/unit", CHECKS_PATH), "{ not json");
+  const result = runMechanicalChecks({
+    root: reportOnly.root,
+    session: reportOnly.session,
+    commit: reportOnly.head(),
+  });
+  assert.equal(result.enforced, false);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.advisories.length, 1);
+  assert.equal(result.advisories[0].check, "checks");
+  const cli = reportOnly.run(["--session", reportOnly.sessionPath]);
+  assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+  assert.match(cli.stdout, /checks:/);
+
+  // With declared surfaces the same file still fails the run.
+  const enforced = sessionRepo(t);
+  fs.writeFileSync(path.join(enforced.root, ".pm/dev-sessions/unit", CHECKS_PATH), "{ not json");
+  const failed = runMechanicalChecks({
+    root: enforced.root,
+    session: enforced.session,
+    commit: enforced.head(),
+  });
+  assert.equal(failed.ok, false);
+  assert.ok(failed.issues.some((item) => item.check === "checks"));
+});
+
+test("added lines for every UI file come from one diff, split by file", () => {
+  const { splitAddedLines } = require("../scripts/lib/design-director-mechanical");
+  const diff = [
+    "diff --git a/apps/web/a.tsx b/apps/web/a.tsx",
+    "--- a/apps/web/a.tsx",
+    "+++ b/apps/web/a.tsx",
+    "@@ -1,0 +2,2 @@",
+    "+one",
+    "+two",
+    "diff --git a/apps/web/b c.tsx b/apps/web/b c.tsx",
+    "new file mode 100644",
+    "--- /dev/null",
+    "+++ b/apps/web/b c.tsx\t",
+    "@@ -0,0 +1 @@",
+    "+three",
+    'diff --git "a/apps/web/caf\\303\\251.tsx" "b/apps/web/caf\\303\\251.tsx"',
+    '--- "a/apps/web/caf\\303\\251.tsx"',
+    '+++ "b/apps/web/caf\\303\\251.tsx"',
+    "@@ -3 +3 @@",
+    "-old",
+    "+new",
+    "diff --git a/apps/web/gone.tsx b/apps/web/gone.tsx",
+    "deleted file mode 100644",
+    "--- a/apps/web/gone.tsx",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-bye",
+  ].join("\n");
+  const files = ["apps/web/a.tsx", "apps/web/b c.tsx", "apps/web/café.tsx", "apps/web/gone.tsx"];
+  const split = splitAddedLines(diff, files);
+  assert.deepEqual(split.added, {
+    "apps/web/a.tsx": [
+      { line: 2, text: "one" },
+      { line: 3, text: "two" },
+    ],
+    "apps/web/b c.tsx": [{ line: 1, text: "three" }],
+    "apps/web/café.tsx": [{ line: 3, text: "new" }],
+    "apps/web/gone.tsx": [],
+  });
+  assert.deepEqual(split.unmatched, []);
+  // A header the parser cannot place is reported, so the caller can diff it alone.
+  const odd = splitAddedLines("--- /dev/null\n+++ b/other.tsx\n@@ -0,0 +1 @@\n+x\n", [
+    "apps/web/a.tsx",
+  ]);
+  assert.deepEqual(odd.unmatched, ["other.tsx"]);
+});
+
+test("an added line that starts with ++ is content, not a file header", () => {
+  const { splitAddedLines } = require("../scripts/lib/design-director-mechanical");
+  const diff = [
+    "diff --git a/apps/web/a.tsx b/apps/web/a.tsx",
+    "--- a/apps/web/a.tsx",
+    "+++ b/apps/web/a.tsx",
+    "@@ -0,0 +1,2 @@",
+    "+++ counter",
+    "+done",
+  ].join("\n");
+  const split = splitAddedLines(diff, ["apps/web/a.tsx"]);
+  assert.deepEqual(split.unmatched, []);
+  assert.equal(split.added["apps/web/a.tsx"].at(-1).text, "done");
+});

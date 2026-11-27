@@ -2790,3 +2790,23 @@ test("ship-stage dispatch without a recorded branch fails closed", () => {
     fixture.cleanup();
   }
 });
+
+test("ship-stage merge rule parks an unrecorded merge-check and merges only at the checked head", () => {
+  const plan = {
+    selected: {
+      id: "PM-9",
+      title: "T",
+      kind: "task",
+      command: "/pm:ship PM-9",
+      stage: "ship",
+      branch: "loop/pm-9",
+    },
+  };
+  const withMerge = buildPrompt(plan, { autonomy: { merge_pr: true } });
+  // Exit 8 means the decision was not recorded: blocked, never manual or merge.
+  assert.match(withMerge, /exit 8[^.;]*blocked/i);
+  assert.match(withMerge, /any other non-zero exit[^.;]*blocked/i);
+  // GitHub enforces the checked head and branch protection at the merge.
+  assert.match(withMerge, /gh pr merge <PR> --squash --match-head-commit <checked commit>/);
+  assert.match(withMerge, /never --auto/);
+});

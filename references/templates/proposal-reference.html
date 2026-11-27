@@ -859,6 +859,9 @@
 @media(min-width:901px){.reader-navigation>summary{display:none}.reader-navigation::details-content{content-visibility:visible;display:block;height:auto}.reader-navigation:not([open])>.reader-nav{display:block}}
 @media(max-width:900px){.reader-navigation{position:static;max-height:none;margin:0 0 24px;border-bottom:1px solid #d8ded6}.reader-navigation>.reader-nav{padding:12px 0}.reader-nav-groups{gap:12px}}
 @media print{.reader-navigation,.skip-link{display:none!important}h2,h3,.section-header,.reader-label{break-after:avoid}p,li{orphans:3;widows:3}}
+
+/* Print pagination: a label stays with its value, a heading or disclosure label with the start of its content, a short card in one piece, and the footer with the last section. */
+@media print{.execution-disclosure>summary,.appendix-disclosure>summary{break-after:avoid}.label-value{display:inline-block;max-width:100%;break-inside:avoid}p:has(+ table),p:has(+ ul),p:has(+ ol),p:has(+ .annotation),p:has(+ .scope){break-after:avoid}.annotation,.usecase,.persona,.open-q,tr,.resolved-q,.scope-col,.decision-integrity,dl{break-inside:avoid}footer{break-before:avoid;break-inside:avoid}}
 </style></head>
 <body data-proposal-revision="1" data-content-sha256="sha256:49189c5eeeb43cf037e8bc00042b37be891e5db4ba4169060a9ca5ce1eb4bcb7" data-source-sha256="sha256:d719392ee10afefee8988d9d0b49891abd76dc11f06fcd28278c2560527307c6">
 <a class="skip-link" href="#content">Skip to content</a>

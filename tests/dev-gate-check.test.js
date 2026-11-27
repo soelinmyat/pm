@@ -2942,3 +2942,47 @@ test("a merge grant from a standing authorization needs a recorded merge decisio
   const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
   assert.equal(blocked(check(session(human, [decision("refuse")]))), false);
 });
+
+test("a revoked standing authorization no longer satisfies a merge requirement", () => {
+  const { GRANT_REASON_PREFIX } = require("../scripts/lib/merge-authorization");
+  const standing = `${GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
+  const session = (log, revoked) => ({
+    run_id: "standing-merge",
+    slug: "example",
+    source: { branch: "feature" },
+    routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+    evidence: {},
+    authority: { push_feature_branch: true, merge: true },
+    authority_log: log,
+    merge_authorization: {
+      revoked,
+      decisions: [{ decision: "merge", commit: "abc123" }],
+    },
+  });
+  const rows = ["design-critique", "qa"].map((name) =>
+    gate(name, "abc123", { status: "skipped", artifact: "", reason: "No UI impact: CLI only." })
+  );
+  const check = (canonicalSession) =>
+    checkGateManifest(manifest(rows, { run_id: "standing-merge" }), {
+      canonicalSession,
+      requireDeliveryEvidence: true,
+      requiredAuthorities: ["merge"],
+      requiredGates: ["design-critique", "qa"],
+      currentCommit: "abc123",
+      currentBranch: "feature",
+      changedFiles: ["scripts/cli.js"],
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+    });
+  const grant = [{ actions: ["merge"], reason: standing }];
+  const revoked = { revoked_at: "2026-11-27T10:00:00.000Z", reason: "owner asked" };
+  assert.equal(check(session(grant, null)).ok, true);
+  const after = check(session(grant, revoked));
+  assert.equal(after.ok, false);
+  assert.ok(
+    after.issues.some((row) => /standing merge authorization was revoked/.test(row.message)),
+    JSON.stringify(after.issues)
+  );
+  // A human's own merge grant is not withdrawn by revoking the standing one.
+  const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
+  assert.equal(check(session(human, revoked)).ok, true);
+});

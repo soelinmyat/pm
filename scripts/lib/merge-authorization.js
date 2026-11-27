@@ -59,10 +59,11 @@ const COMMIT = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 // Read after Markdown formatting is stripped from the line: a key of exactly
 // "Merge" whose value starts with "manual". Anything after the value, such as
-// a note in brackets, still turns standing authorization off.
+// a note in brackets, still turns standing authorization off. The value may
+// sit inside quotes, brackets or parentheses.
 // "manual", "manually" and "manual-only" all qualify; \s also covers a
 // non-breaking space pasted from rich text.
-const MERGE_MANUAL_SETTING = /^merge\s*[:|]\s*manual/i;
+const MERGE_MANUAL_SETTING = /^merge\s*[:|]\s*(?:["'\u2018\u2019\u201c\u201d([{<]\s*)*manual/i;
 const INSTRUCTION_FILES = ["instructions.md", "instructions.local.md"];
 const MAX_INSTRUCTIONS_BYTES = 1024 * 1024;
 const SKIPPABLE_GATES = new Set(["tdd", "design-critique", "qa"]);
@@ -168,9 +169,14 @@ function assertMergeAuthorization(record) {
 // ---------------------------------------------------------------------------
 // The project setting. `Merge: manual` on its own line in the project's PM
 // instructions turns standing authorization off. Either file can turn it off.
+// Without a PM directory the instructions cannot be read, so the setting is
+// manual: an unknown setting never grants anything.
+
+const UNKNOWN_PM_DIR_REASON =
+  "the PM directory cannot be determined from the proposal path (expected {pm_dir}/backlog/proposals/{slug}.json), so the project's PM instructions cannot be read";
 
 function readProjectMergeSetting(pmDir) {
-  if (!text(pmDir)) return { mode: "auto", source: null };
+  if (!text(pmDir)) return { mode: "manual", source: null, reason: UNKNOWN_PM_DIR_REASON };
   for (const name of INSTRUCTION_FILES) {
     const file = path.join(pmDir, name);
     let bytes;
@@ -191,11 +197,12 @@ function readProjectMergeSetting(pmDir) {
 }
 
 // Strip what Markdown wraps a setting in: quote and heading marks, list
-// bullets, table pipes, emphasis and code spans.
+// bullets, task-list checkboxes, table pipes, emphasis and code spans.
 function isMergeManualLine(line) {
   const plain = line
     .replace(/^[\s>#]*/, "")
     .replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, "")
+    .replace(/^\[[ xX]\]\s+/, "")
     .replace(/^\|\s*/, "")
     .replace(/[*_`]/g, "")
     .trim();
@@ -264,7 +271,13 @@ function ledgerIssues(ledger, at = "$.merge_authorization") {
   if (ledger.revoked !== null) {
     if (!isObject(ledger.revoked)) issues.push(`${at}.revoked must be null or an object`);
     else {
-      issues.push(...closedIssues(ledger.revoked, ["revoked_at", "reason"], `${at}.revoked`));
+      const { cleared_authority: cleared, ...revoked } = ledger.revoked;
+      issues.push(...closedIssues(revoked, ["revoked_at", "reason"], `${at}.revoked`));
+      if (
+        cleared !== undefined &&
+        (!Array.isArray(cleared) || cleared.length !== 1 || cleared[0] !== "merge")
+      )
+        issues.push(`${at}.revoked.cleared_authority must list only merge`);
       if (!isIso(ledger.revoked.revoked_at))
         issues.push(`${at}.revoked.revoked_at must be an ISO-8601 time`);
       if (!text(ledger.revoked.reason)) issues.push(`${at}.revoked.reason is required`);
@@ -394,7 +407,11 @@ function authorizationReasons({ session, projectSetting, approval, approvalError
     reasons.push(
       reason(
         "project-merge-manual",
-        `the project's PM instructions turn standing merge authorization off (${projectSetting.source})`
+        projectSetting.source
+          ? `the project's PM instructions turn standing merge authorization off (${projectSetting.source}${
+              projectSetting.reason ? `: ${projectSetting.reason}` : ""
+            })`
+          : `standing merge authorization is off: ${projectSetting.reason || "the project setting cannot be read"}`
       )
     );
   const bound = session.task?.proposal;
@@ -750,6 +767,23 @@ function recordMergeDecision(session, result, grantAuthority) {
   });
 }
 
+// Whether every merge grant in the session came from a standing authorization.
+// dev-gate-check keeps its own copy of this rule.
+function standingMergeOnly(session) {
+  const grants = (Array.isArray(session?.authority_log) ? session.authority_log : []).filter(
+    (entry) => Array.isArray(entry?.actions) && entry.actions.includes("merge")
+  );
+  return (
+    grants.length > 0 &&
+    grants.every(
+      (entry) => typeof entry.reason === "string" && entry.reason.startsWith(GRANT_REASON_PREFIX)
+    )
+  );
+}
+
+// Records the revocation once. A merge authority that only the standing
+// authorization granted is withdrawn with it, and the revocation lists it in
+// `cleared_authority`; a merge grant the user gave themselves is kept.
 function revokeMergeAuthorization(session, reasonText, now = new Date().toISOString()) {
   if (!isObject(session.merge_authorization))
     throw new Error("this session has no standing merge authorization");
@@ -757,6 +791,10 @@ function revokeMergeAuthorization(session, reasonText, now = new Date().toISOStr
   if (session.merge_authorization.revoked) return structuredClone(session);
   const next = structuredClone(session);
   next.merge_authorization.revoked = { revoked_at: now, reason: reasonText.trim() };
+  if (next.authority?.merge === true && standingMergeOnly(next)) {
+    next.authority.merge = false;
+    next.merge_authorization.revoked.cleared_authority = ["merge"];
+  }
   next.updated_at = now;
   return next;
 }
@@ -788,5 +826,6 @@ module.exports = {
   revokeMergeAuthorization,
   standingDeliveryReason,
   standingGrantReason,
+  standingMergeOnly,
   validateSessionMergeAuthorization,
 };

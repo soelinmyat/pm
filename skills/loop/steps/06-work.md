@@ -122,7 +122,9 @@ A card's lifecycle spans multiple wakes by design — ship is event-driven
   merge-check --record` exits 0 under the grooming approval's standing merge
   authorization, then verifies the MERGED PR identity and marks the card done;
   with `false`, no standing authorization, or a refusal, it parks the green PR
-  as `needs-human` for your merge. A `waiting` result preserves `shipping` with a bounded `retry_after`,
+  as `needs-human` for your merge. A `merge-check` that cannot record its
+  decision (exit 8) or fails in any other way returns `blocked`, never a merge.
+  The merge itself uses `gh pr merge --match-head-commit` at the checked head. A `waiting` result preserves `shipping` with a bounded `retry_after`,
   and selectors skip the card until that wake time.
 
 When summarizing the JSON result:

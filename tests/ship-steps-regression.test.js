@@ -416,3 +416,27 @@ test("comprehensive requested drafts have an explicit ready-before-merge procedu
   assert.match(step, /ready-pr.*before.*CI/i);
   assert.match(step, /--draft/);
 });
+
+test("an automatic merge under a standing authorization lets GitHub enforce the checked head", () => {
+  // merge-check trusts the agent-written PR and CI observation, so the merge
+  // command itself must bind the head and leave branch protection in force.
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const shared = read("references/merge-loop.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+  const schema = read("skills/dev/references/state-schema.md");
+  const command =
+    /gh pr merge "\$PR_NUMBER" --repo "\$GH_REPO" --squash --match-head-commit "\$remote_tip"/;
+  assert.match(step, command);
+  assert.match(shared, command);
+  for (const text of [step, shared, contract, schema]) {
+    assert.match(text, /--match-head-commit/);
+    assert.match(text, /branch protection/);
+  }
+  // The standing-authorization merge command never carries --admin or --auto.
+  const commands = [step, shared]
+    .join("\n")
+    .match(/gh pr merge [^`\n]*--match-head-commit[^`\n]*/g);
+  assert.ok(commands && commands.length >= 2);
+  for (const line of commands) assert.doesNotMatch(line, /--admin|--auto/);
+  assert.match(schema, /merge-check[^\n]*observation[^\n]*--match-head-commit/);
+});

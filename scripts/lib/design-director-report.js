@@ -35,9 +35,17 @@ const METHODS = new Set(["browser", "simulator", "device", "screenshots-only"]);
 const PLATFORMS = new Set(["web", "ios", "android"]);
 const LATE_BLOCK_REASONS = new Set(["anchor-2-or-lower", "breaks-task"]);
 // A director run is one fix loop: up to five reviews of one piece of work. A
-// later commit after an approval starts a new run beside it.
-const REPORT_PATH_RE =
-  /^\.pm\/dev-sessions\/([^/]+)\/design-critique\/director\/([a-z0-9][a-z0-9._-]{0,63})\/review-([1-5])\/report\.json$/;
+// later commit after an approval starts a new run beside it. These are the
+// only definitions of the report path; the follow-up collector reuses them.
+const RUN_NAME = "[a-z0-9][a-z0-9._-]{0,63}";
+const REVIEW_NUMBER = `[1-${MAX_REVIEWS}]`;
+const SESSION_REPORT = `design-critique\\/director\\/(${RUN_NAME})\\/review-(${REVIEW_NUMBER})\\/report\\.json`;
+const DIRECTOR_RUN_RE = new RegExp(`^${RUN_NAME}$`);
+const DIRECTOR_REVIEW_RE = new RegExp(`^review-(${REVIEW_NUMBER})$`);
+// Relative to the session folder.
+const SESSION_REPORT_RE = new RegExp(`^${SESSION_REPORT}$`);
+// Relative to the project root.
+const REPORT_PATH_RE = new RegExp(`^\\.pm\\/dev-sessions\\/([^/]+)\\/${SESSION_REPORT}$`);
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -588,10 +596,14 @@ function isDirectorReportPath(value) {
 
 module.exports = {
   DIMENSIONS,
+  DIRECTOR_REVIEW_RE,
+  DIRECTOR_RUN_RE,
+  MAX_REPORT_BYTES,
   MAX_REVIEWS,
   MAX_ROUNDS,
   PASS_FLOOR,
   REPORT_SCHEMA,
+  SESSION_REPORT_RE,
   checkDesignDirector,
   isDirectorReportPath,
 };

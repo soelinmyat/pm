@@ -684,3 +684,40 @@ test("CLI and projection checker agree on a canonically verified approval audit"
     fs.rmSync(project, { recursive: true, force: true });
   }
 });
+
+test("print keeps labels with their values, headings with their content and the footer with the last section", () => {
+  const proposal = JSON.parse(fs.readFileSync(FIXTURE, "utf8"));
+  const { html } = renderProposal(proposal, { version: "1.0.0" });
+  const print = [...html.matchAll(/@media\s*print\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)]
+    .map((match) => match[1])
+    .join("\n");
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[},\\s])${escaped}\\s*(?:,[^{]*)?\\{[^}]*`, "m");
+  };
+  // A label and its value travel together: "SHA-256." never ends a page
+  // while its value starts the next.
+  assert.match(html, /<span class="label-value"><strong>SHA-256\.<\/strong> <code>sha256:/);
+  assert.match(html, /<span class="label-value"><strong>Source\.<\/strong> <code>/);
+  assert.match(print, /\.label-value\s*\{[^}]*display:\s*inline-block[^}]*break-inside:\s*avoid/);
+  // Labels that introduce a list are labels, kept with the list.
+  assert.match(html, /<p class="reader-label"><strong>Dependencies<\/strong><\/p>/);
+  assert.match(html, /<p class="reader-label"><strong>Constraints<\/strong><\/p>/);
+  // Headings, disclosure labels and a lead-in paragraph keep with what follows.
+  assert.match(print, /h2,\s*h3,[^{]*\.reader-label[^{]*\{[^}]*break-after:\s*avoid/);
+  assert.match(
+    print,
+    /\.execution-disclosure\s*>\s*summary,\s*\.appendix-disclosure\s*>\s*summary\s*\{[^}]*break-after:\s*avoid/
+  );
+  assert.match(print, /p:has\(\+ table\)[^{]*\{[^}]*break-after:\s*avoid/);
+  // Short cards stay whole.
+  for (const card of [".annotation", ".usecase", ".persona", ".open-q", ".resolved-q", "tr"])
+    assert.match(
+      print,
+      new RegExp(`${card.replace(".", "\\.")}[,\\s][^{]*\\{[^}]*break-inside:\\s*avoid`),
+      card
+    );
+  // The footer never sits alone on the last page.
+  assert.match(print, /footer\s*\{[^}]*break-before:\s*avoid/);
+  assert.ok(rule("footer").test(print));
+});

@@ -420,6 +420,14 @@ gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergeStateStatus --jq 
 gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch
 ```
 
+Under a standing merge authorization (Ship Step 07, after `merge-check` exits 0), use this command instead, with `$remote_tip` the exact commit `merge-check` passed at:
+
+```bash
+gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --match-head-commit "$remote_tip" --delete-branch
+```
+
+Never add `--admin` or `--auto` to it. `--match-head-commit` makes GitHub refuse the merge if the PR head is no longer the checked commit, and branch protection still enforces the required checks, so the merge does not rest only on the observation the agent wrote. If GitHub refuses, re-observe and rerun `merge-check`; do not retry with other flags.
+
 After merge command, verify state is `"MERGED"`. If still `"OPEN"`, loop back to Step 3.
 
 If merge fails: report the error and STOP. Do NOT force through.

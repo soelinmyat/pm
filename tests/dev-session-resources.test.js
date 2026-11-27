@@ -953,3 +953,142 @@ test("close refuses path and teardown removals when the session's repository is 
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("close keeps a database, account or simulator an active session also registered", () => {
+  const repo = makeRepo();
+  try {
+    const activePath = repo.init("active-db-owner");
+    const closingPath = repo.init("closing-db-user");
+    for (const sessionPath of [activePath, closingPath])
+      addOk(repo, sessionPath, [
+        "--kind",
+        "database",
+        "--identifier",
+        "app_shared",
+        "--teardown",
+        "drop-db",
+      ]);
+    addOk(repo, closingPath, [
+      "--kind",
+      "database",
+      "--identifier",
+      "app_own",
+      "--teardown",
+      "drop-db",
+    ]);
+    const marker = path.join(repo.root, "teardown-calls.txt");
+    const script = path.join(repo.root, "teardown.js");
+    fs.writeFileSync(
+      script,
+      `require('node:fs').appendFileSync(${JSON.stringify(marker)}, process.argv[2] + '\\n');`
+    );
+    fs.mkdirSync(path.join(repo.root, ".pm"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo.root, ".pm", "config.json"),
+      JSON.stringify({
+        dev: {
+          teardown: {
+            "drop-db": { kind: "database", command: [process.execPath, script, "{id}"] },
+          },
+        },
+      })
+    );
+    const dry = close(repo, closingPath, ["--dry-run"]);
+    assert.deepEqual(
+      dry.report.entries.map((item) => [item.target, item.outcome]),
+      [
+        ["app_shared", "preserved"],
+        ["app_own", "would-remove"],
+      ]
+    );
+    const closed = close(repo, closingPath);
+    assert.equal(closed.status, 7, closed.stderr);
+    assert.equal(closed.report.entries[0].outcome, "preserved");
+    assert.match(closed.report.entries[0].reason, /active session active-db-owner/);
+    assert.equal(
+      fs.readFileSync(marker, "utf8"),
+      "app_own\n",
+      "the shared database was not dropped"
+    );
+    assert.equal(readJson(closingPath).resources[0].status, "registered");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("the sweep treats a handed-off session as active, however long it has been idle", () => {
+  const { classifySession, activeTargets } = require("../scripts/lib/dev-session-resources");
+  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-res-handoff-")));
+  try {
+    const sessionPath = path.join(scratch, "handoff", "session.json");
+    const old = "2026-01-01T00:00:00.000Z";
+    const found = (raw) => ({ sessionPath, key: sessionPath, raw, error: null });
+    // A headless loop worker still has to run merge-check on a handed-off PR.
+    const handoff = { slug: "handoff", status: "handoff", updated_at: old, resources: [] };
+    assert.equal(classifySession(found(handoff)).state, "active");
+    assert.equal(
+      classifySession(found({ ...handoff, updated_at: new Date().toISOString() })).state,
+      "active"
+    );
+    const unknown = { slug: "odd", status: "paused", updated_at: old };
+    assert.equal(classifySession(found(unknown)).state, "active");
+    assert.equal(
+      classifySession(found({ slug: "done", status: "complete", updated_at: old })).state,
+      "finished"
+    );
+    const dir = path.join(scratch, "build");
+    const targets = activeTargets(
+      [
+        found({
+          ...handoff,
+          resources: [{ kind: "directory", status: "registered", path: dir }],
+        }),
+      ],
+      null
+    );
+    assert.ok(targets.some((item) => item.path === dir));
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("sweep --remove discovers the repository's sessions once, not once per swept session", () => {
+  const repo = makeRepo();
+  try {
+    const finished = [];
+    for (const slug of ["swept-one", "swept-two", "swept-three"]) {
+      const sessionPath = repo.init(slug);
+      addOk(repo, sessionPath, ["--kind", "directory", "--path", repo.scratch()]);
+      finished.push(completeSession(repo, sessionPath).session_path);
+    }
+    const resources = require("../scripts/lib/dev-session-resources");
+    const original = resources.discoverSessions;
+    let calls = 0;
+    resources.discoverSessions = (...args) => {
+      calls += 1;
+      return original(...args);
+    };
+    const write = process.stdout.write;
+    let output = "";
+    const cwd = process.cwd();
+    try {
+      process.chdir(repo.root);
+      process.stdout.write = (chunk) => {
+        output += chunk;
+        return true;
+      };
+      const { main } = require("../scripts/dev-session");
+      const code = main(["sweep", "--source-dir", repo.root, "--remove", "--json"]);
+      assert.equal(code, 0, output);
+    } finally {
+      process.stdout.write = write;
+      process.chdir(cwd);
+      resources.discoverSessions = original;
+    }
+    assert.equal(calls, 1);
+    for (const sessionPath of finished)
+      assert.equal(readJson(sessionPath).resources[0].status, "removed");
+  } finally {
+    repo.cleanup();
+  }
+});

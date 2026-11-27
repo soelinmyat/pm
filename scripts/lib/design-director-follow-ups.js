@@ -13,12 +13,13 @@ const path = require("node:path");
 const { readBoundedJsonFile } = require("./safe-json-file");
 const { isRfc3339DateTime } = require("./iso-time");
 
-const REPORT_SCHEMA = "design-director-report";
-const MAX_REPORT_BYTES = 4 * 1024 * 1024;
-const RUN_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const REVIEW_RE = /^review-([1-5])$/;
-const SOURCE_RE =
-  /^design-critique\/director\/[a-z0-9][a-z0-9._-]{0,63}\/review-[1-5]\/report\.json$/;
+const {
+  DIRECTOR_REVIEW_RE: REVIEW_RE,
+  DIRECTOR_RUN_RE: RUN_RE,
+  MAX_REPORT_BYTES,
+  REPORT_SCHEMA,
+  SESSION_REPORT_RE: SOURCE_RE,
+} = require("./design-director-report");
 const KEY_RE = /^fu_[a-f0-9]{16}$/;
 const LINEAR_REF_RE = /^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]{0,8}$/;
 const BACKLOG_REF_RE = /^backlog\/[a-z0-9][a-z0-9-]{0,199}\.md$/;

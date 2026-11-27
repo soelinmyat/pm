@@ -57,6 +57,7 @@ const EXIT = Object.freeze({
   BLOCKED: 5,
   RETRY_EXHAUSTED: 6,
   RESOURCES_REMAIN: 7,
+  RECORD_FAILED: 8,
 });
 const MAX_EVIDENCE_INPUT_BYTES = 4 * 1024 * 1024;
 
@@ -1404,9 +1405,11 @@ function sessionKey(sessionPath) {
   return resources.realOrNull(sessionPath) || sessionPath;
 }
 
-function ledgerContext(session, sessionPath, { protect = true } = {}) {
+// `sessions` lets a caller that already discovered the repository's sessions,
+// such as the sweep, reuse them instead of reading every session again.
+function ledgerContext(session, sessionPath, { protect = true, sessions: known } = {}) {
   const repoRoot = resources.realOrNull(session.source?.repo_root);
-  const sessions = protect && repoRoot ? resources.discoverSessions(repoRoot) : [];
+  const sessions = !protect || !repoRoot ? [] : known || resources.discoverSessions(repoRoot);
   return resources.buildContext({
     session,
     sessionPath,
@@ -1567,10 +1570,10 @@ function closeCommand(options) {
 }
 
 // Caller holds the session lock.
-function closeSessionLedger(session, sessionPath, dryRun) {
+function closeSessionLedger(session, sessionPath, dryRun, { sessions } = {}) {
   const outcome = resources.closeLedger(
     session.resources || [],
-    ledgerContext(session, sessionPath),
+    ledgerContext(session, sessionPath, { sessions }),
     {
       dryRun,
     }
@@ -1808,7 +1811,11 @@ function mergeAuthorizationRevokeCommand(options) {
   emit(
     options,
     { session_path: sessionPath, revoked: updated.merge_authorization.revoked },
-    `Standing merge authorization revoked: ${updated.merge_authorization.revoked.reason}\n`
+    `Standing merge authorization revoked: ${updated.merge_authorization.revoked.reason}\n${
+      updated.merge_authorization.revoked.cleared_authority
+        ? "The merge authority it granted is withdrawn; merging needs the user's own confirmation.\n"
+        : ""
+    }`
   );
   return EXIT.OK;
 }
@@ -1868,7 +1875,12 @@ function mergeCheckCommand(options) {
       });
       recorded = true;
     } catch (error) {
-      throw cliError(error.message, EXIT.PRECONDITION);
+      // Not "manual": a loop must never park a passing merge as needing a
+      // human because the write failed, nor merge on an unrecorded decision.
+      throw cliError(
+        `merge-check decided ${result.decision} but could not record it, so nothing was granted: ${error.message}`,
+        EXIT.RECORD_FAILED
+      );
     }
   }
   emit(
@@ -2021,7 +2033,10 @@ function sweepCommand(options) {
           const closed = closeSessionLedger(
             readSession(found.sessionPath),
             found.sessionPath,
-            false
+            false,
+            {
+              sessions,
+            }
           );
           item.entries = closed.entries.filter((entry) => entry.outcome !== "already-closed");
           report.bytes_freed += closed.bytes_freed;
@@ -2167,6 +2182,8 @@ function helpText() {
     "  merge-authorization --session <path> [--apply] [--json]",
     "  merge-authorization-revoke --session <path> --reason <text> [--json]",
     "  merge-check --session <path> --observation <pr-ci.json> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]",
+    "      exit 0 merge, 1 refuse, 3 manual (no standing authorization applies), 2 bad input,",
+    "      8 the decision could not be recorded (nothing granted; treat as blocked)",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
