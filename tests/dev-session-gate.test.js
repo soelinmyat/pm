@@ -1768,6 +1768,103 @@ test("an approved Design Director report at HEAD passes the Design Critique gate
   assert.equal(checked.status, 0, checked.stdout + checked.stderr);
 });
 
+// A director session whose bound design context declares one surface. The
+// proposal identity only satisfies the session schema; the CLI would also
+// reverify the proposal file, so these tests record through recordResult.
+function surfacedDirectorRepo() {
+  const repo = directorRepo();
+  const session = repo.session();
+  const digest = `sha256:${"b".repeat(64)}`;
+  const proposals = path.join(repo.root, "pm", "backlog", "proposals");
+  fs.mkdirSync(proposals, { recursive: true });
+  session.task.proposal = {
+    path: path.join(proposals, "orders.json"),
+    kind: "approved-canonical-json",
+    trusted_approval: true,
+    proposal_id: "orders",
+    slug: "orders",
+    revision: 1,
+    lifecycle: "planned",
+    content_sha256: digest,
+    approved_proposal_sha256: digest,
+    decision_id: null,
+    decision_sha256: null,
+  };
+  session.task.design_context = {
+    design_requirements: ["Filter orders by status."],
+    ui_impact: true,
+    prototype: null,
+    critical_states: ["empty"],
+    experience_invariants: ["The filter survives a reload."],
+    visual_invariants: ["The filter sits above the table."],
+    surfaces: [{ name: "Orders list", paths: ["web/orders/**"] }],
+  };
+  repo.saveSession(session);
+  fs.mkdirSync(path.join(repo.root, "web", "orders"), { recursive: true });
+  fs.mkdirSync(path.join(repo.root, "web", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(repo.root, "web", "orders", "list.tsx"), "export {};\n");
+  fs.writeFileSync(path.join(repo.root, "web", "settings", "page.tsx"), "export {};\n");
+  git(repo.root, ["add", "web"]);
+  git(repo.root, ["commit", "-qm", "orders ui"]);
+  return repo;
+}
+
+test("a Design Director approval cannot pass while a mechanical check fails", (t) => {
+  const { recordResult } = require("../scripts/lib/dev-session-schema");
+  const repo = surfacedDirectorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const report = directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() });
+  const written = directorFixture.write(repo.root, 1, report, "gate-cli");
+  const result = directorResult(repo, session, "passed", written.absolutePath);
+  assert.throws(
+    () => recordResult(session, result),
+    (error) =>
+      /mechanical checks fail: scope: web\/settings\/page\.tsx is outside every declared surface/.test(
+        JSON.stringify(error.issues || error.message)
+      )
+  );
+
+  const checks = path.join(path.dirname(repo.sessionPath), "design-critique", "mechanical");
+  fs.mkdirSync(checks, { recursive: true });
+  fs.writeFileSync(
+    path.join(checks, "checks.json"),
+    JSON.stringify({
+      schema: "design-director-mechanical",
+      schema_version: 1,
+      dispositions: [
+        {
+          check: "scope",
+          file: "web/settings/page.tsx",
+          kind: "decision",
+          ref: "visual_invariants[0] moves the settings link",
+        },
+      ],
+    })
+  );
+  const next = recordResult(session, result);
+  assert.notEqual(next.phase, "design-critique");
+  assert.equal(next.evidence["design-critique"].commit, repo.head());
+});
+
+test("a mechanical failure the builder cannot fix parks the session with its own code", (t) => {
+  const { recordResult } = require("../scripts/lib/dev-session-schema");
+  const repo = surfacedDirectorRepo();
+  t.after(() => repo.cleanup());
+  const session = repo.session();
+  const result = directorResult(repo, session, "blocked", null);
+  result.evidence = [];
+  result.blocker = {
+    code: "design-director-mechanical",
+    reason: "web/settings/page.tsx is outside every declared surface",
+    remediation: "The owner widens the surfaces or the change moves out of this session",
+  };
+  const blocked = recordResult(session, result);
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.phase, "design-critique");
+  assert.equal(blocked.blockers.at(-1).code, "design-director-mechanical");
+});
+
 test("a Design Director report cannot pass the gate when it rejects, is stale or self-approved", (t) => {
   for (const [name, mutate, pattern] of [
     [

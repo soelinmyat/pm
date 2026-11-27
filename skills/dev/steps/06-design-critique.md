@@ -24,7 +24,7 @@ Produce current, sanitized visual evidence for the changed UI, resolve blocking 
 
 ## How
 
-0. Choose the review path. Product UI is reviewed by the Design Director: read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director.md` and follow it in place of items 2 through 5 below. Items 1, 6 and 7 still apply, with the director's `report.json` as both the `review` evidence and the gate artifact; that path has no `report.html`. Use the capture path in items 2 through 5 only for a PM artifact or PDF, when the project's PM instructions say `Design review: capture`, when this session already recorded a capture report, or when the host cannot dispatch a separate reviewing agent.
+0. Choose the review path. Product UI is reviewed by the Design Director: read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director.md` and follow it in place of items 2 through 5 below. Items 1, 6 and 7 still apply, with the director's `report.json` as both the `review` evidence and the gate artifact; that path has no `report.html`. On the director path, run `scripts/design-director-mechanical.js` before dispatching the director and again at the reviewed commit before recording an approval; fix or explain every item it reports. Use the capture path in items 2 through 5 only for a PM artifact or PDF, when the project's PM instructions say `Design review: capture`, when this session already recorded a capture report, or when the host cannot dispatch a separate reviewing agent.
 1. Confirm the routed visual scope and current HEAD. This phase appears only when risk routing requires Design Critique; do not silently convert an unavailable environment into a pass or skip.
 2. Invoke `pm:design-critique`. The skill invocation is the gate; an informal inline opinion does not satisfy it. Its route selects `product-ui` or `pm-artifact` independently from this embedded execution context.
 3. Follow the declared capture guide and the skill's evidence contract. Produce commit-bound `route.json`, hash-bound `captures.json`, structured `report.json`, and accessible `report.html`; cover the required viewport/state or desktop/tablet/narrow/print matrix without private data.
@@ -39,7 +39,9 @@ On the director path:
 
 - The Design Director approved at current HEAD and `scripts/design-director-check.js` passes.
 - The Design Critique gate and phase evidence point to current HEAD and validate.
+- `scripts/design-director-mechanical.js` passes at the reviewed commit, or reports "no declared surfaces".
 - Parked work is not done. After a round 3 rejection or a fifth review, record the rejection, report the open findings and the report path, and stop without advancing.
+- A mechanical failure that cannot be fixed or explained is not done. Record the phase as `blocked` with the code `design-director-mechanical`, report the failing items, and stop without advancing.
 
 On the capture path:
 
@@ -47,4 +49,4 @@ On the capture path:
 - No unresolved P0/P1 finding remains, or the phase is explicitly blocked for a product decision.
 - The Design Critique gate and phase evidence point to current HEAD and validate.
 
-**Advance:** after a passing gate, record the result and proceed to Step 07 (QA), as selected by the runner. Parked work does not advance.
+**Advance:** after a passing gate, record the result and proceed to Step 07 (QA), as selected by the runner. Parked or mechanically blocked work does not advance.

@@ -23,6 +23,7 @@ Use it for Dev work that changes product UI and is reviewed by the Design Direct
    - **Declared states.** The `critical_states` entries, whenever there is a design context.
 3. **Start from the approved preview's code.** With an `app_preview` in the design context, adopt it as Step 05 item 4b describes. With other preview code, start from that code instead of rebuilding the screen. Record each change from it as a departure in the handoff note.
 4. **Seed realistic data before the first render.** Cover long names, an empty list or record, many rows and a failure, plus every declared state. Use the project's fixtures or seed setup; `design-critique-seed-conventions.md` shows one pattern. Commit seed code with the feature. Never use real customer data.
+5. **Capture the neighbours' before.** Before the first UI change, render each neighbour named in the build brief at the base commit and save a PNG at `.pm/dev-sessions/{slug}/design-critique/mechanical/neighbours/{name}-before.png`. When the work has already started, render the base from a scratch worktree. List each neighbour in `mechanical/checks.json` as `design-director.md` describes. Without a browser or simulator, skip this and say so in the handoff note.
 
 ### Build brief template
 
@@ -52,9 +53,12 @@ Each state to build: the declared states from `critical_states` first, then empt
 
 ## Comparable screens
 Two or three named existing screens: one that does a similar job, and others that share its navigation, buttons or components.
+
+## Neighbours
+One or two untouched screens that share components with the change, each with the declared surface it belongs to, or none. The state, viewport and account each is captured with.
 ```
 
-The comparable screens here become item 5 of the director brief.
+The comparable screens here become item 5 of the director brief. The neighbours are captured before any UI code, as above, and the mechanical checks compare them.
 
 ## After each slice: self-check
 
@@ -64,13 +68,14 @@ This is the builder's own check. It never replaces the director and never counts
 2. **Read the whole screen first.** Compare it side by side with the target and the comparable screens: reading order, grouping, density, button order, navigation.
 3. **Measure.** On web, evaluate the output of `node "${CLAUDE_PLUGIN_ROOT}/scripts/design-director-measure.js" snippet` in the page. On native, run `design-director-measure.js analyze --model <file>`. Give each outlier a disposition as the rubric's measurement rule requires, and fix defects now. Keep raw output and screenshots in the run's scratch directory.
 4. **Walk the hunt list** for the changed screens and fix what it finds.
-5. **Record** what was rendered, measured and compared, the outliers and their dispositions, and anything that could not be rendered.
+5. **Run the mechanical checks** with `design-director-mechanical.js` as `design-director.md` describes. Fix each raw colour or pixel value with the project's token or component, or give it a disposition in `mechanical/checks.json`. Move a UI change outside the declared surfaces back inside them, or explain it with the declared decision that needs it.
+6. **Record** what was rendered, measured and compared, the outliers and their dispositions, and anything that could not be rendered.
 
 Without a browser or simulator, say so in the handoff note. An unrun self-check is a stated limit, not a pass.
 
 ## Handoff note
 
-Write it at `.pm/dev-sessions/{slug}/implementation/handoff.md` before Implementation is recorded. After each director rejection, update it at the fix commit. Its two sections become items 4 and 7 of the director brief in `design-director.md`, so keep them separate: the director reads the access notes first and the claims last.
+Write it at `.pm/dev-sessions/{slug}/implementation/handoff.md` before Implementation is recorded. Before writing it, capture each neighbour's after at the same state, viewport, scale and account as its before, at `mechanical/neighbours/{name}-after.png`, and rerun the mechanical checks. After each director rejection, update it at the fix commit. Its two sections become items 4 and 7 of the director brief in `design-director.md`, so keep them separate: the director reads the access notes first and the claims last.
 
 ```markdown
 ---
@@ -89,6 +94,7 @@ commit: full HEAD commit this note describes
 
 ## Builder's claims
 - Self-check: per screen and width, what was measured and compared, outliers and their dispositions.
+- Mechanical checks: the command's summary at this commit, with each disposition.
 - Departures: each known difference from the approved target, and why.
 - Not checked: states or widths the builder could not render, and why.
 ```
@@ -100,5 +106,6 @@ Access notes say how to reach a state. They do not say what to look at or what t
 - The build brief exists and every section is filled before UI code.
 - Each slice was rendered at desktop and narrow width and measured, or the limit is stated.
 - The handoff note exists, its `commit` is current HEAD, and every state in the build brief has a route in the access notes.
+- The mechanical checks pass at HEAD, or the failing items are stated in the handoff note for Design Critique to park on.
 
 **Advance:** return to Step 05 (Implementation) and record the phase result.

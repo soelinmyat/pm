@@ -1543,6 +1543,28 @@ function validateScopedGateEvidence(session, result, errors) {
       );
     const commit = phase === "review" ? report.source?.commit : report.commit;
     if (commit !== result.commit) throw new Error("report source must equal result commit");
+    // An approval passes only while the director path's mechanical checks
+    // pass at the reviewed commit. They enforce only for declared surfaces.
+    const mechanicalChecks = require("./design-director-mechanical");
+    if (
+      phase !== "review" &&
+      result.status === "passed" &&
+      require("./design-director-report").isDirectorReportPath(relative) &&
+      mechanicalChecks.sessionSurfaces(session).length > 0
+    ) {
+      const mechanical = mechanicalChecks.runMechanicalChecks({
+        root,
+        session,
+        commit: result.commit,
+      });
+      if (!mechanical.ok)
+        throw new Error(
+          `mechanical checks fail: ${mechanical.issues
+            .slice(0, 5)
+            .map((item) => `${item.check}: ${item.message}`)
+            .join("; ")}`
+        );
+    }
     if (report.outcome !== result.status && !failedVerification)
       throw new Error(`report outcome ${report.outcome} contradicts ${result.status}`);
     if (required && policy !== RECOVERY_POLICY)

@@ -324,6 +324,21 @@ brief. Older contexts without `surfaces` still validate. Grooming has to write
 `surfaces`; no checker requires it yet, because a required field would fail
 proposals already approved.
 
+2026-11-27: delivery item 4 is built without the standing merge authorization,
+not released. `scripts/design-director-mechanical.js` runs the scope, token and
+neighbour checks against the diff from where the branch left the default
+branch. Dispositions, UI-file overrides and neighbour screenshot pairs live in
+`.pm/dev-sessions/{slug}/design-critique/mechanical/checks.json`. Neighbour PNGs
+are compared by decoded pixels with the existing decoder in
+`scripts/lib/media-inspect.js`; other formats only by bytes. The checks enforce
+only when the design context declares `surfaces`; otherwise they report and
+never fail. The recorder reruns them on a director approval and refuses it
+while they fail. An unfixable failure is recorded as a `blocked` result with
+the code `design-director-mechanical`. Merge authorization was deliberately left
+out: the owner has not approved unattended merging, so nothing merges without a
+human. The code reviewer is still not checked to be a separate agent from the
+builder; Review allows a shared-orchestrator fallback.
+
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.
 

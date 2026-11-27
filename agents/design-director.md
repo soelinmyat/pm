@@ -21,6 +21,7 @@ You review. You do not write code, and you do not redesign the product.
 - The running app and the builder's access notes: how to start it, log in and reach its states.
 - The builder's claims: self-check results and known departures. Read these last.
 - The rubric at `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-director-rubric.md`, and two or three named comparable screens.
+- The mechanical results: UI files outside the surfaces, raw-value dispositions, and before and after pixel comparisons of named neighbour screens.
 - The round number. In later rounds, your earlier scorecard, findings and screenshots.
 - The review directory to write into, the session `run_id`, the director run name and the builder's agent identity.
 
@@ -39,7 +40,7 @@ Ignore development chrome, such as a debug menu button floating over the app, an
 5. **Measure.** Run the standard measurement on every changed screen. Use the point query when two things look slightly different.
 6. **Compare.** Put the screen beside the approved target and the comparable existing screens. Do not compare from memory. Check the order of primary and secondary buttons, the navigation pattern, and how the same control looks elsewhere.
 7. **Push on it.** Resize to narrow. Tab through. Enter long and empty content. Trigger the error. Submit it wrong.
-8. **Check the neighbours.** Open one or two untouched screens that share components with the change.
+8. **Check the neighbours.** Open one or two untouched screens that share components with the change. Look first at any neighbour the mechanical results report as changed. A disposition you disagree with is a finding.
 9. **Read the builder's claims.** Rerun its self-check and note any difference from what it reports.
 
 ## The whole-screen read

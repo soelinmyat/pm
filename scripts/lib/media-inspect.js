@@ -66,7 +66,33 @@ function inspectPngHeaderBytes(bytes) {
   return parseHeader(data);
 }
 
-function inspectPngInternal(bytes, includeVisualEvidence, region = null, lazyRegions = false) {
+// Decoded 8-bit pixels as RGBA, for comparing two screenshots pixel by pixel.
+// Palette and 16-bit images are not decoded; the caller falls back to bytes.
+function decodePngRgba(bytes) {
+  const { header, pixels } = inspectPngInternal(bytes, false, null, false, true);
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[header.colorType];
+  if (header.bitDepth !== 8 || !channels)
+    throw new Error("only 8-bit grey, RGB and RGBA PNGs are compared by pixel");
+  const rgba = Buffer.alloc(header.width * header.height * 4);
+  for (let pixel = 0; pixel < header.width * header.height; pixel += 1) {
+    const source = pixel * channels;
+    const target = pixel * 4;
+    const grey = channels <= 2;
+    rgba[target] = pixels[source];
+    rgba[target + 1] = grey ? pixels[source] : pixels[source + 1];
+    rgba[target + 2] = grey ? pixels[source] : pixels[source + 2];
+    rgba[target + 3] = channels === 2 || channels === 4 ? pixels[source + channels - 1] : 255;
+  }
+  return { width: header.width, height: header.height, rgba };
+}
+
+function inspectPngInternal(
+  bytes,
+  includeVisualEvidence,
+  region = null,
+  lazyRegions = false,
+  decodeOnly = false
+) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -109,6 +135,7 @@ function inspectPngInternal(bytes, includeVisualEvidence, region = null, lazyReg
         throw new Error("invalid PNG end chunk");
       validatePalette(header.colorType, sawPalette);
       const pixelStream = validatePixelStream(header, compressed);
+      if (decodeOnly) return { header, pixels: decodePixels(header, pixelStream) };
       if (!includeVisualEvidence) return { width: header.width, height: header.height };
       const pixels = decodePixels(header, pixelStream);
       const inspectRegion = (selectedRegion) => ({
@@ -896,6 +923,7 @@ function crc32(bytes) {
 
 module.exports = {
   PRODUCT_UI_VISUAL_THRESHOLDS,
+  decodePngRgba,
   inspectPdf,
   inspectPdfBytes,
   inspectPng,

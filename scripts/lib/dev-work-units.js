@@ -1894,6 +1894,12 @@ function ownershipMatcher(pattern, glob = hasGlob(pattern)) {
   return (file) => file === pattern || file.startsWith(`${pattern}/`);
 }
 
+// The same path test for a plain repo-relative pattern with no owns notes, such as a
+// design context surface path. Callers validate the pattern first.
+function pathPatternMatcher(pattern) {
+  return ownershipMatcher(normalizePattern(pattern));
+}
+
 function runGit(worktree, args) {
   return sharedRunGit(args, worktree);
 }
@@ -2039,6 +2045,7 @@ module.exports = {
   buildPrototypeIdentity,
   narrowAuthority,
   ownershipOverlaps,
+  pathPatternMatcher,
   validateOwnershipList,
   validateDesignContext,
   validateRepoRelativePattern,
