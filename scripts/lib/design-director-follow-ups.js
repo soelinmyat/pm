@@ -65,8 +65,10 @@ function normalize(value) {
     String(value || "")
       .normalize("NFKC")
       .toLowerCase()
-      // Letters and digits in any script; everything else separates words.
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      // Letters, digits and combining marks in any script; everything else
+      // separates words. Marks carry vowels in Myanmar, Hindi or Thai, so
+      // dropping them would merge different notes.
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
       .trim()
   );
 }

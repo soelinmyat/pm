@@ -1864,7 +1864,8 @@ function mergeAuthorizationRevokeCommand(options) {
 // writes the decision to the session. Only a merge decision grants the merge
 // authority Ship's transaction requires. The PR, its protection and its
 // required checks are read from GitHub through `gh api`; the repository comes
-// from the delivery contract and the PR number from the release transaction's
+// from the delivery contract, which must name the repository the session's
+// delivery remote pushes to, and the PR number from the release transaction's
 // verified Create PR receipt. `--observation <file>` replaces that read for
 // diagnosis only: a decision made from a file is recorded with observation
 // source `file` and never allows a merge.
@@ -1902,6 +1903,8 @@ function mergeCheckCommand(options) {
     state,
     deliveryContract,
     releaseTransaction,
+    root,
+    session,
   });
   const gateCheck = gates ? fullGateCheck({ root, session, gates, gatesPath, commit }) : null;
   const director = directorEvidence({ root, session, gates, commit });
@@ -1960,9 +1963,42 @@ function verifiedPrNumber(releaseTransaction) {
   return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
+// The OWNER/REPO the session's delivery remote pushes to. merge-check reads
+// GitHub for this repository, so a stale or wrong delivery contract is caught
+// as a mismatch rather than silently read for another repository.
+function deliveryRemoteRepository(root, session) {
+  const remote = session.source?.delivery_remote || "origin";
+  const listed = require("node:child_process").spawnSync(
+    "git",
+    ["remote", "get-url", "--push", "--all", "--", remote],
+    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  const urls = listed.status === 0 ? String(listed.stdout).split(/\r?\n/).filter(Boolean) : [];
+  const unknown = (message) => ({
+    repository: null,
+    error: { code: "delivery-remote-unknown", message },
+  });
+  if (urls.length !== 1)
+    return unknown(
+      `delivery remote ${remote} must have exactly one push URL, found ${urls.length}`
+    );
+  try {
+    return { repository: require("./prepare-release").githubRepository(urls[0]), error: null };
+  } catch (error) {
+    return unknown(`delivery remote ${remote}: ${error.message}`);
+  }
+}
+
 // GitHub is read only when a standing authorization applies; otherwise the
 // decision is manual whatever the PR shows.
-function observePullRequest({ fileObservation, state, deliveryContract, releaseTransaction }) {
+function observePullRequest({
+  fileObservation,
+  state,
+  deliveryContract,
+  releaseTransaction,
+  root,
+  session,
+}) {
   if (fileObservation) return { observation: fileObservation.value, source: "file", error: null };
   if (!state.applies)
     return {
@@ -1973,8 +2009,20 @@ function observePullRequest({ fileObservation, state, deliveryContract, releaseT
         message: "GitHub was not read because the standing authorization does not apply",
       },
     };
+  const remote = deliveryRemoteRepository(root, session);
+  if (remote.error) return { observation: null, source: "github", error: remote.error };
+  const contracted = deliveryContract?.github_name_with_owner;
+  if (typeof contracted === "string" && contracted && contracted !== remote.repository)
+    return {
+      observation: null,
+      source: "github",
+      error: {
+        code: "delivery-remote-mismatch",
+        message: `the delivery contract names ${contracted}, but delivery remote ${session.source?.delivery_remote || "origin"} pushes to ${remote.repository}`,
+      },
+    };
   return require("./lib/github-merge-observation").readGithubMergeObservation({
-    repository: deliveryContract?.github_name_with_owner,
+    repository: contracted,
     prNumber: verifiedPrNumber(releaseTransaction),
   });
 }
@@ -2064,6 +2112,8 @@ function sweepCommand(options) {
     bytes_to_free: 0,
     remaining: [],
   };
+  let dryRunTargets = null;
+  const dryRunWorktrees = new Map();
   for (const found of sessions) {
     if (found.key === currentKey) continue;
     const ledger = Array.isArray(found.raw?.resources)
@@ -2099,12 +2149,17 @@ function sweepCommand(options) {
         bytes: 0,
       }));
     } else if (!remove) {
+      // A dry run changes nothing, so the worktree lists and the active
+      // sessions' targets are built once for the whole sweep. This session is
+      // not active, so none of those targets is its own.
+      dryRunTargets ||= resources.activeTargets(sessions);
       const outcome = resources.closeLedger(
         ledger,
         resources.buildContext({
           session: found.raw,
           sessionPath: found.sessionPath,
-          protectedTargets: resources.activeTargets(sessions, found.key),
+          protectedTargets: dryRunTargets,
+          worktreeCache: dryRunWorktrees,
         }),
         { dryRun: true }
       );

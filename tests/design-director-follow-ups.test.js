@@ -702,3 +702,28 @@ test("follow-ups read director reports by the report checker's own path rules", 
   );
   assert.doesNotMatch(source, /review-\[1-5\]|\{0,63\}/, "no second copy of the path rules");
 });
+
+test("system notes that differ only in vowel signs keep distinct keys", () => {
+  // Myanmar မာ / မီ and Hindi काम / कम differ only in combining marks.
+  const root = workspace();
+  const note = (id, change) =>
+    finding(id, "system-note", "consistency", "filed", { location: "Shared", change });
+  write(
+    root,
+    1,
+    approval({
+      run_id: "main",
+      findings: [
+        note("s-01", "ခလုတ်ကို မာအောင်လုပ်ပါ"),
+        note("s-02", "ခလုတ်ကို မီအောင်လုပ်ပါ"),
+        note("s-03", "बटन का काम बदलें"),
+        note("s-04", "बटन का कम बदलें"),
+      ],
+    })
+  );
+  const keys = collectFollowUps({ sessionDir: sessionDir(root) })
+    .items.filter((item) => item.class === "system-note")
+    .map((item) => item.key);
+  assert.equal(keys.length, 4);
+  assert.equal(new Set(keys).size, 4);
+});

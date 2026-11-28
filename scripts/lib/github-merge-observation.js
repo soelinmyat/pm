@@ -13,9 +13,12 @@
 //   repos/{owner}/{repo}/commits/{head}/status?per_page=100
 //
 // `runGh(args)` is injectable so tests never reach the network. It returns
-// the shape of `spawnSync`: `{ status, stdout, stderr, error }`.
+// the shape of `spawnSync`: `{ status, stdout, stderr, error }`. Each request
+// goes through pr-state's `runGhWithRetry`, so a transient 5xx, gateway error
+// or timeout is retried before the read refuses; auth and 4xx answers are not.
 
 const { spawnSync } = require("node:child_process");
+const { runGhWithRetry } = require("../pr-state");
 
 const GH_TIMEOUT_MS = 30_000;
 // GitHub computes `mergeable` in the background after a PR changes, and
@@ -71,8 +74,20 @@ function classifyFailure(endpoint, result) {
   return new ReadError("github-read-failed", `gh api ${endpoint} failed: ${tail}`);
 }
 
-function api(runGh, endpoint) {
-  const result = runGh(["api", endpoint]);
+function api(runGh, sleep, endpoint) {
+  let result = null;
+  runGhWithRetry(["api", endpoint], {
+    sleep,
+    runGh: (args) => {
+      result = runGh(args);
+      const ok = Boolean(result) && !result.error && result.status === 0;
+      return {
+        code: ok ? 0 : 1,
+        stdout: String(result?.stdout || ""),
+        stderr: String(result?.stderr || result?.error?.message || ""),
+      };
+    },
+  });
   if (!result || result.error || result.status !== 0) throw classifyFailure(endpoint, result);
   try {
     const value = JSON.parse(String(result.stdout || ""));
@@ -130,21 +145,22 @@ function readGithubMergeObservation({
   if (!Number.isSafeInteger(prNumber) || prNumber < 1)
     return fail(new ReadError("pr-unknown", "the release transaction names no verified PR number"));
   const observedAt = now();
+  const get = (endpoint) => api(runGh, sleep, endpoint);
   try {
-    const repo = api(runGh, `repos/${repository}`);
-    let pr = api(runGh, `repos/${repository}/pulls/${prNumber}`);
+    const repo = get(`repos/${repository}`);
+    let pr = get(`repos/${repository}/pulls/${prNumber}`);
     for (let attempt = 1; attempt < MERGEABLE_ATTEMPTS && pr.mergeable === null; attempt += 1) {
       sleep(MERGEABLE_WAIT_MS);
-      pr = api(runGh, `repos/${repository}/pulls/${prNumber}`);
+      pr = get(`repos/${repository}/pulls/${prNumber}`);
     }
     const base = typeof pr.base?.ref === "string" ? pr.base.ref : null;
     const head = typeof pr.head?.sha === "string" ? pr.head.sha : null;
     if (!base || !COMMIT.test(head || ""))
       throw new ReadError("github-read-failed", "GitHub returned a PR without a base and head");
-    const branch = api(runGh, `repos/${repository}/branches/${encodeURIComponent(base)}`);
+    const branch = get(`repos/${repository}/branches/${encodeURIComponent(base)}`);
     const protection = requiredChecks(branch);
-    const runs = api(runGh, `repos/${repository}/commits/${head}/check-runs?per_page=100`);
-    const statuses = api(runGh, `repos/${repository}/commits/${head}/status?per_page=100`);
+    const runs = get(`repos/${repository}/commits/${head}/check-runs?per_page=100`);
+    const statuses = get(`repos/${repository}/commits/${head}/status?per_page=100`);
     const checkRuns = Array.isArray(runs.check_runs) ? runs.check_runs : null;
     const commitStatuses = Array.isArray(statuses.statuses) ? statuses.statuses : null;
     const complete =

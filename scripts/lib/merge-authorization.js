@@ -49,6 +49,8 @@ const LEDGER_PROPOSAL_FIELDS = [
 const DECISION_FIELDS = ["decided_at", "commit", "decision", "reasons", "evidence"];
 const DECISIONS = ["merge", "refuse", "manual"];
 const MAX_DECISIONS = 50;
+// An invalid --commit is kept in a refusal's evidence, cut to this length.
+const MAX_REQUESTED_COMMIT_CHARS = 200;
 // Every merge grant written from a standing authorization starts with this.
 const GRANT_REASON_PREFIX = "standing-merge-authorization:";
 const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
@@ -295,7 +297,15 @@ function ledgerIssues(ledger, at = "$.merge_authorization") {
       }
       issues.push(...closedIssues(entry, DECISION_FIELDS, where));
       if (!isIso(entry.decided_at)) issues.push(`${where}.decided_at must be an ISO-8601 time`);
-      if (!COMMIT.test(entry.commit || "")) issues.push(`${where}.commit must be a full commit`);
+      // A decision on an invalid --commit records null; the raw value stays in
+      // evidence.requested_commit so the decision and its reasons are kept.
+      const invalidCommitRefusal =
+        entry.commit === null &&
+        entry.decision !== "merge" &&
+        Array.isArray(entry.reasons) &&
+        entry.reasons.some((item) => item?.code === "commit-invalid");
+      if (!invalidCommitRefusal && !COMMIT.test(entry.commit || ""))
+        issues.push(`${where}.commit must be a full commit`);
       if (!DECISIONS.includes(entry.decision))
         issues.push(`${where}.decision must be merge, refuse or manual`);
       if (
@@ -836,13 +846,17 @@ function recordMergeDecision(session, result, grantAuthority) {
   if (!isObject(ledger))
     throw new Error("this session has no standing merge authorization to record against");
   const next = structuredClone(session);
+  const validCommit = COMMIT.test(result.commit || "");
   const entry = {
     decided_at: result.decided_at,
-    commit: result.commit,
+    commit: validCommit ? result.commit : null,
     decision: result.decision,
     reasons: result.reasons.map(({ code, message }) => ({ code, message })),
     evidence: structuredClone(result.evidence),
   };
+  if (!validCommit)
+    entry.evidence.requested_commit =
+      typeof result.commit === "string" ? result.commit.slice(0, MAX_REQUESTED_COMMIT_CHARS) : null;
   next.merge_authorization.decisions = [...ledger.decisions, entry].slice(-MAX_DECISIONS);
   next.updated_at = result.decided_at;
   if (result.decision !== "merge") return next;

@@ -440,3 +440,44 @@ test("an automatic merge under a standing authorization lets GitHub enforce the 
   for (const line of commands) assert.doesNotMatch(line, /--admin|--auto/);
   assert.match(schema, /merge-check[^\n]*observation[^\n]*--match-head-commit/);
 });
+
+test("the shared merge loop never arms auto-merge under a standing authorization", () => {
+  // GitHub auto-merge would merge whatever head passes branch protection,
+  // including one merge-check never passed.
+  const shared = read("references/merge-loop.md");
+  const step2 = shared.slice(shared.indexOf("## Step 2:"), shared.indexOf("## Step 3:"));
+  assert.match(step2, /standing merge authorization[^\n]*do not arm[^\n]*auto-merge/i);
+  assert.match(step2, /human-confirmed/i);
+  // The only --auto command left is the human-confirmed one.
+  for (const line of shared.match(/gh pr merge [^`\n]*--auto[^`\n]*/g) || [])
+    assert.doesNotMatch(line, /--match-head-commit/);
+  const fixLoop = shared.slice(shared.indexOf("## Step 3:"));
+  assert.match(fixLoop, /standing merge authorization[^\n]*--match-head-commit/i);
+});
+
+test("Ship Step 07 sets PM_PLUGIN_ROOT and remote_tip before merge-check uses them", () => {
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const standing = step.slice(
+    step.indexOf("### Standing merge authorization"),
+    step.indexOf("### Pre-merge gate attestation")
+  );
+  const setRoot = standing.indexOf('PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT');
+  const setTip = standing.indexOf('remote_tip="$(git rev-parse "{DELIVERY_REMOTE}/{branch}")"');
+  assert.ok(setRoot >= 0, "standing section sets PM_PLUGIN_ROOT");
+  assert.ok(setTip >= 0, "standing section sets remote_tip");
+  assert.ok(setRoot < standing.indexOf('"$PM_PLUGIN_ROOT/'), "PM_PLUGIN_ROOT set before use");
+  assert.ok(setTip < standing.indexOf('"$remote_tip"'), "remote_tip set before use");
+});
+
+test("merge authorization docs point to the shared trust model", () => {
+  for (const file of [
+    "skills/dev/references/state-schema.md",
+    "skills/ship/steps/07-merge-loop.md",
+    "docs/plans/2026-11-26-design-director.md",
+  ])
+    assert.match(read(file), /references\/trust-model\.md/, file);
+  const plan = read("docs/plans/2026-11-26-design-director.md");
+  assert.doesNotMatch(plan, /Authenticity rests on trust plus the three cheap checks/);
+  const schema = read("skills/dev/references/state-schema.md");
+  assert.match(schema, /teardown[^\n]*same trust as the project's own test suite/i);
+});

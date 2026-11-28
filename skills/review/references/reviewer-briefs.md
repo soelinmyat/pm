@@ -31,6 +31,8 @@ Use this lens only when it is assigned by the target. Do not fold it into `bug`
 or `edge`, and do not emit generic checklist findings without a path from
 untrusted actor/input to consequence.
 
+**Trust model.** `${CLAUDE_PLUGIN_ROOT}/references/trust-model.md` applies. The local user, the orchestrating agent, the installed plugin and its scripts, and the session state they write under `.pm/` are trusted; repository-declared commands run with the same trust as the project's tests. A finding whose only path is the trusted local agent forging or editing workflow state or evidence is out of scope and must not be raised. Omission, staleness, mistakes, self-approval and untrusted external input remain in scope.
+
 Inspect each applicable boundary:
 
 - **Authorization:** Are identity, tenant, ownership, role, and object-level

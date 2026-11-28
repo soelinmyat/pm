@@ -216,7 +216,9 @@ Separate PRs, each releasable:
 - Unattended merges rest on code-review gates that have not been examined
   against this standard.
 - Projects without good seed data get a shallow review.
-- Authenticity rests on trust plus the three cheap checks, not on certification.
+- The local agent and its `.pm/` state are trusted; checks judge omission,
+  staleness, mistakes, self-approval and the bar, not forgery. See
+  `references/trust-model.md`.
 
 # Open questions
 
@@ -390,6 +392,15 @@ proposal keeps today's confirmation. Loop `merge_pr: true` now also requires a
 passing check. Still true from the risks: the replay did not pass, so the
 director's bar is untuned, and the code reviewer is not checked to be a separate
 agent from the builder. These merges rest on that.
+
+2026-11-28: the trust model is written down in `references/trust-model.md`.
+The local user, the orchestrating agent, the plugin and the `.pm/` state it
+writes are trusted; local checks fail closed on omission, staleness, mistakes,
+self-approval and a low bar, and never try to prove that state was not forged.
+The remote guard for an unattended merge is branch protection with enforced
+required checks and `--match-head-commit`. The security review lens now applies
+it, so a finding whose only path is the local agent forging its own state is out
+of scope.
 
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.

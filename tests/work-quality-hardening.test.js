@@ -360,3 +360,32 @@ test("Design Critique capability benchmark keeps defect truth outside candidate 
   assert.doesNotMatch(generator, /action is off-screen/i);
   assert.match(generator, /design-critique\/responsive-report\.html/);
 });
+
+test("the trust model is written down once and the security lens carries it", () => {
+  const model = read("references/trust-model.md");
+  for (const pattern of [
+    /\*\*Trusted\.\*\*[^\n]*local user[^\n]*orchestrating agent[^\n]*plugin[^\n]*`\.pm\/`/i,
+    /cannot stop the agent that runs it/i,
+    /omission[^\n]*stale[^\n]*mistake[^\n]*self-approval[^\n]*low quality bar/i,
+    /fail closed/i,
+    /\*\*Untrusted\.\*\*[^\n]*third-party[^\n]*external systems[^\n]*imported artifacts[^\n]*model output[^\n]*supply-chain/i,
+    /same trust as the project's own test suite/i,
+    /branch protection[^\n]*administrators[^\n]*--match-head-commit/i,
+    /not to defend against forgery/i,
+  ])
+    assert.match(model, pattern);
+  const briefs = read("skills/review/references/reviewer-briefs.md");
+  const security = briefs.slice(briefs.indexOf("### `security`"));
+  assert.match(security, /references\/trust-model\.md/);
+  assert.match(
+    security,
+    /only path is the trusted local agent forging or editing[^\n]*out of scope/i
+  );
+  assert.match(
+    security,
+    /omission, staleness, mistakes, self-approval and untrusted external input/i
+  );
+  // The dispatch step hands the whole security section, trust model included.
+  const dispatch = read("skills/review/steps/02-dispatch.md");
+  assert.match(dispatch, /security risk inspection brief[^\n]*trust model/i);
+});

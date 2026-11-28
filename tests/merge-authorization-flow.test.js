@@ -648,6 +648,9 @@ test("merge-check reads PR and CI state from GitHub; an observation file never m
     const devSession = devSessionFrom(repo, prepared.proposalPath);
     const sessionPath = writeDevSession(repo, devSession);
     const head = repo.head();
+    execFileSync("git", ["remote", "set-url", "origin", "git@github.com:acme/widget.git"], {
+      cwd: repo.root,
+    });
     const gh = stubGh(repo, githubFor(head));
     const check = (extra = []) =>
       runDevWith(
@@ -748,6 +751,113 @@ test("merge-check reads PR and CI state from GitHub; an observation file never m
     stored = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
     assert.equal(stored.merge_authorization.decisions.at(-1).evidence.observation_source, "file");
     assert.equal(stored.authority.merge, false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+// Writes the ship records merge-check reads the repository and PR number from.
+function writeShipRecords(sessionPath, head, repository = "acme/widget") {
+  const shipDir = path.join(path.dirname(sessionPath), "ship");
+  fs.mkdirSync(shipDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(shipDir, "delivery-contract.json"),
+    JSON.stringify({
+      github_name_with_owner: repository,
+      head_branch: "structured-groom",
+      base_branch: "main",
+    })
+  );
+  fs.writeFileSync(
+    path.join(shipDir, "release-transaction.json"),
+    JSON.stringify({
+      release: { prepared_commit: head },
+      effects: { "create-pr": { verified_receipt: { receipt: { pr_number: 7 } } } },
+    })
+  );
+}
+
+test("merge-check reads the repository the delivery remote pushes to and refuses a different contract", () => {
+  const repo = makeRfcRepo();
+  try {
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const sessionPath = writeDevSession(repo, devSessionFrom(repo, prepared.proposalPath));
+    const head = repo.head();
+    const gh = stubGh(repo, githubFor(head));
+    const check = () => {
+      const result = runDevWith(
+        ["merge-check", "--session", sessionPath, "--commit", head, "--json"],
+        repo.root,
+        gh.env
+      );
+      assert.equal(result.status, 1, result.stderr);
+      return JSON.parse(result.stdout).reasons.map((item) => item.code);
+    };
+    writeShipRecords(sessionPath, head);
+
+    // The delivery remote pushes to no GitHub repository: the repository is unknown.
+    let codes = check();
+    assert.ok(codes.includes("delivery-remote-unknown"), codes.join());
+    assert.deepEqual(gh.calls(), []);
+
+    // A stale contract naming another repository is refused before GitHub is read.
+    execFileSync("git", ["remote", "set-url", "origin", "https://github.com/acme/widget-old.git"], {
+      cwd: repo.root,
+    });
+    codes = check();
+    assert.ok(codes.includes("delivery-remote-mismatch"), codes.join());
+    assert.deepEqual(gh.calls(), []);
+
+    // The contract and the remote agree: GitHub is read for that repository.
+    execFileSync("git", ["remote", "set-url", "origin", "https://github.com/acme/widget.git"], {
+      cwd: repo.root,
+    });
+    codes = check();
+    assert.ok(!codes.some((code) => code.startsWith("delivery-remote")), codes.join());
+    assert.equal(gh.calls()[0].join(" "), "api repos/acme/widget");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a refused short or uppercase commit is recorded with its reasons, not exit 8", () => {
+  const repo = makeRfcRepo();
+  try {
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const sessionPath = writeDevSession(repo, devSessionFrom(repo, prepared.proposalPath));
+    const observationPath = path.join(repo.root, "pr.json");
+    fs.writeFileSync(observationPath, JSON.stringify({ state: "OPEN" }));
+    for (const commit of [repo.head().slice(0, 7), repo.head().toUpperCase()]) {
+      const checked = runDev(
+        [
+          "merge-check",
+          "--session",
+          sessionPath,
+          "--observation",
+          observationPath,
+          "--commit",
+          commit,
+          "--record",
+          "--json",
+        ],
+        repo.root
+      );
+      assert.equal(checked.status, 1, checked.stdout + checked.stderr);
+      const decided = JSON.parse(checked.stdout);
+      assert.ok(decided.reasons.some((item) => item.code === "commit-invalid"));
+      const stored = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+      const entry = stored.merge_authorization.decisions.at(-1);
+      assert.equal(entry.decision, "refuse");
+      assert.equal(entry.commit, null);
+      assert.equal(entry.evidence.requested_commit, commit);
+      assert.ok(entry.reasons.some((item) => item.code === "commit-invalid"));
+    }
   } finally {
     repo.cleanup();
   }

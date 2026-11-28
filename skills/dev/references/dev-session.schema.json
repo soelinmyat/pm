@@ -141,7 +141,13 @@
             "required": ["decided_at", "commit", "decision", "reasons", "evidence"],
             "properties": {
               "decided_at": { "type": "string", "format": "date-time" },
-              "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+              "commit": {
+                "description": "The checked commit. Null only for a refused or manual decision on an invalid --commit, whose raw value is in evidence.requested_commit.",
+                "oneOf": [
+                  { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+                  { "type": "null" }
+                ]
+              },
               "decision": { "enum": ["merge", "refuse", "manual"] },
               "reasons": {
                 "type": "array",

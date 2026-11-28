@@ -1093,6 +1093,47 @@ test("sweep --remove discovers the repository's sessions once, not once per swep
   }
 });
 
+test("a dry-run sweep builds the active sessions' targets once, not once per swept session", () => {
+  const repo = makeRepo();
+  try {
+    for (const slug of ["dry-one", "dry-two", "dry-three"]) {
+      const sessionPath = repo.init(slug);
+      addOk(repo, sessionPath, ["--kind", "directory", "--path", repo.scratch()]);
+      completeSession(repo, sessionPath);
+    }
+    const resources = require("../scripts/lib/dev-session-resources");
+    const original = resources.activeTargets;
+    let calls = 0;
+    resources.activeTargets = (...args) => {
+      calls += 1;
+      return original(...args);
+    };
+    const write = process.stdout.write;
+    let output = "";
+    const cwd = process.cwd();
+    try {
+      process.chdir(repo.root);
+      process.stdout.write = (chunk) => {
+        output += chunk;
+        return true;
+      };
+      const { main } = require("../scripts/dev-session");
+      const code = main(["sweep", "--source-dir", repo.root, "--json"]);
+      assert.equal(code, 0, output);
+    } finally {
+      process.stdout.write = write;
+      process.chdir(cwd);
+      resources.activeTargets = original;
+    }
+    const report = JSON.parse(output);
+    assert.equal(report.sessions.length, 3, output);
+    assert.ok(report.bytes_to_free >= 0);
+    assert.equal(calls, 1);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 // A branch can commit anything, including files under .pm/ and a teardown
 // declaration. Cleanup must not act on either.
 function sideWorktree(repo, branch = "side") {

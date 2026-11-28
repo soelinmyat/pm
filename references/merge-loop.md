@@ -110,7 +110,9 @@ Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, 
 
 Follow Ship Step 07's reviewer-handoff hard gate immediately before this effect: independently read the live API body, run `release-transaction.js attest-pr-body`, and plan `merge` for the exact repository, PR number, prepared head commit, base, squash method, and matching `body_sha256`. Call `release-transaction.js begin` within the attestation's five-minute, one-use window and before any auto-merge or manual merge mutation. For optimized delivery, pass the canonical session to begin and require its candidate to remain `merge-ready` before any mutation or observe-first recovery. If it becomes invalidated, cancel an armed auto-merge and return to remediation; the old `ready-pr` or Create PR receipt cannot authorize a new Merge. If independent observation proves the exact PR already merged before cancellation, reconcile that irreversible result even after invalidation so the transaction does not remain ambiguous. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below. A retry-safe attempt requires a new live-body attestation.
 
-Attempt to arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
+**Under a standing merge authorization (Ship Step 07's `merge-check` path), do not arm GitHub auto-merge.** Auto-merge would let GitHub merge any later head that passes branch protection, including one `merge-check` never passed. Take the manual path: after every gate passes and `merge-check` exits 0 at the current head, merge with the `--squash --match-head-commit` command in Step 4. Print `Auto-merge: not armed (standing authorization; merge at the checked head)`.
+
+The human-confirmed path keeps today's behaviour, which differs from the standing path: the user's own persisted `merge` grant authorizes the merge, so arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
 
 ```bash
 gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --auto --squash
@@ -420,7 +422,7 @@ gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergeStateStatus --jq 
 gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch
 ```
 
-Under a standing merge authorization (Ship Step 07, after `merge-check` exits 0), use this command instead, with `$remote_tip` the exact commit `merge-check` passed at:
+Under a standing merge authorization (Ship Step 07, after `merge-check` exits 0), this is always the path, since Step 2 never arms auto-merge there. Use this `--match-head-commit` command instead, with `$remote_tip` the exact commit `merge-check` passed at:
 
 ```bash
 gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --match-head-commit "$remote_tip" --delete-branch

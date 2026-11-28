@@ -254,10 +254,20 @@ function tempRoots(home) {
   return roots;
 }
 
-function buildContext({ session, sessionPath, cwd = process.cwd(), protectedTargets = [] }) {
+// `worktreeCache`, a Map from repository root to its worktree list, lets a
+// caller that builds many contexts in one pass list each repository once.
+function buildContext({
+  session,
+  sessionPath,
+  cwd = process.cwd(),
+  protectedTargets = [],
+  worktreeCache = null,
+}) {
   const home = realOrNull(os.homedir());
   const repoRoot = realOrNull(session.source?.repo_root);
-  const worktrees = listWorktrees(repoRoot);
+  if (worktreeCache && !worktreeCache.has(repoRoot))
+    worktreeCache.set(repoRoot, listWorktrees(repoRoot));
+  const worktrees = worktreeCache ? worktreeCache.get(repoRoot) : listWorktrees(repoRoot);
   const mainWorktree = worktrees.find((item) => item.main)?.path || repoRoot;
   // Teardowns are read from, and run in, the repository's main worktree only.
   // The session's own worktree may have any branch checked out, and a branch
@@ -836,6 +846,8 @@ function discoverSessions(repoRoot, { ignored } = {}) {
   }
   const sessions = [];
   const seen = new Set();
+  // One `git ls-files` per worktree, not one per session file.
+  const trackedByRoot = new Map();
   for (const { root, sessionPath } of found) {
     let stat;
     try {
@@ -847,7 +859,8 @@ function discoverSessions(repoRoot, { ignored } = {}) {
     const key = realOrNull(sessionPath) || sessionPath;
     if (seen.has(key)) continue;
     seen.add(key);
-    const tracked = trackedByGit(root, sessionPath);
+    if (!trackedByRoot.has(root)) trackedByRoot.set(root, trackedSessionFiles(root));
+    const tracked = trackedByGit(trackedByRoot.get(root), root, sessionPath);
     if (tracked.tracked) {
       if (Array.isArray(ignored))
         ignored.push({
@@ -872,19 +885,24 @@ function discoverSessions(repoRoot, { ignored } = {}) {
   return sessions;
 }
 
-function trackedByGit(root, sessionPath) {
-  const listed = git(root, [
-    "ls-files",
-    "--error-unmatch",
-    "--",
-    path.relative(root, sessionPath).split(path.sep).join("/"),
-  ]);
-  if (listed.ok) return { tracked: true, error: null };
-  if (/did not match any file/i.test(listed.stderr)) return { tracked: false, error: null };
-  return {
-    tracked: false,
-    error: `cannot tell whether Git tracks the session file: ${listed.stderr || "git failed"}`,
-  };
+// The session files Git tracks under one worktree's `.pm/dev-sessions`, as
+// paths relative to that worktree.
+function trackedSessionFiles(root) {
+  const listed = git(root, ["ls-files", "-z", "--", ".pm/dev-sessions"]);
+  if (!listed.ok)
+    return {
+      files: null,
+      error: `cannot tell whether Git tracks the session file: ${listed.stderr || "git failed"}`,
+    };
+  return { files: new Set(listed.stdout.split("\0").filter(Boolean)), error: null };
+}
+
+function trackedByGit(listing, root, sessionPath) {
+  if (listing.error) return { tracked: false, error: listing.error };
+  const parts = path.relative(root, sessionPath).split(path.sep);
+  // A tracked symlink on the way to the file also came from a branch.
+  const tracked = parts.some((_, index) => listing.files.has(parts.slice(0, index + 1).join("/")));
+  return { tracked, error: null };
 }
 
 function safeList(directory) {

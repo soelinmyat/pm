@@ -973,3 +973,77 @@ test("the reader asks GitHub again while it is still computing mergeable", () =>
     "merge"
   );
 });
+
+test("a refused short or uppercase commit is recorded with its reasons", () => {
+  const grantAuthority = () => assert.fail("a refusal grants nothing");
+  for (const raw of ["abc1234", COMMIT.toUpperCase(), "x".repeat(500)]) {
+    const result = auth.evaluateAutoMerge(input({ commit: raw }));
+    assert.equal(result.decision, "refuse", raw);
+    assert.ok(codes(result).includes("commit-invalid"), raw);
+    const recorded = auth.recordMergeDecision(session(), result, grantAuthority);
+    const entry = recorded.merge_authorization.decisions.at(-1);
+    assert.deepEqual(auth.ledgerIssues(recorded.merge_authorization), [], raw);
+    assert.equal(entry.commit, null);
+    assert.ok(entry.reasons.some((item) => item.code === "commit-invalid"));
+    // The value that was refused is kept, bounded, for the audit.
+    assert.equal(entry.evidence.requested_commit, raw.slice(0, 200));
+  }
+  // A null commit is only valid on a commit-invalid refusal.
+  const ledger = structuredClone(
+    auth.recordMergeDecision(session(), auth.evaluateAutoMerge(input()), (s) => s)
+      .merge_authorization
+  );
+  ledger.decisions[0].commit = null;
+  assert.ok(auth.ledgerIssues(ledger).some((item) => /full commit/.test(item)));
+});
+
+test("a transient GitHub server error is retried before the read refuses", () => {
+  const state = githubState();
+  const healthy = fakeGh(state);
+  let failures = 1;
+  const calls = [];
+  const waits = [];
+  const runGh = (args) => {
+    calls.push(args.join(" "));
+    if (failures > 0) {
+      failures -= 1;
+      return { status: 1, stdout: "", stderr: "gh: Server Error (HTTP 502)" };
+    }
+    return healthy.runGh(args);
+  };
+  const read = githubReader.readGithubMergeObservation({
+    repository: "acme/widget",
+    prNumber: 42,
+    runGh,
+    now: () => "2026-11-27T09:59:30.000Z",
+    sleep: (ms) => waits.push(ms),
+  });
+  assert.equal(read.error, null, JSON.stringify(read.error));
+  assert.equal(read.observation.head_oid, COMMIT);
+  assert.deepEqual(calls.slice(0, 2), ["api repos/acme/widget", "api repos/acme/widget"]);
+  assert.equal(waits.length, 1);
+
+  // A persistent 5xx is retried three times, then refuses.
+  const persistent = fakeGh(state, { status: 1, stdout: "", stderr: "gh: Bad Gateway (HTTP 502)" });
+  const failed = githubReader.readGithubMergeObservation({
+    repository: "acme/widget",
+    prNumber: 42,
+    runGh: persistent.runGh,
+    sleep: () => {},
+  });
+  assert.equal(failed.error.code, "github-read-failed");
+  assert.equal(persistent.calls.length, 3);
+  // Authentication failures are not retried.
+  const signedOut = fakeGh(state, {
+    status: 1,
+    stdout: "",
+    stderr: "gh: Bad credentials (HTTP 401)",
+  });
+  githubReader.readGithubMergeObservation({
+    repository: "acme/widget",
+    prNumber: 42,
+    runGh: signedOut.runGh,
+    sleep: () => {},
+  });
+  assert.equal(signedOut.calls.length, 1);
+});
