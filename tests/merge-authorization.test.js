@@ -269,6 +269,48 @@ test("a declined, revoked or project-disabled authorization does not merge", () 
   assert.deepEqual(codes(result), ["project-merge-manual"]);
 });
 
+test("preferences.ship.auto_merge false keeps a standing authorization from merging", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-ship-pref-")));
+  try {
+    assert.deepEqual(auth.readShipAutoMergePreference(dir), {
+      auto_merge: null,
+      source: null,
+      error: null,
+    });
+    const configPath = path.join(dir, ".pm", "config.json");
+    fs.mkdirSync(path.dirname(configPath));
+    fs.writeFileSync(configPath, JSON.stringify({ preferences: { ship: { auto_merge: true } } }));
+    assert.equal(auth.readShipAutoMergePreference(dir).auto_merge, true);
+    fs.writeFileSync(configPath, JSON.stringify({ preferences: { ship: { auto_merge: false } } }));
+    const off = auth.readShipAutoMergePreference(dir);
+    assert.equal(off.auto_merge, false);
+    assert.equal(off.source, configPath);
+
+    let result = auth.evaluateAutoMerge(input({ shipPreference: off }));
+    assert.equal(result.decision, "manual");
+    assert.deepEqual(codes(result), ["ship-auto-merge-off"]);
+    assert.match(result.reasons[0].message, /auto_merge/);
+    assert.equal(result.evidence.ship_preference.auto_merge, false);
+
+    // Unset or true: the standing authorization decides.
+    for (const preference of [
+      { auto_merge: null, source: null, error: null },
+      { auto_merge: true, source: configPath, error: null },
+    ])
+      assert.equal(auth.evaluateAutoMerge(input({ shipPreference: preference })).decision, "merge");
+
+    // A config that cannot be read never lets the merge through.
+    fs.writeFileSync(configPath, "{ not json");
+    const unreadable = auth.readShipAutoMergePreference(dir);
+    assert.ok(unreadable.error);
+    result = auth.evaluateAutoMerge(input({ shipPreference: unreadable }));
+    assert.equal(result.decision, "manual");
+    assert.deepEqual(codes(result), ["ship-auto-merge-off"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an authorization that does not match the session's proposal or approval audit refuses", () => {
   const s = session();
   const moved = structuredClone(s);
@@ -779,6 +821,84 @@ test("merge-check reads the PR, protection and checks from GitHub and merges on 
   assert.equal(decideFromGithub(state).result.decision, "merge");
 });
 
+test("a required check that ran more than once at the head is judged by its latest result", () => {
+  const run = (id, startedAt, status, conclusion, extra = {}) => ({
+    id,
+    name: "test",
+    app: { id: APP },
+    head_sha: COMMIT,
+    status,
+    conclusion,
+    started_at: startedAt,
+    completed_at: status === "completed" ? startedAt.replace(":00Z", ":30Z") : null,
+    ...extra,
+  });
+  const withRuns = (checkRuns) => {
+    const state = githubState();
+    state[`repos/acme/widget/commits/${COMMIT}/check-runs?per_page=100`] = {
+      total_count: checkRuns.length,
+      check_runs: checkRuns,
+    };
+    return state;
+  };
+  // push and pull_request workflows: the older failed, the newer passed.
+  let { result } = decideFromGithub(
+    withRuns([
+      run(1, "2026-11-27T09:00:00Z", "completed", "failure"),
+      run(2, "2026-11-27T09:10:00Z", "completed", "success"),
+    ])
+  );
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
+
+  // The newest failed: refuse, however many older runs passed.
+  ({ result } = decideFromGithub(
+    withRuns([
+      run(3, "2026-11-27T09:20:00Z", "completed", "failure"),
+      run(1, "2026-11-27T09:00:00Z", "completed", "success"),
+      run(2, "2026-11-27T09:10:00Z", "completed", "success"),
+    ])
+  ));
+  assert.deepEqual(codes(result), ["ci-not-green"]);
+  assert.equal(result.evidence.ci.status, "failed");
+
+  // The newest is still running: pending, never a pass.
+  ({ result } = decideFromGithub(
+    withRuns([
+      run(1, "2026-11-27T09:00:00Z", "completed", "success"),
+      run(2, "2026-11-27T09:10:00Z", "in_progress", null),
+    ])
+  ));
+  assert.equal(result.evidence.ci.status, "pending");
+
+  // Runs that cannot be ordered stay ambiguous and refuse.
+  ({ result } = decideFromGithub(
+    withRuns([
+      run(1, "2026-11-27T09:00:00Z", "completed", "success", { started_at: null }),
+      run(2, "2026-11-27T09:10:00Z", "completed", "success", { started_at: null }),
+    ])
+  ));
+  assert.equal(result.evidence.ci.status, "ambiguous");
+
+  // A check run and a commit status for one any-source context: the newer decides.
+  const mixed = (statusState, statusAt) => {
+    const state = withRuns([run(1, "2026-11-27T09:00:00Z", "completed", "success")]);
+    state["repos/acme/widget/branches/main"].protection.required_status_checks.checks = [
+      { context: "test", app_id: null },
+    ];
+    state[`repos/acme/widget/commits/${COMMIT}/status?per_page=100`] = {
+      total_count: 1,
+      statuses: [
+        { id: 9, context: "test", state: statusState, created_at: statusAt, updated_at: statusAt },
+      ],
+    };
+    return state;
+  };
+  ({ result } = decideFromGithub(mixed("failure", "2026-11-27T09:30:00Z")));
+  assert.equal(result.evidence.ci.status, "failed");
+  ({ result } = decideFromGithub(mixed("failure", "2026-11-27T08:30:00Z")));
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
+});
+
 test("GitHub-read pending, failed or missing required checks refuse the merge", () => {
   const runs = (status, conclusion) => {
     const state = githubState();
@@ -877,6 +997,35 @@ test("a GitHub-read PR that moved, is a draft or is not mergeable refuses the me
   fork["repos/acme/widget/pulls/42"].head.repo.full_name = "fork/widget";
   ({ result } = decideFromGithub(fork));
   assert.deepEqual(codes(result), ["pr-repository-mismatch"]);
+});
+
+test("the contracted repository matches GitHub's canonical name in any case or after a rename", () => {
+  // The remote was typed in lowercase; GitHub answers with the canonical case.
+  const cased = githubState();
+  cased["repos/acme/widget"].full_name = "Acme/Widget";
+  cased["repos/acme/widget/pulls/42"].head.repo.full_name = "Acme/Widget";
+  let { result } = decideFromGithub(cased);
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
+
+  // The repository was renamed; GitHub resolves the old path to the new one.
+  const renamed = githubState();
+  renamed["repos/acme/widget"].full_name = "acme/gadget";
+  renamed["repos/acme/widget/pulls/42"].head.repo.full_name = "acme/gadget";
+  ({ result } = decideFromGithub(renamed));
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
+
+  // A fork head still refuses after a rename.
+  renamed["repos/acme/widget/pulls/42"].head.repo.full_name = "fork/gadget";
+  ({ result } = decideFromGithub(renamed));
+  assert.deepEqual(codes(result), ["pr-repository-mismatch"]);
+
+  // Case alone, in a hand-built observation, is not a mismatch either.
+  result = auth.evaluateAutoMerge(
+    input({
+      observation: observation({ repository: "ACME/widget", head_repository: "Acme/Widget" }),
+    })
+  );
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
 });
 
 test("gh missing, signed out, rate-limited or failing refuses with its own reason", () => {

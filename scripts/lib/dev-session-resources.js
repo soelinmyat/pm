@@ -16,7 +16,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { cleanGitEnv } = require("./git-env");
 const { isRfc3339DateTime } = require("./iso-time");
-const { measureBytes } = require("./dev-session-storage");
+const { gitCheckoutWithin, measureBytes } = require("./dev-session-storage");
 const { readBoundedJsonFile } = require("./safe-json-file");
 
 const REMOVAL_BY_KIND = Object.freeze({
@@ -328,13 +328,25 @@ function protectedBy(real, ctx) {
   return target ? `is in use by active session ${target.slug}` : null;
 }
 
+// A worktree or checkout nested inside a path would be deleted with it,
+// uncommitted work included.
+function nestedWorktree(real, ctx) {
+  const nested = ctx.worktrees.find((worktree) => strictlyWithin(real, worktree.path));
+  return nested ? `contains a git worktree of this repository at ${nested.path}` : null;
+}
+
 function directoryRefusal(real, ctx) {
   const common = commonRefusal(real, ctx);
   if (common) return common;
   if (ctx.worktrees.some((worktree) => within(worktree.path, real)))
     return "is inside a git worktree of this repository";
+  const nested = nestedWorktree(real, ctx);
+  if (nested) return nested;
   if (!ctx.tempRoots.some((root) => strictlyWithin(root, real)))
     return "is outside the allowed temporary roots";
+  const checkout = gitCheckoutWithin(real);
+  if (checkout)
+    return `contains a git checkout, or a folder that cannot be checked for one, at ${path.join(real, checkout)}`;
   return null;
 }
 
@@ -345,7 +357,7 @@ function worktreeRefusal(real, ctx) {
     return "is outside the worktree area";
   const listed = ctx.worktrees.find((worktree) => worktree.path === real);
   if (!listed || listed.main) return "is not a linked worktree of this repository";
-  return null;
+  return nestedWorktree(real, ctx);
 }
 
 // Resolve a path argument without following a final symlink. Returns the

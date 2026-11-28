@@ -78,6 +78,7 @@ const MANUAL_REASONS = new Set([
   "authorization-revoked",
   "authorization-revocation-unreadable",
   "project-merge-manual",
+  "ship-auto-merge-off",
 ]);
 
 function isObject(value) {
@@ -196,6 +197,44 @@ function readProjectMergeSetting(pmDir) {
     if (bytes.split(/\r?\n/).some(isMergeManualLine)) return { mode: "manual", source: file };
   }
   return { mode: "auto", source: null };
+}
+
+// The user's `preferences.ship.auto_merge` from the project's PM config:
+// `{pm_state_dir}/config.json`, where Ship reads and writes it, and the config
+// file the PM path resolver found, when that is another file. It never grants
+// a merge; `false` in either stops a standing authorization from merging. A
+// config that cannot be read is reported as an error, which merge-check
+// treats like `false`.
+function readShipAutoMergePreference(projectDir) {
+  const none = { auto_merge: null, source: null, error: null };
+  if (!text(projectDir)) return none;
+  let candidates;
+  try {
+    // Passing the resolver's own git lookup turns its per-process cache off,
+    // so a preference changed while a loop runs is read fresh.
+    const { resolvePmPaths, defaultGitCommonDir } = require("../resolve-pm-dir");
+    const paths = resolvePmPaths(projectDir, { gitCommonDir: defaultGitCommonDir });
+    candidates = [
+      ...new Set([path.join(paths.pmStateDir, "config.json"), paths.configPath].filter(Boolean)),
+    ];
+  } catch (error) {
+    return { ...none, error: error.message };
+  }
+  let found = none;
+  for (const file of candidates) {
+    let config;
+    try {
+      config = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      return { ...none, source: file, error: `cannot read ${file}: ${error.message}` };
+    }
+    const value = config?.preferences?.ship?.auto_merge;
+    if (value === false) return { auto_merge: false, source: file, error: null };
+    if (value === true && found.auto_merge === null)
+      found = { ...none, auto_merge: true, source: file };
+  }
+  return found;
 }
 
 // Strip what Markdown wraps a setting in: quote and heading marks, list
@@ -366,6 +405,10 @@ function standingDeliveryReason(ledger) {
 
 // ---------------------------------------------------------------------------
 // The merge decision.
+
+function sameRepositoryName(a, b) {
+  return text(a) && text(b) && a.toLowerCase() === b.toLowerCase();
+}
 
 function reason(code, message) {
   return { code, message, class: MANUAL_REASONS.has(code) ? "manual" : "refuse" };
@@ -704,12 +747,19 @@ function prReasons({
   if (!isObject(deliveryContract))
     reasons.push(reason("delivery-contract-missing", "ship/delivery-contract.json is missing"));
   else {
+    // GitHub names are case-insensitive. The head repository is compared with
+    // the canonical name GitHub resolved the requested path to, so a remote
+    // typed in another case or still naming a renamed repository matches.
+    const headRepository =
+      typeof observation.canonical_repository === "string"
+        ? observation.canonical_repository
+        : observation.repository;
     if (
-      deliveryContract.github_name_with_owner !== observation.repository ||
+      !sameRepositoryName(deliveryContract.github_name_with_owner, observation.repository) ||
       deliveryContract.head_branch !== session?.source?.branch ||
       (observation.head_ref !== undefined && observation.head_ref !== session?.source?.branch) ||
       (observation.head_repository !== undefined &&
-        observation.head_repository !== observation.repository)
+        !sameRepositoryName(observation.head_repository, headRepository))
     )
       reasons.push(
         reason("pr-repository-mismatch", "the PR is not the contracted repository and branch")
@@ -761,6 +811,25 @@ function prReasons({
   return { reasons, ci };
 }
 
+function preferenceReasons(preference) {
+  if (!isObject(preference)) return [];
+  if (preference.error)
+    return [
+      reason(
+        "ship-auto-merge-off",
+        `preferences.ship.auto_merge cannot be read, so it may be false: ${preference.error}`
+      ),
+    ];
+  if (preference.auto_merge === false)
+    return [
+      reason(
+        "ship-auto-merge-off",
+        `preferences.ship.auto_merge is false in ${preference.source || "the PM config"}; Ship stops at the green PR`
+      ),
+    ];
+  return [];
+}
+
 function evaluateAutoMerge(input = {}) {
   const now = input.now || new Date().toISOString();
   const session = input.session;
@@ -769,6 +838,7 @@ function evaluateAutoMerge(input = {}) {
   if (!COMMIT.test(commit || ""))
     reasons.push(reason("commit-invalid", "the commit to merge must be a full object ID"));
   reasons.push(...authorizationReasons(input));
+  reasons.push(...preferenceReasons(input.shipPreference));
   reasons.push(...sessionReasons(session));
   reasons.push(...gateReasons({ ...input, session, commit }));
   const pr = prReasons({ ...input, session, commit, now });
@@ -801,6 +871,7 @@ function evaluateAutoMerge(input = {}) {
           }
         : null,
       project_setting: input.projectSetting || null,
+      ship_preference: isObject(input.shipPreference) ? input.shipPreference : null,
       gates: (session?.routing?.required_gates || []).map((name) => {
         const row = rows.get(name);
         return {
@@ -1068,6 +1139,7 @@ module.exports = {
   addRevocation,
   applyRevocationRecord,
   canonical,
+  durableRevocation,
   evaluateAutoMerge,
   latestDecision,
   ledgerIssues,
@@ -1075,6 +1147,7 @@ module.exports = {
   pmDirForProposal,
   readMergeRevocations,
   readProjectMergeSetting,
+  readShipAutoMergePreference,
   recordMergeDecision,
   revocationDocumentIssues,
   revocationPathForProposal,

@@ -1428,7 +1428,7 @@ function validateResult(session, result, options = {}) {
     Object.hasOwn(RECOVERY_THRESHOLDS, session.phase) &&
     new Set(["passed", "failed", "blocked"]).has(result.status)
   )
-    scopedEvidence = validateScopedGateEvidence(session, result, errors);
+    scopedEvidence = validateScopedGateEvidence(session, result, errors, options.scopedMemo);
 
   if (result.commit)
     validateCommit(
@@ -1447,7 +1447,9 @@ function validateResult(session, result, options = {}) {
 // stored fields are closed, so the checker's verdict travels beside it.
 const PARKED_DIRECTOR_ANCHORS = new WeakSet();
 
-function validateScopedGateEvidence(session, result, errors) {
+// `memo`, when given, carries the mechanical-check result from one check of a
+// record to its re-check, so one record runs them once.
+function validateScopedGateEvidence(session, result, errors, memo = null) {
   const phase = session.phase;
   const history = session.evidence[phase]?.recovery_history || [];
   const records = (result.evidence || []).filter(
@@ -1572,11 +1574,11 @@ function validateScopedGateEvidence(session, result, errors) {
       require("./design-director-report").isDirectorReportPath(relative) &&
       mechanicalChecks.sessionSurfaces(session).length > 0
     ) {
-      const mechanical = mechanicalChecks.runMechanicalChecks({
-        root,
-        session,
-        commit: result.commit,
-      });
+      const memoKey = JSON.stringify([root, session.run_id, result.commit]);
+      const mechanical =
+        memo?.mechanical?.get(memoKey) ||
+        mechanicalChecks.runMechanicalChecks({ root, session, commit: result.commit });
+      if (memo) (memo.mechanical ||= new Map()).set(memoKey, mechanical);
       if (!mechanical.ok)
         throw new Error(
           `mechanical checks fail: ${mechanical.issues
@@ -3695,7 +3697,8 @@ function promptMetadata(session, sessionPath) {
 
 function recordResult(session, result, options = {}) {
   assertValidSession(session);
-  const errors = validateResult(session, result, options);
+  const scopedMemo = {};
+  const errors = validateResult(session, result, { ...options, scopedMemo });
   if (errors.length > 0) throw validationError("result is invalid", errors);
   const next = structuredClone(session);
   const timestamp = options.now || new Date().toISOString();
@@ -3743,7 +3746,7 @@ function recordResult(session, result, options = {}) {
       };
     }
     const recoveryErrors = [];
-    const anchor = validateScopedGateEvidence(session, result, recoveryErrors);
+    const anchor = validateScopedGateEvidence(session, result, recoveryErrors, scopedMemo);
     if (recoveryErrors.length)
       throw validationError(
         "scoped gate evidence changed before it could be recorded",

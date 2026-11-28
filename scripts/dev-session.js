@@ -1912,6 +1912,7 @@ function mergeCheckCommand(options) {
     session,
     commit,
     projectSetting: state.projectSetting,
+    shipPreference: mergeAuthorization.readShipAutoMergePreference(root),
     approval: state.approval.value,
     approvalError: state.approval.error,
     revocations: state.revocations.value,
@@ -1968,22 +1969,16 @@ function verifiedPrNumber(releaseTransaction) {
 // as a mismatch rather than silently read for another repository.
 function deliveryRemoteRepository(root, session) {
   const remote = session.source?.delivery_remote || "origin";
-  const listed = require("node:child_process").spawnSync(
-    "git",
-    ["remote", "get-url", "--push", "--all", "--", remote],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
-  );
-  const urls = listed.status === 0 ? String(listed.stdout).split(/\r?\n/).filter(Boolean) : [];
+  // deliveryUrl runs git with a clean environment, so an inherited GIT_DIR
+  // cannot point the lookup at another repository's remote.
+  const url = require("./source-identity").deliveryUrl(root, remote);
   const unknown = (message) => ({
     repository: null,
     error: { code: "delivery-remote-unknown", message },
   });
-  if (urls.length !== 1)
-    return unknown(
-      `delivery remote ${remote} must have exactly one push URL, found ${urls.length}`
-    );
+  if (!url) return unknown(`delivery remote ${remote} must have exactly one push URL`);
   try {
-    return { repository: require("./prepare-release").githubRepository(urls[0]), error: null };
+    return { repository: require("./prepare-release").githubRepository(url), error: null };
   } catch (error) {
     return unknown(`delivery remote ${remote}: ${error.message}`);
   }
@@ -2012,7 +2007,11 @@ function observePullRequest({
   const remote = deliveryRemoteRepository(root, session);
   if (remote.error) return { observation: null, source: "github", error: remote.error };
   const contracted = deliveryContract?.github_name_with_owner;
-  if (typeof contracted === "string" && contracted && contracted !== remote.repository)
+  if (
+    typeof contracted === "string" &&
+    contracted &&
+    contracted.toLowerCase() !== String(remote.repository).toLowerCase()
+  )
     return {
       observation: null,
       source: "github",

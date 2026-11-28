@@ -8,6 +8,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync, execFileSync } = require("node:child_process");
 
@@ -818,6 +819,75 @@ test("merge-check reads the repository the delivery remote pushes to and refuses
     codes = check();
     assert.ok(!codes.some((code) => code.startsWith("delivery-remote")), codes.join());
     assert.equal(gh.calls()[0].join(" "), "api repos/acme/widget");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("merge-check reads the session's delivery remote even with GIT_DIR inherited from another repository", () => {
+  const repo = makeRfcRepo();
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-other-gitdir-")));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: other });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/evil/elsewhere.git"], {
+      cwd: other,
+    });
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const sessionPath = writeDevSession(repo, devSessionFrom(repo, prepared.proposalPath));
+    const head = repo.head();
+    execFileSync("git", ["remote", "set-url", "origin", "https://github.com/acme/widget.git"], {
+      cwd: repo.root,
+    });
+    writeShipRecords(sessionPath, head);
+    const gh = stubGh(repo, githubFor(head));
+    const result = runDevWith(
+      ["merge-check", "--session", sessionPath, "--commit", head, "--json"],
+      repo.root,
+      { ...gh.env, GIT_DIR: path.join(other, ".git") }
+    );
+    assert.equal(result.status, 1, result.stderr);
+    const codes = JSON.parse(result.stdout).reasons.map((item) => item.code);
+    assert.ok(!codes.some((code) => code.startsWith("delivery-remote")), codes.join());
+    assert.equal(gh.calls()[0].join(" "), "api repos/acme/widget");
+  } finally {
+    fs.rmSync(other, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test("merge-check reads preferences.ship.auto_merge false from the project config as manual", () => {
+  const repo = makeRfcRepo();
+  try {
+    const prepared = groomForApproval(repo);
+    const approved = JSON.parse(approve(repo, prepared).stdout).session;
+    fs.writeFileSync(prepared.sessionPath, JSON.stringify(approved));
+    finishApproval(prepared, approved);
+    const sessionPath = writeDevSession(repo, devSessionFrom(repo, prepared.proposalPath));
+    const head = repo.head();
+    execFileSync("git", ["remote", "set-url", "origin", "https://github.com/acme/widget.git"], {
+      cwd: repo.root,
+    });
+    writeShipRecords(sessionPath, head);
+    fs.writeFileSync(
+      path.join(repo.root, ".pm", "config.json"),
+      JSON.stringify({ config_schema: 2, preferences: { ship: { auto_merge: false } } })
+    );
+    const gh = stubGh(repo, githubFor(head));
+    const result = runDevWith(
+      ["merge-check", "--session", sessionPath, "--commit", head, "--json"],
+      repo.root,
+      gh.env
+    );
+    assert.equal(result.status, 3, result.stderr);
+    const decided = JSON.parse(result.stdout);
+    assert.equal(decided.decision, "manual");
+    const manual = decided.reasons.find((item) => item.code === "ship-auto-merge-off");
+    assert.ok(manual, decided.reasons.map((item) => item.code).join());
+    assert.equal(manual.class, "manual");
+    assert.equal(decided.evidence.ship_preference.auto_merge, false);
   } finally {
     repo.cleanup();
   }

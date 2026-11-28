@@ -721,3 +721,25 @@ test("print keeps labels with their values, headings with their content and the 
   assert.match(print, /footer\s*\{[^}]*break-before:\s*avoid/);
   assert.ok(rule("footer").test(print));
 });
+
+test("the reference proposal template is the renderer's output for the strong fixture", () => {
+  // The gallery reference must show the markup the renderer emits today. Its
+  // style block is the renderer's own CSS source, so the whole file compares.
+  const root = path.resolve(__dirname, "..");
+  const referencePath = path.join(root, "references", "templates", "proposal-reference.html");
+  const reference = fs.readFileSync(referencePath, "utf8");
+  const metadata = JSON.parse(
+    reference.match(/<script id="pm-artifact" type="application\/json">([\s\S]*?)<\/script>/)[1]
+  );
+  const sourceBytes = fs.readFileSync(path.join(root, metadata.source.path));
+  const rendered = renderProposal(JSON.parse(sourceBytes), {
+    sourceBytes,
+    sourcePath: metadata.source.path,
+    version: metadata.generator.version,
+  });
+  assert.equal(
+    rendered.html,
+    reference,
+    "regenerate references/templates/proposal-reference.html from the renderer"
+  );
+});

@@ -924,6 +924,60 @@ test("completion removes misplaced generated data but never referenced evidence"
   }
 });
 
+test("close keeps a registered directory that now holds a linked worktree with unsaved work", () => {
+  const repo = makeRepo();
+  try {
+    const sessionPath = repo.init("nested-worktree");
+    const scratch = repo.scratch();
+    fs.writeFileSync(path.join(scratch, "a.txt"), "scratch");
+    addOk(repo, sessionPath, ["--kind", "directory", "--path", scratch]);
+    const nested = path.join(scratch, "wt");
+    git(repo.root, ["worktree", "add", "-q", nested, "-b", "feat/nested"]);
+    fs.writeFileSync(path.join(nested, "uncommitted.txt"), "unsaved work");
+
+    const closed = close(repo, sessionPath);
+    assert.equal(closed.status, 7, closed.stderr);
+    assert.equal(closed.report.entries[0].outcome, "refused");
+    assert.match(closed.report.entries[0].reason, /contains a git worktree/);
+    assert.equal(fs.readFileSync(path.join(nested, "uncommitted.txt"), "utf8"), "unsaved work");
+
+    const again = repo.scratch();
+    git(repo.root, ["worktree", "add", "-q", path.join(again, "wt"), "-b", "feat/again"]);
+    const refused = add(repo, sessionPath, ["--kind", "directory", "--path", again]);
+    assert.equal(refused.status, 3);
+    assert.match(refused.stderr, /contains a git worktree/);
+
+    // Any other checkout, not only this repository's worktrees.
+    const other = repo.scratch();
+    fs.mkdirSync(path.join(other, "deep", "clone"), { recursive: true });
+    git(path.join(other, "deep", "clone"), ["init", "-q"]);
+    const foreign = add(repo, sessionPath, ["--kind", "directory", "--path", other]);
+    assert.equal(foreign.status, 3);
+    assert.match(foreign.stderr, /contains a git checkout/);
+  } finally {
+    git(repo.root, ["worktree", "prune"]);
+    repo.cleanup();
+  }
+});
+
+test("completion cleanup keeps generated data that holds a git checkout", () => {
+  const { cleanGeneratedSessionData } = require("../scripts/lib/dev-session-storage");
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-gen-git-")));
+  try {
+    const checkout = path.join(root, "qa", "node_modules", "pkg");
+    fs.mkdirSync(checkout, { recursive: true });
+    git(checkout, ["init", "-q"]);
+    fs.writeFileSync(path.join(checkout, "unsaved.txt"), "unsaved");
+    const result = cleanGeneratedSessionData(root);
+    assert.deepEqual(result.removed, []);
+    assert.equal(result.kept.length, 1);
+    assert.match(result.kept[0].reason, /contains a git checkout/);
+    assert.equal(fs.readFileSync(path.join(checkout, "unsaved.txt"), "utf8"), "unsaved");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("close refuses path and teardown removals when the session's repository is missing", () => {
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-res-norepo-")));
   try {

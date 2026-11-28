@@ -2807,6 +2807,16 @@ test("ship-stage merge rule parks an unrecorded merge-check and merges only at t
   assert.match(withMerge, /exit 8[^.;]*blocked/i);
   assert.match(withMerge, /any other non-zero exit[^.;]*blocked/i);
   // GitHub enforces the checked head and branch protection at the merge.
-  assert.match(withMerge, /gh pr merge <PR> --squash --match-head-commit <checked commit>/);
+  assert.match(
+    withMerge,
+    /gh pr merge <PR> --repo <OWNER\/REPO> --squash --match-head-commit <checked commit>/
+  );
   assert.match(withMerge, /never --auto/);
+  // The merge targets the repository merge-check read, from the delivery remote.
+  assert.match(
+    withMerge,
+    /<OWNER\/REPO> is [^\n]*the repository the session.s delivery remote pushes to/
+  );
+  // A user's auto_merge: false is a manual reason merge-check reports with exit 3.
+  assert.match(withMerge, /exit 3[^.]*preferences\.ship\.auto_merge/);
 });

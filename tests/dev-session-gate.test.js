@@ -1847,6 +1847,49 @@ test("a Design Director approval cannot pass while a mechanical check fails", (t
   assert.equal(next.evidence["design-critique"].commit, repo.head());
 });
 
+test("recording a Design Director approval runs the mechanical checks once", (t) => {
+  const { recordResult } = require("../scripts/lib/dev-session-schema");
+  const mechanical = require("../scripts/lib/design-director-mechanical");
+  const repo = surfacedDirectorRepo();
+  t.after(() => repo.cleanup());
+  const original = mechanical.runMechanicalChecks;
+  let runs = 0;
+  mechanical.runMechanicalChecks = (...args) => {
+    runs += 1;
+    return original(...args);
+  };
+  t.after(() => {
+    mechanical.runMechanicalChecks = original;
+  });
+  const session = repo.session();
+  const report = directorFixture.approval({ session_run_id: session.run_id, commit: repo.head() });
+  const written = directorFixture.write(repo.root, 1, report, "gate-cli");
+  const result = directorResult(repo, session, "passed", written.absolutePath);
+  assert.throws(() => recordResult(session, result), /mechanical checks fail/);
+  assert.equal(runs, 1, "a failing record runs the checks once");
+
+  const checks = path.join(path.dirname(repo.sessionPath), "design-critique", "mechanical");
+  fs.mkdirSync(checks, { recursive: true });
+  fs.writeFileSync(
+    path.join(checks, "checks.json"),
+    JSON.stringify({
+      schema: "design-director-mechanical",
+      schema_version: 1,
+      dispositions: [
+        {
+          check: "scope",
+          file: "web/settings/page.tsx",
+          kind: "decision",
+          ref: "visual_invariants[0] moves the settings link",
+        },
+      ],
+    })
+  );
+  runs = 0;
+  recordResult(session, result);
+  assert.equal(runs, 1, "a passing record runs the checks once");
+});
+
 test("a mechanical failure the builder cannot fix parks the session with its own code", (t) => {
   const { recordResult } = require("../scripts/lib/dev-session-schema");
   const repo = surfacedDirectorRepo();

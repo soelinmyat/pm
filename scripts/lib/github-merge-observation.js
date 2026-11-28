@@ -128,6 +128,56 @@ function requiredChecks(branch) {
   return { enforcement, required };
 }
 
+// When a run started, or a status was set, in epoch ms; null when unknown.
+function startedAt(value) {
+  const ms = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// GitHub judges a required check by its latest result at the head: a check
+// rerun, or one run by both a push and a pull_request workflow, reports more
+// than once. Results are grouped by name and source (the app, or commit
+// statuses), and by name alone for a context any source may satisfy, and
+// only the most recently started one is kept, so a newer pending or failed
+// run always wins over an older pass. A group that cannot be ordered, because
+// a time is missing or two results tie, is left whole and reads as ambiguous.
+function latestPerContext(runs, required) {
+  const anySource = new Set(
+    required.filter((item) => item.app_id === null).map((item) => item.name)
+  );
+  const reduce = (list, keyOf) => {
+    const groups = new Map();
+    for (const item of list) {
+      const key = keyOf(item);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    const kept = [];
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        kept.push(group[0]);
+        continue;
+      }
+      const times = group.map((item) => item.started_at_ms);
+      if (times.some((time) => time === null)) {
+        kept.push(...group);
+        continue;
+      }
+      const newest = Math.max(...times);
+      const latest = group.filter((item) => item.started_at_ms === newest);
+      kept.push(...(latest.length === 1 ? latest : group));
+    }
+    return kept;
+  };
+  const perSource = reduce(runs, (item) => JSON.stringify([item.name, item.app_id, item.kind]));
+  const reduced = reduce(perSource, (item) =>
+    anySource.has(item.name)
+      ? JSON.stringify([item.name])
+      : JSON.stringify([item.name, item.app_id, item.kind])
+  );
+  return reduced.map(({ started_at_ms: _time, kind: _kind, ...item }) => item);
+}
+
 function readGithubMergeObservation({
   repository,
   prNumber,
@@ -173,6 +223,12 @@ function readGithubMergeObservation({
     return {
       observation: {
         repository,
+        // GitHub answers a renamed repository's old path with the repository
+        // itself, and names it canonically here, in GitHub's own case.
+        canonical_repository:
+          typeof repo.full_name === "string" && REPOSITORY.test(repo.full_name)
+            ? repo.full_name
+            : null,
         pr_number: prNumber,
         state: pr.merged === true ? "MERGED" : PR_STATES[pr.state] || "UNKNOWN",
         draft: pr.draft === true,
@@ -196,21 +252,28 @@ function readGithubMergeObservation({
           requirements_known: ["everyone", "non_admins"].includes(protection.enforcement),
           observation_complete: complete,
           required: protection.required,
-          runs: [
-            ...(checkRuns || []).map((run) => ({
-              name: run?.name,
-              app_id: appId(run?.app?.id),
-              head_sha: run?.head_sha,
-              status: run?.status,
-              conclusion: run?.conclusion ?? null,
-            })),
-            ...(commitStatuses || []).map((status) => ({
-              name: status?.context,
-              app_id: null,
-              head_sha: head,
-              ...(STATUS_STATES[status?.state] || { status: "unknown", conclusion: null }),
-            })),
-          ],
+          runs: latestPerContext(
+            [
+              ...(checkRuns || []).map((run) => ({
+                name: run?.name,
+                app_id: appId(run?.app?.id),
+                head_sha: run?.head_sha,
+                status: run?.status,
+                conclusion: run?.conclusion ?? null,
+                kind: "check-run",
+                started_at_ms: startedAt(run?.started_at),
+              })),
+              ...(commitStatuses || []).map((status) => ({
+                name: status?.context,
+                app_id: null,
+                head_sha: head,
+                ...(STATUS_STATES[status?.state] || { status: "unknown", conclusion: null }),
+                kind: "status",
+                started_at_ms: startedAt(status?.created_at),
+              })),
+            ],
+            protection.required
+          ),
         },
       },
       error: null,

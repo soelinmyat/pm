@@ -428,11 +428,11 @@ Under a standing merge authorization (Ship Step 07, after `merge-check` exits 0)
 gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --match-head-commit "$remote_tip" --delete-branch
 ```
 
-Never add `--admin` or `--auto` to it. `--match-head-commit` makes GitHub refuse the merge if the PR head is no longer the checked commit, and branch protection still enforces the required checks, so the merge does not rest only on what `merge-check` read from GitHub moments earlier. If GitHub refuses, rerun `merge-check`; do not retry with other flags.
+Never add `--admin` or `--auto` to it. `--match-head-commit` makes GitHub refuse the merge if the PR head is no longer the checked commit, and branch protection still enforces the required checks, so the merge does not rest only on what `merge-check` read from GitHub moments earlier. If GitHub refuses it, do not retry with other flags and do not merge again in this run: run `merge-check` once more at the same commit so its reasons are recorded, then park as Ship Step 07 directs, report the error and STOP.
 
 After merge command, verify state is `"MERGED"`. If still `"OPEN"`, loop back to Step 3.
 
-If merge fails: report the error and STOP. Do NOT force through.
+If merge fails on any path: report the error and STOP. Do NOT force through.
 
 Independently fetch the final PR identity and reconcile the Merge effect as `matched` only when the PR is `MERGED`, its observed head OID equals the prepared commit, and the merge SHA is present. A lost command result remains `attempting` until this observation. A closed-unmerged PR or different head is `conflict`, not a retryable environment failure.
 

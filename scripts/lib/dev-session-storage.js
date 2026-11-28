@@ -83,6 +83,30 @@ function measureBytes(root) {
   return bytes;
 }
 
+// The first `.git` file or directory under root, as a path relative to root,
+// or null. A `.git` entry marks a checkout or linked worktree whose
+// uncommitted work a recursive removal would destroy. Symlinks are not
+// followed. A folder that cannot be read counts as holding one.
+function gitCheckoutWithin(root) {
+  const pending = [""];
+  while (pending.length) {
+    const relative = pending.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(path.join(root, relative), { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      return relative || ".";
+    }
+    for (const entry of entries) {
+      const child = path.join(relative, entry.name);
+      if (entry.name === ".git") return child;
+      if (entry.isDirectory()) pending.push(child);
+    }
+  }
+  return null;
+}
+
 function isWithin(parent, candidate) {
   const relative = path.relative(parent, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -139,6 +163,9 @@ function generatedRefusal(absolute, expectedReal, referenced) {
   if (real !== expectedReal) return "resolves outside the session";
   const evidence = referenced.find((candidate) => isWithin(absolute, candidate));
   if (evidence) return `holds evidence the session references: ${evidence}`;
+  const checkout = gitCheckoutWithin(absolute);
+  if (checkout)
+    return `contains a git checkout, or a folder that cannot be checked for one, at ${checkout}`;
   try {
     const pid = Number(
       fs.readFileSync(path.join(absolute, "postmaster.pid"), "utf8").split("\n")[0]
@@ -157,4 +184,9 @@ function generatedRefusal(absolute, expectedReal, referenced) {
   return null;
 }
 
-module.exports = { cleanGeneratedSessionData, inspectSessionStorage, measureBytes };
+module.exports = {
+  cleanGeneratedSessionData,
+  gitCheckoutWithin,
+  inspectSessionStorage,
+  measureBytes,
+};

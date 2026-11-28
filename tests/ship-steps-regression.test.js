@@ -441,6 +441,38 @@ test("an automatic merge under a standing authorization lets GitHub enforce the 
   assert.match(schema, /merge-check[^\n]*observation[^\n]*--match-head-commit/);
 });
 
+test("auto_merge false stops a standing-authorization merge in Step 07, the loop and README", () => {
+  // Step 05 promises the preference overrides the standing authorization; the
+  // later steps must honour it too, through merge-check's manual reason.
+  const createPr = read("skills/ship/steps/05-create-pr.md");
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const readme = read("README.md");
+  const schema = read("skills/dev/references/state-schema.md");
+  const loop = read("scripts/loop-worker.js");
+  assert.match(createPr, /auto_merge: false[^\n]*merge-check[^\n]*ship-auto-merge-off/);
+  assert.match(
+    step,
+    /Exit 3 at this step[^\n]*preferences\.ship\.auto_merge[^\n]*ship-auto-merge-off/
+  );
+  assert.match(readme, /preferences\.ship\.auto_merge: false[^\n]*ship-auto-merge-off/);
+  assert.match(schema, /Manual codes:[^\n]*ship-auto-merge-off/);
+  assert.match(loop, /exit 3[^\n]*preferences\.ship\.auto_merge/);
+});
+
+test("a GitHub refusal of the checked merge records the reasons once and stops", () => {
+  // "Rerun merge-check" and "report and STOP" must read as one instruction.
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const shared = read("references/merge-loop.md");
+  for (const text of [step, shared]) {
+    assert.match(
+      text,
+      /If GitHub refuses[^\n]*do not merge again in this run[^\n]*`merge-check` once more[^\n]*(STOP|stop)/
+    );
+    assert.doesNotMatch(text, /rerun `merge-check`; do not retry/);
+    assert.doesNotMatch(text, /run `merge-check` again, or park/);
+  }
+});
+
 test("the shared merge loop never arms auto-merge under a standing authorization", () => {
   // GitHub auto-merge would merge whatever head passes branch protection,
   // including one merge-check never passed.
