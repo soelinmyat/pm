@@ -23,6 +23,12 @@ const { checkQaReport } = require("./lib/qa-report-schema");
 const { currentEvidenceRecords } = require("./lib/workflow-runtime/records");
 const { sessionUsesFocusedUiQa } = require("./lib/dev-risk");
 const { checkMcpCoverage } = require("./lib/mcp-coverage");
+// One rule for which merge grants came only from a standing authorization.
+const {
+  durableRevocation,
+  readMergeRevocations,
+  standingMergeOnly,
+} = require("./lib/merge-authorization");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -142,6 +148,39 @@ function checkGateManifest(manifest, opts = {}) {
     );
     if (canonicalSession.authority?.[action] !== true || !logged)
       issues.push(issue(manifestPath, `canonical session does not grant authority ${action}`));
+    else if (action === "merge" && standingMergeOnly(canonicalSession)) {
+      // A merge granted only by a grooming approval's standing authorization
+      // holds only while the latest recorded merge-check allowed this commit.
+      // A revocation withdraws it even when a merge decision was recorded
+      // first, including one recorded durably beside the approval by another
+      // session, which merge-check reads too.
+      const ledger = canonicalSession.merge_authorization;
+      const latest = ledger?.decisions?.at?.(-1);
+      const durable =
+        typeof ledger?.proposal?.path === "string" && ledger.proposal.path
+          ? durableRevocation(ledger, readMergeRevocations(ledger.proposal.path))
+          : null;
+      if (ledger?.revoked || durable?.code === "authorization-revoked")
+        issues.push(
+          issue(
+            manifestPath,
+            `standing merge authorization was revoked${
+              durable?.code === "authorization-revoked" ? ` (${durable.message})` : ""
+            }; merging needs the user's own confirmation`
+          )
+        );
+      else if (durable)
+        issues.push(
+          issue(manifestPath, `${durable.message}; merging needs the user's own confirmation`)
+        );
+      else if (latest?.decision !== "merge" || latest.commit !== currentCommit)
+        issues.push(
+          issue(
+            manifestPath,
+            "standing merge authorization requires a recorded merge-check decision of merge at this commit"
+          )
+        );
+    }
   }
   if (
     ((opts.requiredAuthorities || []).length > 0 || opts.requireDeliveryEvidence === true) &&

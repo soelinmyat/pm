@@ -416,3 +416,100 @@ test("comprehensive requested drafts have an explicit ready-before-merge procedu
   assert.match(step, /ready-pr.*before.*CI/i);
   assert.match(step, /--draft/);
 });
+
+test("an automatic merge under a standing authorization lets GitHub enforce the checked head", () => {
+  // merge-check reads GitHub at the check; the merge command itself must still
+  // bind the head and leave branch protection in force.
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const shared = read("references/merge-loop.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+  const schema = read("skills/dev/references/state-schema.md");
+  const command =
+    /gh pr merge "\$PR_NUMBER" --repo "\$GH_REPO" --squash --match-head-commit "\$remote_tip"/;
+  assert.match(step, command);
+  assert.match(shared, command);
+  for (const text of [step, shared, contract, schema]) {
+    assert.match(text, /--match-head-commit/);
+    assert.match(text, /branch protection/);
+  }
+  // The standing-authorization merge command never carries --admin or --auto.
+  const commands = [step, shared]
+    .join("\n")
+    .match(/gh pr merge [^`\n]*--match-head-commit[^`\n]*/g);
+  assert.ok(commands && commands.length >= 2);
+  for (const line of commands) assert.doesNotMatch(line, /--admin|--auto/);
+  assert.match(schema, /merge-check[^\n]*observation[^\n]*--match-head-commit/);
+});
+
+test("auto_merge false stops a standing-authorization merge in Step 07, the loop and README", () => {
+  // Step 05 promises the preference overrides the standing authorization; the
+  // later steps must honour it too, through merge-check's manual reason.
+  const createPr = read("skills/ship/steps/05-create-pr.md");
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const readme = read("README.md");
+  const schema = read("skills/dev/references/state-schema.md");
+  const loop = read("scripts/loop-worker.js");
+  assert.match(createPr, /auto_merge: false[^\n]*merge-check[^\n]*ship-auto-merge-off/);
+  assert.match(
+    step,
+    /Exit 3 at this step[^\n]*preferences\.ship\.auto_merge[^\n]*ship-auto-merge-off/
+  );
+  assert.match(readme, /preferences\.ship\.auto_merge: false[^\n]*ship-auto-merge-off/);
+  assert.match(schema, /Manual codes:[^\n]*ship-auto-merge-off/);
+  assert.match(loop, /exit 3[^\n]*preferences\.ship\.auto_merge/);
+});
+
+test("a GitHub refusal of the checked merge records the reasons once and stops", () => {
+  // "Rerun merge-check" and "report and STOP" must read as one instruction.
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const shared = read("references/merge-loop.md");
+  for (const text of [step, shared]) {
+    assert.match(
+      text,
+      /If GitHub refuses[^\n]*do not merge again in this run[^\n]*`merge-check` once more[^\n]*(STOP|stop)/
+    );
+    assert.doesNotMatch(text, /rerun `merge-check`; do not retry/);
+    assert.doesNotMatch(text, /run `merge-check` again, or park/);
+  }
+});
+
+test("the shared merge loop never arms auto-merge under a standing authorization", () => {
+  // GitHub auto-merge would merge whatever head passes branch protection,
+  // including one merge-check never passed.
+  const shared = read("references/merge-loop.md");
+  const step2 = shared.slice(shared.indexOf("## Step 2:"), shared.indexOf("## Step 3:"));
+  assert.match(step2, /standing merge authorization[^\n]*do not arm[^\n]*auto-merge/i);
+  assert.match(step2, /human-confirmed/i);
+  // The only --auto command left is the human-confirmed one.
+  for (const line of shared.match(/gh pr merge [^`\n]*--auto[^`\n]*/g) || [])
+    assert.doesNotMatch(line, /--match-head-commit/);
+  const fixLoop = shared.slice(shared.indexOf("## Step 3:"));
+  assert.match(fixLoop, /standing merge authorization[^\n]*--match-head-commit/i);
+});
+
+test("Ship Step 07 sets PM_PLUGIN_ROOT and remote_tip before merge-check uses them", () => {
+  const step = read("skills/ship/steps/07-merge-loop.md");
+  const standing = step.slice(
+    step.indexOf("### Standing merge authorization"),
+    step.indexOf("### Pre-merge gate attestation")
+  );
+  const setRoot = standing.indexOf('PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT');
+  const setTip = standing.indexOf('remote_tip="$(git rev-parse "{DELIVERY_REMOTE}/{branch}")"');
+  assert.ok(setRoot >= 0, "standing section sets PM_PLUGIN_ROOT");
+  assert.ok(setTip >= 0, "standing section sets remote_tip");
+  assert.ok(setRoot < standing.indexOf('"$PM_PLUGIN_ROOT/'), "PM_PLUGIN_ROOT set before use");
+  assert.ok(setTip < standing.indexOf('"$remote_tip"'), "remote_tip set before use");
+});
+
+test("merge authorization docs point to the shared trust model", () => {
+  for (const file of [
+    "skills/dev/references/state-schema.md",
+    "skills/ship/steps/07-merge-loop.md",
+    "docs/plans/2026-11-26-design-director.md",
+  ])
+    assert.match(read(file), /references\/trust-model\.md/, file);
+  const plan = read("docs/plans/2026-11-26-design-director.md");
+  assert.doesNotMatch(plan, /Authenticity rests on trust plus the three cheap checks/);
+  const schema = read("skills/dev/references/state-schema.md");
+  assert.match(schema, /teardown[^\n]*same trust as the project's own test suite/i);
+});

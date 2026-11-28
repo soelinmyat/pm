@@ -15,6 +15,7 @@ const {
   reviewQuestionIdsForTier,
   reviewTextTokens,
 } = require("./groom-review-contract.js");
+const { mergeAuthorizationIssues } = require("./merge-authorization.js");
 
 const HISTORICAL_EVIDENCE = Symbol("authenticated historical evidence");
 const SCHEMA_VERSION = 1;
@@ -1662,7 +1663,7 @@ function proposalApprovalSnapshotHash(proposal) {
 
 function deriveApprovalDecision(
   proposal,
-  { approvedBy, approvedAt, deliveryDelegation = null } = {}
+  { approvedBy, approvedAt, deliveryDelegation = null, mergeAuthorization = null } = {}
 ) {
   if (!isObject(proposal?.review_contract) || !isString(proposal.review_contract.session_id)) {
     throw new Error("canonical approval decision requires a bound proposal review session");
@@ -1686,6 +1687,7 @@ function deriveApprovalDecision(
     approved_by: approvedBy.trim(),
     approved_at: approvedAt,
     ...(deliveryDelegation ? { delivery_delegation_sha256: deliveryDelegation.grant_sha256 } : {}),
+    ...(mergeAuthorization ? { merge_authorization_sha256: mergeAuthorization.record_sha256 } : {}),
   };
   return Object.freeze({
     id: decisionId,
@@ -1772,7 +1774,14 @@ function validateRevisionTransition(previous, next) {
 function validateApproval(proposal, approval, options = {}) {
   const issues = [];
   const at = options.path || "$approval";
-  if (!closed(approval, [...APPROVAL_FIELDS, "delivery_delegation"], at, issues))
+  if (
+    !closed(
+      approval,
+      [...APPROVAL_FIELDS, "delivery_delegation", "merge_authorization"],
+      at,
+      issues
+    )
+  )
     return { ok: false, issues };
   if (!isObject(proposal)) {
     issues.push(issue("$proposal", "approval verification requires a valid proposal object"));
@@ -1839,6 +1848,7 @@ function validateApproval(proposal, approval, options = {}) {
         approvedBy: approval.approved_by,
         approvedAt: approval.approved_at,
         deliveryDelegation: approval.delivery_delegation || null,
+        mergeAuthorization: approval.merge_authorization || null,
       });
       if (approval.decision_id !== canonicalDecision.id) {
         issues.push(
@@ -1870,6 +1880,18 @@ function validateApproval(proposal, approval, options = {}) {
       issues.push(issue(`${at}.delivery_delegation`, error.message));
     }
   }
+  if (approval.merge_authorization !== undefined) {
+    for (const message of mergeAuthorizationIssues(
+      approval.merge_authorization,
+      `${at}.merge_authorization`
+    ))
+      issues.push(issue(`${at}.merge_authorization`, message));
+    for (const message of mergeAuthorizationBindingIssues(approval.merge_authorization, {
+      proposal,
+      approval,
+    }))
+      issues.push(issue(`${at}.merge_authorization`, message));
+  }
   if (options.bytes === undefined)
     issues.push(
       issue(`${at}.proposal_sha256`, "exact proposal bytes are required to verify approval")
@@ -1895,6 +1917,7 @@ function buildApproval(
     decisionId = null,
     decisionSha256 = null,
     deliveryDelegation = null,
+    mergeAuthorization = null,
   } = {}
 ) {
   const proposalResult = validateProposal(proposal);
@@ -1921,6 +1944,7 @@ function buildApproval(
       approvedBy,
       approvedAt,
       deliveryDelegation,
+      mergeAuthorization,
     });
     if (decisionId !== canonicalDecision.id || decisionSha256 !== canonicalDecision.sha256) {
       throw new Error("current proposal approval must use the canonical Groom approval decision");
@@ -1931,6 +1955,18 @@ function buildApproval(
       proposal,
       approval: { approved_by: approvedBy, approved_at: approvedAt },
     });
+  if (mergeAuthorization) {
+    if (!isObject(proposal.review_contract))
+      throw new Error("standing merge authorization requires a bound Groom review session");
+    const problems = [
+      ...mergeAuthorizationIssues(mergeAuthorization),
+      ...mergeAuthorizationBindingIssues(mergeAuthorization, {
+        proposal,
+        approval: { approved_by: approvedBy, approved_at: approvedAt },
+      }),
+    ];
+    if (problems.length) throw new Error(`invalid merge authorization: ${problems.join("; ")}`);
+  }
   return {
     schema_version: 1,
     kind: "proposal-approval",
@@ -1944,7 +1980,30 @@ function buildApproval(
     decision_id: decisionId,
     decision_sha256: decisionSha256,
     ...(deliveryDelegation ? { delivery_delegation: structuredClone(deliveryDelegation) } : {}),
+    ...(mergeAuthorization ? { merge_authorization: structuredClone(mergeAuthorization) } : {}),
   };
+}
+
+// A standing merge authorization belongs to exactly one product decision: the
+// same proposal revision and content, the same approver and approval time, and
+// the Groom review session that produced the proposal.
+function mergeAuthorizationBindingIssues(record, { proposal = null, approval = null } = {}) {
+  const issues = [];
+  if (!isObject(record)) return issues;
+  if (proposal) {
+    if (record.proposal_id !== proposal.id) issues.push("proposal_id differs from the proposal");
+    if (record.revision !== proposal.revision) issues.push("revision differs from the proposal");
+    if (record.content_sha256 !== proposalContentHash(proposal))
+      issues.push("content_sha256 differs from the proposal");
+    if (record.groom_run_id !== proposal.review_contract?.session_id)
+      issues.push("groom_run_id differs from the proposal review session");
+  }
+  if (
+    approval &&
+    (record.approved_by !== approval.approved_by || record.approved_at !== approval.approved_at)
+  )
+    issues.push("approver and time differ from the product decision");
+  return issues;
 }
 
 function executionContract(proposal) {

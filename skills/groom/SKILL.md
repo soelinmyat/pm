@@ -42,6 +42,7 @@ route. The local workflow below remains the route for local PM projects.
 - Canonical product content is `{pm_dir}/backlog/proposals/{slug}.json`. Generate HTML and backlog Markdown projections with `scripts/proposal-render.js`; never maintain twins by hand.
 - Validate source, projections, lifecycle, and approval with `scripts/proposal-check.js`.
 - Drafting and review do not imply approval. Ask one direct approval question in the approval phase and bind the answer to exact proposal bytes.
+- Approval also records a standing merge authorization for the resulting work, on by default. Say so in the approval question, with how to decline it; `Merge: manual` in the project's PM instructions turns it off.
 - Any substantive proposal revision invalidates review and approval and returns the session to the earliest affected phase.
 - Review coverage is a set of independent decision questions. It may run inline or across available workers; never require a fixed worker count or persona name.
 - External effects such as tracker writes require explicit authority and an idempotent effect receipt.

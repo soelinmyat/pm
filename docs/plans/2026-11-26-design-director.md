@@ -216,7 +216,9 @@ Separate PRs, each releasable:
 - Unattended merges rest on code-review gates that have not been examined
   against this standard.
 - Projects without good seed data get a shallow review.
-- Authenticity rests on trust plus the three cheap checks, not on certification.
+- The local agent and its `.pm/` state are trusted; checks judge omission,
+  staleness, mistakes, self-approval and the bar, not forgery. See
+  `references/trust-model.md`.
 
 # Open questions
 
@@ -298,6 +300,107 @@ Next steps, in order:
 2. Delivery item 2, the build step additions.
 3. Delivery item 4 holds the remaining mechanical checks: hardcoded values,
    declared surfaces and neighbour pixel comparison.
+
+2026-11-27: delivery item 2 is built, not released. A new reference,
+`skills/dev/references/design-director-build.md`, holds the builder's part: read
+the rubric, write a build brief at
+`.pm/dev-sessions/{slug}/implementation/build-brief.md`, start from the
+preview's code, seed awkward data, self-check each slice at desktop and narrow
+with the measurement tools, and write a handoff note at
+`.pm/dev-sessions/{slug}/implementation/handoff.md`. Its access notes and
+builder's claims sections feed items 4 and 7 of the director brief. Step 05,
+the implementer and worker references and `scripts/dev-prompt.js` load it for
+product UI. No session schema or gate change: Dev reads the note to assemble
+the brief and checks its `commit` against HEAD before dispatch.
+
+2026-11-27: delivery item 3 is built, not released. It reuses the bound
+`design_context` that already travels from the proposal through the RFC sidecar
+to Dev and its worker packets. `visual_invariants` are the declared decisions and
+`critical_states` the declared states. One optional field is new: `surfaces`,
+a list of `{name, paths}` for the screens and components in scope, allowed only
+when `ui_impact` is true. `validateDesignContext` and the Dev and RFC JSON
+schemas check it, and the proposal reader shows it to the approver. Groom Step 5
+writes all three lists for a rendered target and Handoff checks them. The build
+brief copies them into Target and States, and director brief item 3 copies the
+brief. Older contexts without `surfaces` still validate. Grooming has to write
+`surfaces`; no checker requires it yet, because a required field would fail
+proposals already approved.
+
+2026-11-27: delivery item 4 is built without the standing merge authorization,
+not released. `scripts/design-director-mechanical.js` runs the scope, token and
+neighbour checks against the diff from where the branch left the default
+branch. Dispositions, UI-file overrides and neighbour screenshot pairs live in
+`.pm/dev-sessions/{slug}/design-critique/mechanical/checks.json`. Neighbour PNGs
+are compared by decoded pixels with the existing decoder in
+`scripts/lib/media-inspect.js`; other formats only by bytes. The checks enforce
+only when the design context declares `surfaces`; otherwise they report and
+never fail. The recorder reruns them on a director approval and refuses it
+while they fail. An unfixable failure is recorded as a `blocked` result with
+the code `design-director-mechanical`. Merge authorization was deliberately left
+out: the owner has not approved unattended merging, so nothing merges without a
+human. The code reviewer is still not checked to be a separate agent from the
+builder; Review allows a shared-orchestrator fallback.
+
+2026-11-27: delivery item 5 is built, not released. `session.json` takes an
+optional `resources` ledger, validated by `scripts/lib/dev-session-resources.js`
+and the Dev JSON schema. Sessions without one behave as before. New subcommands:
+`resource-add`, `resources`, `close [--dry-run]` and `sweep [--remove]`, and
+`scratch` registers its own directory. The ledger stores no shell commands.
+Directories, worktrees and processes are removed by kind, with path containment,
+symlink and identity checks at registration and again at removal. Databases,
+accounts and simulators need a teardown declared under `dev.teardown` in the
+project's PM config; without one close reports and leaves the entry. Dirty,
+locked or unpushed worktrees, and worktrees holding `.pm` files, are kept. No
+branch is deleted. The sweep reports by default and never touches active
+sessions or anything they use. Completion now removes the generated folders
+v1.14.67 detected, except those holding referenced evidence or a running
+database. Dev runs the sweep after init or resume and close on every outcome.
+A squash-merged worktree whose remote branch is deleted counts as unpushed and
+is kept for the owner to remove.
+
+2026-11-27: follow-up items are built, not released. `dev-session.js
+follow-ups` reads every director report in the session and lists system notes
+that were not fixed and findings marked `filed`, one item per issue with a
+stable key. Repeat reviews of a finding and identical wording across runs merge;
+other duplicates are merged by the agent. A system note is a system item;
+other items are local, and one whose location names no declared surface is
+flagged for a scope check. Items become fileable only when the ship evidence
+holds a MERGED delivery receipt and the run is not parked; otherwise nothing is
+written and the items stay in the reports. Retro Step 6c searches for an open
+item first, then asks one batched question in Linear projects and files
+directly through the `pm:task` capture path in native projects. Each outcome
+goes into an optional `follow_ups` ledger in `session.json` through
+`follow-up-record`; a filed item is final, and pending items stay listed after
+completion. Parked runs in earlier sessions are not collected. Still open:
+whether native projects get the same confirmation.
+
+2026-11-27: the standing merge authorization from delivery item 4 is built,
+not released. By the owner's decision of 2026-11-27 it is on by default.
+`groom-session.js approve` records a `merge_authorization` beside the decision
+and binds it into the decision hash; the approval audit carries it and Dev
+routing copies it into `session.json`. `--merge manual` declines it for one
+proposal and a line `Merge: manual` in the project's PM instructions turns it
+off. `dev-session.js merge-check` decides each merge from the session, the gate
+rows and `dev-gate-check`, the director report and mechanical checks, the PR,
+branch protection and required checks it reads from GitHub itself through `gh`,
+and the release transaction; an observation file never allows a merge. A revoke
+is recorded next to the approval audit, so it also holds for later sessions of
+the same revision. Only a pass grants
+`merge`, and `dev-gate-check` holds that grant to the checked commit. A refusal
+records its reasons and leaves the PR open. Work without an approved groomed
+proposal keeps today's confirmation. Loop `merge_pr: true` now also requires a
+passing check. Still true from the risks: the replay did not pass, so the
+director's bar is untuned, and the code reviewer is not checked to be a separate
+agent from the builder. These merges rest on that.
+
+2026-11-28: the trust model is written down in `references/trust-model.md`.
+The local user, the orchestrating agent, the plugin and the `.pm/` state it
+writes are trusted; local checks fail closed on omission, staleness, mistakes,
+self-approval and a low bar, and never try to prove that state was not forged.
+The remote guard for an unattended merge is branch protection with enforced
+required checks and `--match-head-commit`. The security review lens now applies
+it, so a finding whose only path is the local agent forging its own state is out
+of scope.
 
 Not yet examined: whether `pm:review`, QA and the test gates are strong enough
 for unattended merging.

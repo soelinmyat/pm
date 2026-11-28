@@ -2899,3 +2899,185 @@ test("delivery accepts policy-valid UI skips without inventing passing phase evi
     false
   );
 });
+
+test("a merge grant from a standing authorization needs a recorded merge decision at the commit", () => {
+  // The checker requires the prefix rule from merge-authorization.
+  const { GRANT_REASON_PREFIX } = require("../scripts/lib/merge-authorization");
+  const standing = `${GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
+  const session = (log, decisions) => ({
+    run_id: "standing-merge",
+    slug: "example",
+    source: { branch: "feature" },
+    routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+    evidence: {},
+    authority: { push_feature_branch: true, merge: true },
+    authority_log: log,
+    ...(decisions ? { merge_authorization: { decisions } } : {}),
+  });
+  const rows = ["design-critique", "qa"].map((name) =>
+    gate(name, "abc123", { status: "skipped", artifact: "", reason: "No UI impact: CLI only." })
+  );
+  const check = (canonicalSession) =>
+    checkGateManifest(manifest(rows, { run_id: "standing-merge" }), {
+      canonicalSession,
+      requireDeliveryEvidence: true,
+      requiredAuthorities: ["merge"],
+      requiredGates: ["design-critique", "qa"],
+      currentCommit: "abc123",
+      currentBranch: "feature",
+      changedFiles: ["scripts/cli.js"],
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+    });
+  const blocked = (result) =>
+    result.issues.some((row) => row.message.includes("standing merge authorization"));
+  const grant = [{ actions: ["merge"], reason: standing }];
+  const decision = (value, commit = "abc123") => ({ decision: value, commit });
+
+  assert.equal(blocked(check(session(grant, [decision("merge")]))), false);
+  assert.equal(check(session(grant, [decision("merge")])).ok, true);
+  assert.equal(blocked(check(session(grant, [decision("merge"), decision("refuse")]))), true);
+  assert.equal(blocked(check(session(grant, [decision("merge", "oldhead")]))), true);
+  assert.equal(blocked(check(session(grant, null))), true);
+  // A human's own merge grant keeps today's behaviour.
+  const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
+  assert.equal(blocked(check(session(human, [decision("refuse")]))), false);
+});
+
+test("a revoked standing authorization no longer satisfies a merge requirement", () => {
+  const { GRANT_REASON_PREFIX } = require("../scripts/lib/merge-authorization");
+  const standing = `${GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
+  const session = (log, revoked) => ({
+    run_id: "standing-merge",
+    slug: "example",
+    source: { branch: "feature" },
+    routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+    evidence: {},
+    authority: { push_feature_branch: true, merge: true },
+    authority_log: log,
+    merge_authorization: {
+      revoked,
+      decisions: [{ decision: "merge", commit: "abc123" }],
+    },
+  });
+  const rows = ["design-critique", "qa"].map((name) =>
+    gate(name, "abc123", { status: "skipped", artifact: "", reason: "No UI impact: CLI only." })
+  );
+  const check = (canonicalSession) =>
+    checkGateManifest(manifest(rows, { run_id: "standing-merge" }), {
+      canonicalSession,
+      requireDeliveryEvidence: true,
+      requiredAuthorities: ["merge"],
+      requiredGates: ["design-critique", "qa"],
+      currentCommit: "abc123",
+      currentBranch: "feature",
+      changedFiles: ["scripts/cli.js"],
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+    });
+  const grant = [{ actions: ["merge"], reason: standing }];
+  const revoked = { revoked_at: "2026-11-27T10:00:00.000Z", reason: "owner asked" };
+  assert.equal(check(session(grant, null)).ok, true);
+  const after = check(session(grant, revoked));
+  assert.equal(after.ok, false);
+  assert.ok(
+    after.issues.some((row) => /standing merge authorization was revoked/.test(row.message)),
+    JSON.stringify(after.issues)
+  );
+  // A human's own merge grant is not withdrawn by revoking the standing one.
+  const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
+  assert.equal(check(session(human, revoked)).ok, true);
+});
+
+test("a durable revocation of this proposal revision withdraws a recorded standing merge", () => {
+  const auth = require("../scripts/lib/merge-authorization");
+  const standing = `${auth.GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-revocation-")));
+  try {
+    const proposalPath = path.join(dir, "pm", "backlog", "proposals", "orders.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    const proposal = {
+      path: proposalPath,
+      proposal_id: "orders",
+      slug: "orders",
+      revision: 2,
+      content_sha256: `sha256:${"c".repeat(64)}`,
+      decision_id: "decision-orders-2",
+    };
+    const session = {
+      run_id: "standing-merge",
+      slug: "example",
+      source: { branch: "feature" },
+      routing: { review_mode: "full", required_gates: ["design-critique", "qa"] },
+      evidence: {},
+      authority: { push_feature_branch: true, merge: true },
+      authority_log: [{ actions: ["merge"], reason: standing }],
+      merge_authorization: {
+        proposal,
+        record: { record_sha256: `sha256:${"d".repeat(64)}` },
+        revoked: null,
+        decisions: [{ decision: "merge", commit: "abc123" }],
+      },
+    };
+    const rows = ["design-critique", "qa"].map((name) =>
+      gate(name, "abc123", { status: "skipped", artifact: "", reason: "No UI impact: CLI only." })
+    );
+    const check = () =>
+      checkGateManifest(manifest(rows, { run_id: "standing-merge" }), {
+        canonicalSession: session,
+        requireDeliveryEvidence: true,
+        requiredAuthorities: ["merge"],
+        requiredGates: ["design-critique", "qa"],
+        currentCommit: "abc123",
+        currentBranch: "feature",
+        changedFiles: ["scripts/cli.js"],
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+      });
+    const revoked = (result) =>
+      result.issues.some((row) => /standing merge authorization was revoked/.test(row.message));
+    assert.equal(check().ok, true, JSON.stringify(check().issues));
+
+    const recordPath = auth.revocationPathForProposal(proposalPath);
+    const write = (entryProposal) =>
+      fs.writeFileSync(
+        recordPath,
+        JSON.stringify(
+          auth.addRevocation(
+            null,
+            { proposal: entryProposal, record: session.merge_authorization.record },
+            "owner asked in another session",
+            "2026-11-27T10:00:00.000Z",
+            "another-run"
+          ).document
+        )
+      );
+    // A revocation of another revision does not apply.
+    write({ ...proposal, revision: 1 });
+    assert.equal(check().ok, true, JSON.stringify(check().issues));
+    // A revocation of this revision, recorded in another session, withdraws it.
+    write(proposal);
+    let result = check();
+    assert.equal(result.ok, false);
+    assert.ok(revoked(result), JSON.stringify(result.issues));
+    // A record that cannot be read withdraws it too.
+    fs.writeFileSync(recordPath, "{ not json");
+    result = check();
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.issues.some((row) => /revocation record/.test(row.message)),
+      JSON.stringify(result.issues)
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the checker takes the standing-merge rule from merge-authorization, not a copy", () => {
+  // .githooks/pre-push archives the whole scripts/ tree from the pushed commit,
+  // so scripts/lib/merge-authorization.js is loadable wherever the checker runs.
+  const hook = fs.readFileSync(path.join(__dirname, "../.githooks/pre-push"), "utf8");
+  assert.match(hook, /git archive --format=tar[^\n]*\\\n\s+scripts \\\n/);
+  const source = fs.readFileSync(path.join(__dirname, "../scripts/dev-gate-check.js"), "utf8");
+  assert.match(source, /require\("\.\/lib\/merge-authorization"\)/);
+  assert.doesNotMatch(source, /function standingMergeOnly/);
+  assert.doesNotMatch(source, /"standing-merge-authorization:"/);
+  assert.doesNotMatch(source, /pre-push hook runs this file alone/);
+});

@@ -17,6 +17,10 @@ The controller supplies the nine prompt sections from `worker-contract.md`. Befo
 
 Implement with TDD from `tdd.md`: observe the relevant test fail, write the smallest change that passes it, then refactor while green. Stage only owned files by explicit path. Never use `git add .` or `git add -A`.
 
+### Product UI for the Design Director
+
+When the unit changes product UI and Inputs do not name the capture review path, read `design-director-build.md` and the rubric before writing UI code. Build from the build brief named in Inputs and run the self-check after each slice. Put your self-check results and known departures from the target in the result `summary`. Root writes the handoff note from them; do not write into the session folder.
+
 ### Authority
 
 Only perform actions explicitly allowed in the prompt. The normal worker may inspect, edit, test, and commit inside its assigned worktree. Push, PR creation, merge, deployment, and tracker updates belong to the root and are denied unless the contract expressly grants them.

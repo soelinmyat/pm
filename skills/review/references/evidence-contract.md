@@ -2,7 +2,7 @@
 
 ## Assurance and threat model
 
-Review is a trusted-local-root workflow. It assumes the local user/root orchestrator, installed PM plugin and validators, operating system, selected model runtime, and browser process are honest. Repository content, reviewer prose, HTML, and imported artifacts are untrusted inputs. The contract detects stale, malformed, swapped, hidden, path-escaped, or accidentally edited evidence; it does not authenticate evidence against a malicious root with arbitrary filesystem and process control.
+Review is a trusted-local-root workflow. It assumes the local user/root orchestrator, installed PM plugin and validators, operating system, selected model runtime, and browser process are honest. Repository content, reviewer prose, HTML, and imported artifacts are untrusted inputs. The contract detects stale, malformed, swapped, hidden, path-escaped, or accidentally edited evidence; it does not authenticate evidence against a malicious root with arbitrary filesystem and process control. This is the review case of the plugin-wide trust model in `${CLAUDE_PLUGIN_ROOT}/references/trust-model.md`.
 
 Hashes bind the package's internal consistency and make post-production drift visible. They do not prove who produced an artifact or which process executed. The legacy allocation field `independent: true` requests context-separated reviewer execution for variance reduction; it is not an attestation of an independent security principal, and inline-sequential fallback shares the root orchestrator. Local keys, HMACs, nonces, timestamps, hardware-backed signatures, browser paths, or executable hashes are not adversarial controls when the same root can fabricate inputs or invoke the signer.
 

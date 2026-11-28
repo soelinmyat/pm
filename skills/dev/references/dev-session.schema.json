@@ -74,9 +74,306 @@
           }
         }
       ]
+    },
+    "resources": {
+      "description": "Optional resource ledger. Sessions without it are valid. The runtime also requires unique ids, normalized paths and removed_at exactly when status is removed or gone.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource_entry" }
+    },
+    "follow_ups": {
+      "description": "Optional follow-up ledger, written only after a merged Design Director run. Sessions without it are valid. The runtime also requires unique keys and that a merged item names another item in the ledger.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "merge_sha", "items"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "merge_sha": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/follow_up_item" } }
+      }
+    },
+    "merge_authorization": {
+      "description": "Optional standing merge authorization, copied at routing from the approved proposal's approval audit. Sessions without it are valid and never merge automatically. The runtime also checks the record digest and that the record and proposal identity match task.proposal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "proposal", "record", "revoked", "decisions"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "proposal_id", "slug", "revision", "content_sha256", "decision_id"],
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "proposal_id": { "type": "string", "minLength": 1 },
+            "slug": { "type": "string", "minLength": 1 },
+            "revision": { "type": "integer", "minimum": 1 },
+            "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "decision_id": { "type": "string", "minLength": 1 }
+          }
+        },
+        "record": { "$ref": "#/$defs/merge_authorization_record" },
+        "revoked": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["revoked_at", "reason"],
+              "properties": {
+                "revoked_at": { "type": "string", "format": "date-time" },
+                "reason": { "type": "string", "minLength": 1 },
+                "cleared_authority": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": { "const": "merge" }
+                }
+              }
+            }
+          ]
+        },
+        "decisions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["decided_at", "commit", "decision", "reasons", "evidence"],
+            "properties": {
+              "decided_at": { "type": "string", "format": "date-time" },
+              "commit": {
+                "description": "The checked commit. Null only for a refused or manual decision on an invalid --commit, whose raw value is in evidence.requested_commit.",
+                "oneOf": [
+                  { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+                  { "type": "null" }
+                ]
+              },
+              "decision": { "enum": ["merge", "refuse", "manual"] },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["code", "message"],
+                  "properties": {
+                    "code": { "type": "string", "minLength": 1 },
+                    "message": { "type": "string", "minLength": 1 }
+                  }
+                }
+              },
+              "evidence": { "type": "object" }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
+    "merge_authorization_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "status",
+        "basis",
+        "scope",
+        "groom_run_id",
+        "proposal_id",
+        "revision",
+        "content_sha256",
+        "approved_by",
+        "approved_at",
+        "record_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "standing-merge-authorization" },
+        "status": { "enum": ["granted", "declined"] },
+        "basis": { "enum": ["default", "user-declined", "project-merge-manual"] },
+        "scope": { "const": "merge-to-remote-default-branch-when-all-gates-pass" },
+        "groom_run_id": { "type": "string", "pattern": "^groom_[A-Za-z0-9_-]+$" },
+        "proposal_id": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "record_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "follow_up_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "class",
+        "dimension",
+        "scope",
+        "change",
+        "source",
+        "state",
+        "tracker",
+        "ref",
+        "action",
+        "into",
+        "updated_at"
+      ],
+      "properties": {
+        "key": { "type": "string", "pattern": "^fu_[a-f0-9]{16}$" },
+        "class": { "enum": ["system-note", "small", "elevation", "major"] },
+        "dimension": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["system", "local"] },
+        "change": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "source": {
+          "type": "string",
+          "pattern": "^design-critique/director/[a-z0-9][a-z0-9._-]{0,63}/review-[1-5]/report\\.json$"
+        },
+        "state": { "enum": ["pending", "filed", "merged", "declined"] },
+        "tracker": { "enum": [null, "linear", "backlog"] },
+        "ref": { "type": ["string", "null"] },
+        "action": { "enum": [null, "created", "occurrence-added"] },
+        "into": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^fu_[a-f0-9]{16}$" }] },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "state": { "const": "filed" },
+            "into": { "const": null }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "tracker": { "const": "linear" },
+                "ref": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]{0,8}$" },
+                "action": { "enum": ["created", "occurrence-added"] }
+              }
+            },
+            {
+              "properties": {
+                "tracker": { "const": "backlog" },
+                "ref": { "type": "string", "pattern": "^backlog/[a-z0-9][a-z0-9-]{0,199}\\.md$" },
+                "action": { "enum": ["created", "occurrence-added"] }
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "state": { "const": "merged" },
+            "tracker": { "const": null },
+            "ref": { "const": null },
+            "action": { "const": null },
+            "into": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "state": { "enum": ["pending", "declined"] },
+            "tracker": { "const": null },
+            "ref": { "const": null },
+            "action": { "const": null },
+            "into": { "const": null }
+          }
+        }
+      ]
+    },
+    "resource_close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "outcome", "reason", "bytes_freed"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "outcome": {
+          "enum": ["removed", "gone", "preserved", "refused", "failed", "no-teardown"]
+        },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "bytes_freed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resource_common": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "removal",
+        "created_by",
+        "created_at",
+        "label",
+        "status",
+        "removed_at",
+        "last_close"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^res_[a-f0-9]{16}$" },
+        "created_by": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "label": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "status": { "enum": ["registered", "removed", "gone"] },
+        "removed_at": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }]
+        },
+        "last_close": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resource_close" }]
+        }
+      }
+    },
+    "resource_path": { "type": "string", "pattern": "^/(?!.*//)(?!(?:.*/)?\\.\\.?(?:/|$)).*$" },
+    "resource_entry": {
+      "oneOf": [
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["path"],
+          "properties": {
+            "kind": { "const": "directory" },
+            "removal": { "const": "remove-directory" },
+            "path": { "$ref": "#/$defs/resource_path" }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["path", "branch"],
+          "properties": {
+            "kind": { "const": "worktree" },
+            "removal": { "const": "git-worktree-remove" },
+            "path": { "$ref": "#/$defs/resource_path" },
+            "branch": { "type": ["string", "null"], "minLength": 1, "maxLength": 500 }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["pid", "started_at", "command"],
+          "properties": {
+            "kind": { "const": "process" },
+            "removal": { "const": "terminate-process" },
+            "pid": { "type": "integer", "minimum": 2 },
+            "started_at": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "command": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/resource_common" }],
+          "type": "object",
+          "unevaluatedProperties": false,
+          "required": ["identifier", "teardown"],
+          "properties": {
+            "kind": { "enum": ["database", "account", "simulator"] },
+            "removal": { "const": "declared-teardown" },
+            "identifier": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+/=-]{0,199}$"
+            },
+            "teardown": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" }
+          }
+        }
+      ]
+    },
     "candidate_state": {
       "enum": [
         "implementation",
@@ -845,9 +1142,33 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
+        },
+        "surfaces": {
+          "description": "Screens and components the approved change may touch, each with repo-relative path patterns. Optional; visual work only.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "paths"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))" }
+              }
+            }
+          }
         }
       },
       "allOf": [
+        {
+          "if": { "type": "object", "properties": { "surfaces": {} }, "required": ["surfaces"] },
+          "then": { "required": ["ui_impact"], "properties": { "ui_impact": { "const": true } } }
+        },
         {
           "if": { "required": ["app_preview"] },
           "then": {

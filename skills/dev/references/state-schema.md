@@ -150,6 +150,79 @@ Allowed statuses are `passed`, `failed`, `blocked`, and `noop`. Process exit cod
 | 4 | Result invalid or evidence incomplete |
 | 5 | Session blocked on a user or external decision |
 | 6 | Retry budget exhausted |
+| 7 | `close` or `sweep --remove` left resources in place; the report names each one |
+| 8 | `merge-check --record` could not write its decision; nothing was granted. Treat it as blocked, never as `manual` or `merge` |
+
+### Resource ledger
+
+`session.json` may carry an optional top-level `resources` array. A session without it is valid and behaves as before. Each entry records one thing the run created outside committed source:
+
+| Field | Meaning |
+|---|---|
+| `id` | `res_` plus 16 hex characters |
+| `kind` | `directory`, `worktree`, `process`, `database`, `account` or `simulator` |
+| `removal` | Fixed by kind: `remove-directory`, `git-worktree-remove`, `terminate-process` or `declared-teardown` |
+| `path` | Directory and worktree: the resolved real path. A worktree also records `branch` |
+| `pid`, `started_at`, `command` | Process: the pid with its start time and command line read from `ps` |
+| `identifier`, `teardown` | Database, account, simulator: the identifier and the name of a declared teardown |
+| `created_by`, `created_at`, `label` | Who registered it, when, and an optional note |
+| `status`, `removed_at`, `last_close` | `registered`, `removed` or `gone`, and the last close outcome with bytes freed |
+
+The ledger never stores a shell command. Register each resource when you create it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" resource-add --session <session.json> \
+  --kind <kind> --created-by <phase-or-agent> \
+  (--path <dir> | --pid <n> | --identifier <id> --teardown <name>) [--label <text>]
+```
+
+`dev-session scratch` registers its own directory. `dev-session resources` lists the ledger.
+
+**Removal rules.** `dev-session close --session <session.json> [--dry-run]` removes every registered entry and reports bytes freed and what it kept. It runs on any status and follows `completion.json` to an archived run. It is safe to rerun.
+
+- A directory is removed only when its real path lies inside the OS temporary directory or `/tmp`. It must not be a symlink, the filesystem root, home or a parent of home, the repository root or a parent of it, inside any worktree of the repository, a shared cache, the session evidence folder or `.pm`, or the directory the command runs from. These checks run at registration and again at removal. Symlinks inside the tree are unlinked, never followed.
+- A worktree must be a linked worktree under `.worktrees/` or a temporary root. Close keeps it and reports why when it has uncommitted or untracked changes, commits not on any remote or other branch, a lock, or files under `.pm`. Removal uses `git worktree remove` without `--force`. No branch is ever deleted.
+- A process receives SIGTERM, then SIGKILL after the grace period, only while its start time and command line still match. Otherwise it is marked `gone`. Process groups, pid 1, and the calling process and its parent are never signalled.
+- Databases, accounts and simulators are removed only by a teardown the project declares in `.pm/config.json` or `pm.config.json`. Without one, close reports `no declared teardown` and leaves the entry:
+
+  ```json
+  { "dev": { "teardown": { "drop-test-db": { "kind": "database", "command": ["bin/drop-test-db", "{id}"], "timeout_ms": 120000 } } } }
+  ```
+
+  The declaration is read only from the repository's main worktree, never from the session's worktree or any other checkout, because a branch can commit a declaration or replace the script one names. The command runs without a shell from the main worktree. `{id}` becomes the identifier, which is also passed as `PM_RESOURCE_ID` with `PM_RESOURCE_KIND`. A teardown declared in the main worktree, including one in a tracked `pm.config.json`, is a repository-declared command: it runs with the same trust as the project's own test suite, per `${CLAUDE_PLUGIN_ROOT}/references/trust-model.md`.
+- Close never removes anything that another active session depends on: its worktree, its session folder, or its registered resources, including a database, account or simulator with the same kind and identifier. A failure on one entry never stops the others.
+
+**Orphan sweep.** `dev-session sweep (--session <path> | --source-dir <dir>) [--remove]` reads every Dev session in the repository's registered worktrees, active and archived. A session is finished when it is complete or parked by the Design Director. It is abandoned when it is active or blocked, holds no live lock and has been idle for 72 hours. Everything else counts as active, including handed-off sessions however long they have been idle (the headless loop worker still runs `merge-check` against them), sessions with any other status and unreadable sessions. The sweep reports registered resources of finished and abandoned sessions that still exist, lists active sessions' entries as skipped, and never touches the current session. It removes them only with `--remove`, under each session's lock and the close rules. A session file that Git tracks (one `git ls-files` per worktree, including a tracked symlink on its path) came from a branch, not a local run: discovery ignores it and the sweep lists it under `ignored`. When Git cannot tell, the session counts as unreadable, so active.
+
+**Completion clean-up.** Before archiving, completion removes the generated folders that `dev-session storage` reports: `node_modules`, Xcode DerivedData outputs and PostgreSQL clusters. It keeps a folder that holds a path the session, result, `gates.json` or `runtime.json` references, and a cluster whose server is still running, and blocks on those as before. Removed folders are listed as `storage_cleanup` in the record output and as `cleaned_generated` in `completion.json`.
+
+### Follow-up ledger
+
+`session.json` may carry an optional top-level `follow_ups` object. A session without one is valid and behaves as before. It is written only after an observed merge of a Design Director run: the ship evidence holds a delivery receipt with `state: MERGED` and a merge commit, and no `design-director-parked` blocker exists.
+
+`dev-session follow-ups --session <session.json> [--json]` reads every `design-critique/director/{run}/review-{N}/report.json` in the session folder. It lists each system note that was not fixed and each finding whose latest status is `filed`, as one item per issue: `key`, `class`, `dimension`, `scope`, `scope_basis`, `scope_check`, `location`, `observation`, `change`, `first_seen_round`, `report` (absolute path of the latest source) and `sources` (`report`, `run`, `review`, `finding_id`). It also returns `fileable`, `reason`, `merge_sha`, `reports`, `skipped` and state `counts`. With no director report it returns an empty list and writes nothing. Before a merge, items show state `held` and nothing is written. After a merge, new items are added to the ledger as `pending` and existing entries keep their state. It follows `completion.json` to an archived run.
+
+| Field | Meaning |
+|---|---|
+| `schema_version`, `merge_sha` | `1`, and the merge commit that made the items fileable |
+| `items[].key` | `fu_` plus 16 hex characters, from the normalized wanted change for a system note, and from class, dimension, location and wanted change otherwise |
+| `class`, `dimension`, `scope`, `change` | From the finding. `scope` is `system` or `local` and may be corrected when recording |
+| `source` | Latest report path relative to the session folder |
+| `state` | `pending`, `filed`, `merged` or `declined` |
+| `tracker`, `ref`, `action` | Filed items only: `linear` with an identifier such as `CLE-123`, or `backlog` with `backlog/{slug}.md`, and `created` or `occurrence-added` |
+| `into`, `updated_at` | Merged items only: the key they were merged into. The time of the last change |
+
+Record each outcome with `dev-session follow-up-record --session <session.json> --key <key> --state <state> [--tracker --ref --action] [--into <key>] [--scope system|local]`. It refuses before a merge. A filed item is final: recording the same filing again changes nothing, and any other change is refused, so a rerun never files twice.
+
+## Standing merge authorization
+
+`session.json` takes an optional `merge_authorization`, written by `route` from the approved proposal's approval audit: `schema_version: 1`, `proposal` (`path`, `proposal_id`, `slug`, `revision`, `content_sha256`, `decision_id`, equal to `task.proposal` on a direct route), `record` (the audit's `merge_authorization`: `status` `granted` or `declined`, `basis` `default`, `user-declined` or `project-merge-manual`, `groom_run_id`, `proposal_id`, `revision`, `content_sha256`, `approved_by`, `approved_at`, `record_sha256`), `revoked` (null or `{revoked_at, reason}`, plus `cleared_authority: ["merge"]` when the revocation withdrew a merge authority the standing authorization had granted) and `decisions` (at most 50 `{decided_at, commit, decision, reasons, evidence}`). Sessions without it are valid and never merge automatically.
+
+- `dev-session merge-authorization --session <path> [--apply] [--json]` exits 0 when the authorization applies and 3 when it does not, with reason codes. The project setting is read from the PM directory that holds `backlog/proposals/`; when the proposal path names none, the setting is `manual` with a `reason`, and the result is `project-merge-manual`. `--apply` records `push_feature_branch,create_pr`.
+- `dev-session merge-authorization-revoke --session <path> --reason <text>` records a revocation once. When every merge grant in `authority_log` came from the standing authorization, it also sets `authority.merge` to false and lists it in `revoked.cleared_authority`; a merge grant the user gave themselves is kept. `dev-gate-check --require-authority merge` fails for a standing-only grant once `revoked` is set, even if a `merge` decision was recorded before the revocation. The revocation also outlives the session: it is appended to `{pm_dir}/backlog/proposals/{slug}.merge-revocation.json`, beside the approval audit and written with mode `0600`, as `{schema_version: 1, kind: "standing-merge-authorization-revocations", revocations: [{proposal_id, revision, content_sha256, decision_id, record_sha256, revoked_at, reason, revoked_in_run}]}`. `route` starts a later session from the same approval with `revoked` set, and `merge-authorization` and `merge-check` treat a matching record as revoked. A record matches only the same `proposal_id`, `revision`, `content_sha256` and `decision_id`, so a new approved revision is not revoked by an old record. A record that cannot be read or is malformed revokes. The output names the record in `revocation_record`; exit 8 means the session is revoked but the record could not be written.
+- `dev-session merge-check --session <path> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]` decides. Exit 0 `merge`, 1 `refuse`, 3 `manual` (no authorization applies), 2 bad input, 8 the decision could not be recorded (nothing granted; blocked, not manual). `--record` appends the decision and, only for `merge`, grants `merge` with a reason starting `standing-merge-authorization:`. `merge-check` reads the PR and CI state from GitHub itself with read-only `gh api` calls: `repos/{owner}/{repo}` (default branch), `repos/{owner}/{repo}/pulls/{n}` (state, draft, base, head, mergeable), `repos/{owner}/{repo}/branches/{base}` (branch protection's required status checks and their enforcement level), and `repos/{owner}/{repo}/commits/{head}/check-runs?per_page=100` and `.../status?per_page=100` (check runs and commit statuses at the head). The repository comes from `ship/delivery-contract.json` and must equal the `OWNER/REPO` of the session's `source.delivery_remote` push URL; otherwise it refuses with `delivery-remote-mismatch` (or `delivery-remote-unknown` when that remote has no single GitHub push URL) before reading GitHub. The PR number comes from the verified Create PR receipt in `ship/release-transaction.json`. Each `gh api` call is retried on a transient server error or timeout before it refuses. GitHub is read only when the authorization applies. Each decision records `evidence.observation_source`: `github`, or `file` when `--observation <pr-ci.json>` replaced the read for diagnosis. A decision from an observation file always refuses with `observation-not-from-github` and never grants merge. The merge effect still binds the head: Ship merges with `gh pr merge --squash --match-head-commit <checked commit>` and no `--admin` or `--auto`, so GitHub refuses a moved head and branch protection enforces the required checks. `merge-check` refuses unless the base branch's required checks are enforced for everyone, administrators included. A decision on an invalid `--commit` (short, uppercase or not a commit) is recorded with `commit: null`, the raw value cut to 200 characters in `evidence.requested_commit`, and its reasons. Trust: `merge-check` catches omission, stale or wrong state and mistakes; it does not defend against forged local state, and reads GitHub to catch stale state rather than forgery. Branch protection and `--match-head-commit` guard the merge itself. See `${CLAUDE_PLUGIN_ROOT}/references/trust-model.md`.
+
+Refusal codes: `commit-invalid`, `authorization-invalid`, `authorization-proposal-mismatch`, `authorization-approval-mismatch`, `session-parked`, `mechanically-blocked`, `open-blocker`, `session-blocked`, `session-not-at-ship`, `gates-missing`, `gates-session-mismatch`, `gate-missing`, `gate-not-passed`, `gate-stale`, `gate-check-failed`, `design-director-not-approved`, `design-director-mechanical-failed`, `observation-missing`, `observation-stale`, `observation-not-from-github`, `observation-not-read` (GitHub was not read because no authorization applies; only alongside a manual code), `pr-unknown` (no repository or verified PR number), `delivery-remote-unknown`, `delivery-remote-mismatch`, `gh-unavailable`, `gh-unauthenticated`, `gh-rate-limited`, `github-read-failed`, `required-checks-not-enforced` (base branch unprotected, no required status checks, or enforcement off), `required-checks-admins-exempt`, `pr-not-open`, `pr-draft`, `pr-base-not-default`, `pr-not-mergeable` (GitHub's mergeable state is not `clean`, `has_hooks` or `unstable`), `pr-head-moved`, `pr-repository-mismatch` (including a PR from another branch or a fork), `delivery-contract-missing`, `release-transaction-missing`, `prepared-commit-mismatch`, `ci-not-green`. Manual codes: `no-approved-proposal`, `no-standing-authorization`, `authorization-declined`, `authorization-revoked`, `authorization-revocation-unreadable`, `project-merge-manual`, `ship-auto-merge-off` (`preferences.ship.auto_merge` is `false` in the PM config, or that config cannot be read).
 
 ## Legacy Markdown Compatibility
 

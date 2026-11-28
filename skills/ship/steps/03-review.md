@@ -78,6 +78,8 @@ Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRe
 
 Persist that exact name as `source.delivery_remote` in canonical `session.json`, update `updated_at`, and validate the session with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" validate --session ".pm/dev-sessions/{slug}/session.json" --json`. Every later Ship step must read this value; never re-resolve or silently fall back after Review binds the destination.
 
+When the session carries a standing merge authorization from an approved groomed proposal, run `dev-session merge-authorization --session ... --apply --json` first. Exit 0 records push and PR authority and means the merge is decided later by `merge-check`; do not ask. Exit 3 means it does not apply; continue below.
+
 For standalone Ship, persist action-specific user authority through `dev-session authorize` before any external action. `push_feature_branch`, `create_pr`, and `merge` are independent grants; record only what the user requested. A saved `preferences.ship.auto_merge` value cannot grant merge. If the request did not make the delivery boundary clear, ask once now and do not advance to Push until the answer is recorded in `authority_log` and copied into the delivery contract.
 
 After authority is settled, resolve the remote's sole push URL, normalize its exact GitHub `OWNER/REPO`, and persist its SHA-256, current head/default-base identity, and canonical authority snapshot in `.pm/dev-sessions/{slug}/ship/delivery-contract.json` exactly as specified by `delivery-contract.md`. Multiple push URLs, a non-GitHub destination, or an unparseable owner/repo blocks Ship.

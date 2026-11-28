@@ -32,8 +32,9 @@ Do not include future phase instructions. The root owns phase transitions and an
 - State each instruction once.
 - Keep workflow instruction under 1,200 words, excluding task artifacts.
 - Reject missing outcomes, ACs, rules, evidence, stop conditions, authority, or result schema instead of inserting placeholders.
-- Preserve UI-impact classification, design requirements, complete prototype identity, critical states, and applicable experience/visual invariants byte-for-byte from a supplied `design_context`; workers may not silently reinterpret or selectively copy it.
+- Preserve UI-impact classification, design requirements, complete prototype identity, critical states, applicable experience/visual invariants and any declared surfaces byte-for-byte from a supplied `design_context`; workers may not silently reinterpret or selectively copy it.
 - For visible UI implementation, include relevant repository design-guidance paths and a strong comparable screen in Inputs, or explicitly explain their absence. Use `product-ui-judgment.md`'s implementation method to make task hierarchy, disclosure, metadata and action grouping concrete. The first visible slice is inspected as a whole page inside existing implementation acceptance, not certified by this packet or a new review round.
+- For product UI the Design Director will review, include the rubric and build brief paths in Inputs, as `design-director-build.md` describes. On the capture review path, say so in Inputs instead.
 - Record UTF-8 bytes and whitespace-delimited words for comparison across models.
 
 ## Done-when

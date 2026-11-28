@@ -104,6 +104,8 @@ Read `product-ui-judgment.md`, including **Apply during implementation**, before
 
 Inspect the first hierarchy/interaction-changing slice in the whole rendered page or drawer, with realistic saved/filled content and consequential growth, before accepting it. Compare the relevant before/after context and retain the observation in existing implementation evidence. This is early implementation feedback; it neither adds a gate/review round nor replaces final critique/QA. An incremental established pattern does not need a full alternative prototype. Missing rendering capability remains an explicit gap; continue safe source/test work without claiming visual acceptance.
 
+When the Design Director will review the change, also follow `design-director-build.md` (in this directory): the build brief before UI code, the self-check after each slice, and the handoff note.
+
 ### Component Pattern Scan (UI tasks only)
 
 Before creating any new UI component (drawer, modal, dialog, sheet, card, panel, dropdown, popover, form layout, list/table), scan the codebase for existing instances of the same pattern:

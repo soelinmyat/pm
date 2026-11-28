@@ -23,7 +23,7 @@ Extract evidence-supported durable learnings from the completed dev session, wri
 
 ## How
 
-Before the terminal record, inspect the run with `dev-session storage --session <session.json>`. Move disposable runtime outputs out of the session and preserve artifacts referenced by checks. Completion reports misplaced generated folders and requests a review for large archives. For necessary large evidence, pass `--retain-large-evidence "<reason>"` on the terminal record. Retry the same result after resolving storage issues.
+Before the terminal record, inspect the run with `dev-session storage --session <session.json>`. Completion removes misplaced `node_modules`, Xcode DerivedData outputs and stopped database clusters from the session and lists them as `storage_cleanup`. It keeps and blocks on a generated folder that holds referenced evidence or a running database; move that evidence out, or stop the server, and retry. Completion requests a review for large archives. For necessary large evidence, pass `--retain-large-evidence "<reason>"` on the terminal record. Retry the same result after resolving storage issues. After the terminal record, run `dev-session close --session <session.json> --json` again; it follows `completion.json` to the archived run.
 
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
@@ -61,7 +61,7 @@ A CI run count, review iteration count, or repeated capture is **not evidence of
 
 ### Step 2: No defect events — still inspect product learning
 
-A clean session can validate a product assumption or expose a domain constraint. Inspect the product-learning candidates in **Step 5d** even with no defects/rework. If there are neither supported memory lessons nor durable product findings, record no learnings and proceed to **Step 7** silently. Do not fabricate a lesson to fill an artifact.
+A clean session can validate a product assumption or expose a domain constraint. Inspect the product-learning candidates in **Step 5d** even with no defects/rework. If there are neither supported memory lessons nor durable product findings, record no learnings and proceed to **Step 6c** silently. Do not fabricate a lesson to fill an artifact.
 
 ---
 
@@ -192,6 +192,31 @@ If validation fails, fix the entries and re-validate before proceeding.
 
 ---
 
+### Step 6c: File follow-up items (Design Director path)
+
+Skip this step silently when the session has no Design Director report.
+
+1. **Collect.** Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js follow-ups --session <session.json> --json`. It reads every director report in this session and lists the system notes and the findings marked `filed`, with key, class, dimension, scope, location, wanted change and source report. Work from this list. Do not re-type findings from memory.
+2. **Not merged.** When `fileable` is false (`not merged`, `parked`, or a headless run's open PR), file nothing. List the items in the retro summary as held in their reports and go to Step 7.
+3. **Merge duplicates.** The command already merges reviews of the same finding and identical wording across runs. When two items are the same system-level issue in different words, keep one and record the other with `--state merged --into <key>`.
+4. **Classify.** `scope: system` means the fix edits a shared component, a token or a screen outside `design_context.surfaces`. `scope: local` is a leftover of this change. When an item carries `scope_check`, or its wanted change edits a shared component or token, decide and pass `--scope system` or `--scope local` when you record it.
+5. **Search first.** For each pending item, look for an existing open item about the same component, token or screen. Linear: `list_issues` with those words, open states only. Native: `{pm_dir}/backlog/*.md` without `status: done`, including the `Follow-up key:` line of earlier filings.
+6. **File.**
+   - **Linear project** (`integrations.linear.enabled: true` in `{pm_state_dir}/config.json`): follow `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md`. Ask one batched question that lists every pending item with its scope and the planned action: add an occurrence comment to a named open issue, or create a new issue in the configured team and project. Create or comment on nothing before the answer. File what the user approves, record what they decline as `declined`, and leave every item `pending` when there is no answer or the Linear tools are unavailable.
+   - **Native knowledge-base project**: file directly, with no question. Create new items through the `pm:task` capture path in `${CLAUDE_PLUGIN_ROOT}/references/capture.md`: `capture-backlog.js`, `kind: task`, labels `design-follow-up` plus `system` or `local`, and a body with the location, observation, wanted change, source report and `Follow-up key: {key}`. Add an occurrence to an existing open task or bug with the hash-guarded `enrich` action, using the SHA-256 of the file's current bytes. Never edit a backlog file directly. When the match is another kind of item, create a new task that cites it.
+7. **Record each outcome** as it happens: `dev-session.js follow-up-record --session <session.json> --key <key> --state filed --tracker linear|backlog --ref <CLE-123 | backlog/{slug}.md> --action created|occurrence-added`. Use `--state declined` or `--state merged --into <key>` for the others. A filed item is final, so a rerun skips it.
+8. **Report.** List in the retro summary what was filed, with each reference, what was merged or declined, and what is still pending. Pending items stay in the session; `follow-ups` still lists them after completion.
+
+### Step 6d: State how the merge was decided
+
+Read `session.json` `merge_authorization.decisions`. When the last decision is `merge`, open the retro summary with:
+
+> Merged automatically, with no human review of the merge, under the standing authorization {approved_by} gave at {approved_at} when approving {proposal_id} revision {revision}. merge-check passed at {commit}: CI {ci.status} ({check names}), gates {name: status at commit, each}, Design Director {verdict} ({report path}) with mechanical checks {pass|fail}.
+
+Take each value from that decision's `evidence`. When the last decision is `refuse`, say the work was not merged, list every reason code and message, and name the open PR. When there is no decision, say nothing about it.
+
+---
+
 ### Step 7: Record the retro result
 
 Write the strict retro phase-result envelope and record it with `scripts/dev-session.js record`. The runner sets `status: complete`, updates `updated_at`, and appends the result hash. Preserve `session.json` as the durable audit/resume record; do not delete it.
@@ -216,7 +241,7 @@ The state file is the **single source of truth** for session state — full sche
 
 ## Done-when
 
-Learnings and any required writeback validate, the retro result is recorded, and canonical state reports `status: complete`.
+Learnings and any required writeback validate, follow-up items from a merged director run are filed or recorded as pending, the retro result is recorded, and canonical state reports `status: complete`.
 
 Offer the user the delivered summary and any clearly scoped follow-up work.
 

@@ -23,6 +23,14 @@ const {
   validateWorkUnits,
 } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
+const { validateResources } = require("./dev-session-resources");
+const { validateFollowUps } = require("./design-director-follow-ups");
+const {
+  applyRevocationRecord,
+  buildSessionLedger,
+  readMergeRevocations,
+  validateSessionMergeAuthorization,
+} = require("./merge-authorization");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
   appendTransition,
@@ -137,6 +145,12 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "history",
   "migration",
 ]);
+const SESSION_FIELDS_WITH_OPTIONAL = new Set([
+  ...SESSION_TOP_LEVEL_FIELDS,
+  "resources",
+  "follow_ups",
+  "merge_authorization",
+]);
 
 function resolvePhaseContract(session, options = {}) {
   const pluginRoot = path.resolve(options.pluginRoot || path.join(__dirname, "..", ".."));
@@ -192,8 +206,14 @@ function requireField(value, field, objectPath, errors) {
 function validateSession(session) {
   const errors = [];
   if (!isObject(session)) return [issue("$", "session must be an object")];
-  validateExactFields(session, SESSION_TOP_LEVEL_FIELDS, "$", errors);
+  validateExactFields(session, SESSION_FIELDS_WITH_OPTIONAL, "$", errors);
   for (const field of SESSION_TOP_LEVEL_FIELDS) requireField(session, field, "$", errors);
+  // The resource ledger is optional: sessions without one stay valid.
+  validateResources(session.resources, errors);
+  // So is the follow-up ledger, written only after a merged director run.
+  validateFollowUps(session.follow_ups, errors);
+  // So is the standing merge authorization carried from the grooming approval.
+  validateSessionMergeAuthorization(session, errors, issue);
   if (session.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
     errors.push(issue("$.schema_version", `must equal ${DEV_SESSION_SCHEMA_VERSION}`));
   }
@@ -1408,7 +1428,7 @@ function validateResult(session, result, options = {}) {
     Object.hasOwn(RECOVERY_THRESHOLDS, session.phase) &&
     new Set(["passed", "failed", "blocked"]).has(result.status)
   )
-    scopedEvidence = validateScopedGateEvidence(session, result, errors);
+    scopedEvidence = validateScopedGateEvidence(session, result, errors, options.scopedMemo);
 
   if (result.commit)
     validateCommit(
@@ -1427,7 +1447,9 @@ function validateResult(session, result, options = {}) {
 // stored fields are closed, so the checker's verdict travels beside it.
 const PARKED_DIRECTOR_ANCHORS = new WeakSet();
 
-function validateScopedGateEvidence(session, result, errors) {
+// `memo`, when given, carries the mechanical-check result from one check of a
+// record to its re-check, so one record runs them once.
+function validateScopedGateEvidence(session, result, errors, memo = null) {
   const phase = session.phase;
   const history = session.evidence[phase]?.recovery_history || [];
   const records = (result.evidence || []).filter(
@@ -1543,6 +1565,28 @@ function validateScopedGateEvidence(session, result, errors) {
       );
     const commit = phase === "review" ? report.source?.commit : report.commit;
     if (commit !== result.commit) throw new Error("report source must equal result commit");
+    // An approval passes only while the director path's mechanical checks
+    // pass at the reviewed commit. They enforce only for declared surfaces.
+    const mechanicalChecks = require("./design-director-mechanical");
+    if (
+      phase !== "review" &&
+      result.status === "passed" &&
+      require("./design-director-report").isDirectorReportPath(relative) &&
+      mechanicalChecks.sessionSurfaces(session).length > 0
+    ) {
+      const memoKey = JSON.stringify([root, session.run_id, result.commit]);
+      const mechanical =
+        memo?.mechanical?.get(memoKey) ||
+        mechanicalChecks.runMechanicalChecks({ root, session, commit: result.commit });
+      if (memo) (memo.mechanical ||= new Map()).set(memoKey, mechanical);
+      if (!mechanical.ok)
+        throw new Error(
+          `mechanical checks fail: ${mechanical.issues
+            .slice(0, 5)
+            .map((item) => `${item.check}: ${item.message}`)
+            .join("; ")}`
+        );
+    }
     if (report.outcome !== result.status && !failedVerification)
       throw new Error(`report outcome ${report.outcome} contradicts ${result.status}`);
     if (required && policy !== RECOVERY_POLICY)
@@ -2378,6 +2422,62 @@ function createSession(options) {
   return session;
 }
 
+// The standing merge authorization travels with the approved proposal. A
+// direct proposal route carries it from the proposal's approval audit. An RFC
+// route names the approved proposal it was derived from in
+// `merge_authorization_proposal_path`; the proposal must share the RFC's slug
+// and exact design context. Anything else carries no authorization.
+function standingMergeLedger({
+  proposalIdentity,
+  proposalApproval,
+  facts,
+  rfcSidecar,
+  designContext,
+  previewSourceRoot,
+}) {
+  if (proposalIdentity) {
+    if (facts.merge_authorization_proposal_path !== undefined)
+      throw new Error("merge_authorization_proposal_path applies only to an RFC route");
+    if (!proposalApproval?.merge_authorization) return null;
+    return withDurableRevocation(
+      buildSessionLedger(proposalApproval.merge_authorization, proposalIdentity)
+    );
+  }
+  const named = facts.merge_authorization_proposal_path;
+  if (named === undefined || named === null) return null;
+  if (!rfcSidecar)
+    throw new Error("merge_authorization_proposal_path needs an approved RFC sidecar route");
+  if (typeof named !== "string" || !path.isAbsolute(named))
+    throw new Error("merge_authorization_proposal_path must be an absolute path");
+  const proposalPath = fs.realpathSync(named);
+  const canonical = readApprovedProposal(proposalPath, {
+    projectRoot: fs.realpathSync(findGitRoot(path.dirname(proposalPath))),
+    previewSourceRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
+  if (canonical.contract.slug !== rfcSidecar.slug)
+    throw new Error("the merge authorization proposal must share the RFC's slug");
+  if (canonicalJson(canonical.contract.design_context ?? null) !== canonicalJson(designContext))
+    throw new Error("the merge authorization proposal's design context differs from the RFC's");
+  if (!canonical.approval.merge_authorization) return null;
+  const ledger = buildSessionLedger(canonical.approval.merge_authorization, {
+    path: proposalPath,
+    proposal_id: canonical.contract.proposal_id,
+    slug: canonical.contract.slug,
+    revision: canonical.contract.revision,
+    content_sha256: canonical.contract.content_sha256,
+    decision_id: canonical.approval.decision_id,
+  });
+  return withDurableRevocation(ledger);
+}
+
+// A revocation recorded against this exact approval in an earlier session
+// carries into the new session's ledger.
+function withDurableRevocation(ledger) {
+  return applyRevocationRecord(ledger, readMergeRevocations(ledger.proposal.path));
+}
+
 function applyRouting(session, facts, options = {}) {
   assertValidSession(session);
   if (session.status !== "active" || session.phase !== "intake") {
@@ -2391,6 +2491,7 @@ function applyRouting(session, facts, options = {}) {
     throw new Error("preview_source_root must be an explicitly selected absolute worktree path");
   let effectiveFacts = facts;
   let proposalIdentity = null;
+  let proposalApproval = null;
   let proposalDesignContext = null;
   if (typeof facts.proposal_path === "string" && facts.proposal_path.trim()) {
     const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
@@ -2432,6 +2533,7 @@ function applyRouting(session, facts, options = {}) {
       acceptance_criteria: contractCriteria,
       design_context: proposalDesignContext,
     };
+    proposalApproval = canonical.approval;
     proposalIdentity = {
       path: proposalPath,
       kind: canonical.kind,
@@ -2495,6 +2597,16 @@ function applyRouting(session, facts, options = {}) {
     next.task.preview_source_root = fs.realpathSync(previewSourceRoot);
   else delete next.task.preview_source_root;
   next.task.proposal = proposalIdentity;
+  const mergeLedger = standingMergeLedger({
+    proposalIdentity,
+    proposalApproval,
+    facts,
+    rfcSidecar: options.rfcSidecar,
+    designContext: effectiveDesignContext,
+    previewSourceRoot,
+  });
+  if (mergeLedger) next.merge_authorization = mergeLedger;
+  else delete next.merge_authorization;
   next.task.design_context = effectiveDesignContext
     ? structuredClone(effectiveDesignContext)
     : null;
@@ -3585,7 +3697,8 @@ function promptMetadata(session, sessionPath) {
 
 function recordResult(session, result, options = {}) {
   assertValidSession(session);
-  const errors = validateResult(session, result, options);
+  const scopedMemo = {};
+  const errors = validateResult(session, result, { ...options, scopedMemo });
   if (errors.length > 0) throw validationError("result is invalid", errors);
   const next = structuredClone(session);
   const timestamp = options.now || new Date().toISOString();
@@ -3633,7 +3746,7 @@ function recordResult(session, result, options = {}) {
       };
     }
     const recoveryErrors = [];
-    const anchor = validateScopedGateEvidence(session, result, recoveryErrors);
+    const anchor = validateScopedGateEvidence(session, result, recoveryErrors, scopedMemo);
     if (recoveryErrors.length)
       throw validationError(
         "scoped gate evidence changed before it could be recorded",

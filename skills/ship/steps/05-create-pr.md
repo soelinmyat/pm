@@ -216,7 +216,9 @@ operation.
 
 ## Check Auto-Merge Setting
 
-First read canonical `authority.merge`. If it is false, Ship may monitor CI but must stop at a green PR; do not ask about or arm auto-merge. A prior `preferences.ship.auto_merge: true` does not override this boundary.
+First run `dev-session merge-authorization --session ... --json`. Exit 0 means a standing merge authorization from the grooming approval applies: do not ask about auto-merge and do not arm it. Continue to CI monitoring and Phase 2, where `merge-check` decides. An explicit `preferences.ship.auto_merge: false` still stops at the green PR: it is a personal preference that overrides the standing authorization for this user. `merge-check` reads it from the PM config and answers exit 3 with `ship-auto-merge-off`, so a resumed Ship or a loop wake stops there too. Say so when you stop, so the user knows why the approved work did not merge.
+
+Otherwise read canonical `authority.merge`. If it is false, Ship may monitor CI but must stop at a green PR; do not ask about or arm auto-merge. A prior `preferences.ship.auto_merge: true` does not override this boundary.
 
 Only when `authority.merge` and the delivery-contract snapshot are both true, read `{pm_state_dir}/config.json` and check `preferences.ship.auto_merge`.
 

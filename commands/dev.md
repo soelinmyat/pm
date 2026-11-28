@@ -28,3 +28,7 @@ under the [execution contract](../skills/dev/references/verification-execution.m
 Final repository checks and independent CI still execute.
 
 Keep build products and disposable services in a private run scratch directory. Inspect storage before completion and preserve the reports and files used as evidence.
+Register what the run creates with `dev-session resource-add`, run `dev-session sweep` at session start, and run `dev-session close` on every outcome.
+Work routed from an approved groomed proposal merges without another confirmation when `dev-session merge-check` passes at the PR head, unless the approver declined it or the project's PM instructions say `Merge: manual`; a refusal leaves the PR open with the reasons. Other work asks before merging.
+
+After a merged Design Director run, Retro files its follow-up items with `dev-session follow-ups` and `follow-up-record`; Linear issues are created only after one batched confirmation.

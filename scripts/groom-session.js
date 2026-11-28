@@ -23,6 +23,7 @@ const { resolveGroomProfile } = require("./lib/groom-runtime-profile");
 const { writeJsonAtomic } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { recordSessionTelemetry } = require("./lib/telemetry");
+const { pmDirForProposal, readProjectMergeSetting } = require("./lib/merge-authorization");
 
 const EXIT = { OK: 0, INVALID: 2, PRECONDITION: 3, VALIDATION: 4, BLOCKED: 5 };
 
@@ -156,14 +157,58 @@ function approveCommand(options) {
   requireOptions(options, ["session", "approvedBy"]);
   if (process.env.PM_LOOP_WORKER === "1")
     throw cliError("loop workers cannot approve Groom proposals", EXIT.PRECONDITION);
-  return mutateSession(options, (session) =>
-    approveSession(session, {
-      approvedBy: options.approvedBy,
-      ...(options.delegateContentSha256 !== undefined
-        ? { delegateContentSha256: options.delegateContentSha256 }
-        : {}),
-    })
+  if (options.merge !== undefined && !["auto", "manual"].includes(options.merge))
+    throw cliError("--merge must be auto or manual", EXIT.INVALID);
+  return mutateSession(
+    options,
+    (session) =>
+      approveSession(session, {
+        approvedBy: options.approvedBy,
+        ...(options.delegateContentSha256 !== undefined
+          ? { delegateContentSha256: options.delegateContentSha256 }
+          : {}),
+        mergeAuthorization: mergeChoice(session, options.merge),
+      }),
+    { extra: (next) => ({ merge_authorization_notice: mergeNotice(next) }) }
   );
+}
+
+// Standing merge authorization is on by default. `--merge manual` declines it
+// for this proposal; `Merge: manual` in the project's PM instructions turns it
+// off for every proposal, and so does a proposal outside
+// {pm_dir}/backlog/proposals, whose instructions cannot be found. Legacy
+// proposals without a bound review session get no record and keep today's
+// merge confirmation.
+function mergeChoice(session, flag) {
+  // Only a proposal bound to this Groom review session can carry a record.
+  let reviewBound = false;
+  try {
+    const proposal = JSON.parse(fs.readFileSync(session.proposal.json_path));
+    reviewBound = proposal.review_contract?.session_id === session.run_id;
+  } catch {
+    reviewBound = false;
+  }
+  if (!reviewBound) return undefined;
+  const explicit = flag !== undefined;
+  if (flag === "manual") return { status: "declined", basis: "user-declined", explicit };
+  const setting = readProjectMergeSetting(pmDirForProposal(session.proposal?.json_path));
+  if (setting.mode === "manual")
+    return { status: "declined", basis: "project-merge-manual", explicit };
+  return { status: "granted", basis: "default", explicit };
+}
+
+function mergeNotice(session) {
+  const record = session.approval?.merge_authorization;
+  if (!record)
+    return "No standing merge authorization was recorded. Merging this work needs a separate confirmation.";
+  if (record.status === "granted")
+    return "This approval also authorizes merging the finished work to the remote default branch without another review, but only when every gate, CI and the merge check pass at the merge commit. Anything that fails stays an open PR. Revoke it any time with dev-session merge-authorization-revoke, which holds for this approved revision in every later Dev session, or set Merge: manual in the project's PM instructions.";
+  if (record.basis !== "project-merge-manual")
+    return "Standing merge authorization was declined for this proposal. Ship will ask before merging.";
+  const setting = readProjectMergeSetting(pmDirForProposal(session.proposal?.json_path));
+  if (setting.mode === "manual" && !setting.source)
+    return `Merge: manual is assumed because ${setting.reason}. This approval does not authorize a merge. Ship will ask before merging.`;
+  return "The project's PM instructions say Merge: manual, so this approval does not authorize a merge. Ship will ask before merging.";
 }
 
 function approvalAuditCommand(options) {
@@ -264,6 +309,7 @@ function mutateSession(options, mutation, mutationOptions = {}) {
       session: next,
       idempotent,
       next: next.status === "complete" ? null : nextDecision(next, sessionPath),
+      ...(mutationOptions.extra ? mutationOptions.extra(next) : {}),
     });
     return next.status === "blocked" ? EXIT.BLOCKED : EXIT.OK;
   });
@@ -395,7 +441,9 @@ function emit(options, payload) {
   if (options.json) process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   else
     process.stdout.write(
-      `${payload.session?.run_id || payload.run_id || "Groom session updated"}\n`
+      `${payload.session?.run_id || payload.run_id || "Groom session updated"}\n${
+        payload.merge_authorization_notice ? `${payload.merge_authorization_notice}\n` : ""
+      }`
     );
 }
 function requireOptions(options, names) {

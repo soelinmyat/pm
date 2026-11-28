@@ -36,7 +36,7 @@ test(
         "-e",
         "const http=require('node:http');const s=http.createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(" +
           JSON.stringify(html) +
-          ");});s.listen(0,'127.0.0.1',()=>console.log(s.address().port));",
+          ");});s.listen(0,'127.0.0.1',()=>process.stdout.write(String(s.address().port)));",
       ],
       { stdio: ["ignore", "pipe", "pipe"] }
     );
@@ -121,7 +121,7 @@ async function sparseLoading(t, { blankIndicator = false } = {}) {
     process.execPath,
     [
       "-e",
-      `const http=require('node:http');const s=http.createServer((req,res)=>{if(req.url==='/slow')return;res.setHeader('content-type','text/html');res.end(${JSON.stringify(html)});});s.listen(0,'127.0.0.1',()=>console.log(s.address().port));`,
+      `const http=require('node:http');const s=http.createServer((req,res)=>{if(req.url==='/slow')return;res.setHeader('content-type','text/html');res.end(${JSON.stringify(html)});});s.listen(0,'127.0.0.1',()=>process.stdout.write(String(s.address().port)));`,
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   );

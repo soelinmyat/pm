@@ -2618,6 +2618,12 @@ test("ship-stage prompt runs one bounded cycle; merge only with autonomy dial", 
 
   const withMerge = buildPrompt(plan, { autonomy: { merge_pr: true } });
   assert.match(withMerge, /Merge only when every review gate and CI check is green/);
+  // The loop merges under the same rule as an attended Ship: the standing
+  // authorization from the grooming approval and a passing merge-check.
+  assert.match(withMerge, /dev-session\.js merge-check .*--record/);
+  assert.match(withMerge, /exits 0/);
+  assert.match(withMerge, /otherwise leave the PR open and return ready-for-human/);
+  assert.match(withMerge, /never --admin/);
   assert.match(withMerge, /only canonical durable card-state writer/);
   assert.doesNotMatch(withMerge, /Do NOT merge/);
 });
@@ -2783,4 +2789,34 @@ test("ship-stage dispatch without a recorded branch fails closed", () => {
   } finally {
     fixture.cleanup();
   }
+});
+
+test("ship-stage merge rule parks an unrecorded merge-check and merges only at the checked head", () => {
+  const plan = {
+    selected: {
+      id: "PM-9",
+      title: "T",
+      kind: "task",
+      command: "/pm:ship PM-9",
+      stage: "ship",
+      branch: "loop/pm-9",
+    },
+  };
+  const withMerge = buildPrompt(plan, { autonomy: { merge_pr: true } });
+  // Exit 8 means the decision was not recorded: blocked, never manual or merge.
+  assert.match(withMerge, /exit 8[^.;]*blocked/i);
+  assert.match(withMerge, /any other non-zero exit[^.;]*blocked/i);
+  // GitHub enforces the checked head and branch protection at the merge.
+  assert.match(
+    withMerge,
+    /gh pr merge <PR> --repo <OWNER\/REPO> --squash --match-head-commit <checked commit>/
+  );
+  assert.match(withMerge, /never --auto/);
+  // The merge targets the repository merge-check read, from the delivery remote.
+  assert.match(
+    withMerge,
+    /<OWNER\/REPO> is [^\n]*the repository the session.s delivery remote pushes to/
+  );
+  // A user's auto_merge: false is a manual reason merge-check reports with exit 3.
+  assert.match(withMerge, /exit 3[^.]*preferences\.ship\.auto_merge/);
 });

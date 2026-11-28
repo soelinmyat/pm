@@ -71,7 +71,8 @@ The executable schema lives in `scripts/lib/proposal-schema.js`; this reference 
     },
     "critical_states": ["loading", "empty", "error", "success"],
     "experience_invariants": ["User-observable property technical tradeoffs must preserve"],
-    "visual_invariants": ["Implementation constraint that must survive technical tradeoffs"]
+    "visual_invariants": ["Implementation constraint that must survive technical tradeoffs"],
+    "surfaces": [{ "name": "Screen or component in scope", "paths": ["apps/web/src/orders/**"] }]
   },
   "success_metrics": [],
   "alternatives": [],
@@ -146,6 +147,7 @@ RFC and Dev consume the structured scope, non-goals, requirements, acceptance cr
 - `ui_impact` is explicit. Visual UI work sets it to `true`; nonvisual API, CLI, worker, or operator work sets it to `false` rather than inventing a layout concern.
 - `prototype` is explicitly `null` for nonvisual work or when no prototype was approved. Otherwise its normalized project-relative path and SHA-256 bind the exact entry file. Multi-file prototypes also carry the sorted bounded `manifest` produced by `scripts/prototype-identity.js`, whose `tree_sha256` binds every file under the prototype directory. The checker recomputes the identity whenever it has repository context; a plausible-looking hash is not evidence.
 - `critical_states` names the states implementation and QA must exercise. `experience_invariants` records user-observable behavior technical tradeoffs must preserve. Visual work additionally supplies concrete hierarchy, responsive, accessibility, and interaction properties in `visual_invariants`; nonvisual work uses an empty `visual_invariants` array.
+- With an approved rendered target (a `prototype` or an `app_preview`), the design context is the Design Director's declared lists. `visual_invariants` are the declared decisions: write one entry per decision the target makes that the build must deliver, such as placement, order, grouping or density. Fidelity is scored only against these; every detail left out defers to the production design system. `critical_states` are the declared states the director must examine. `surfaces` lists the screens and components the change may touch, each with the repo-relative path patterns that implement it. `surfaces` is optional in the schema so earlier proposals stay valid, and is only allowed when `ui_impact` is `true`.
 - `implementation_ready` remains false until the required technical approval exists.
 
 ### Evidence and assumptions
@@ -202,3 +204,5 @@ node "${PM_PLUGIN_ROOT}/scripts/proposal-source-snapshot.js" \
 The command checks the exact digest, reads at most 8 MiB without symlinks or traversal, and atomically creates `.pm/proposal-sources/{digest}` without replacing existing content. Identical retries are safe. Historical reads enforce the same per-file limit and shared 32 MiB budget, counting both current and retained reads. Missing or altered snapshots fail validation when current bytes differ. Snapshot paths are derived from hashes, never from caller-controlled lineage paths.
 
 These snapshots are private local runtime evidence, excluded from KB publication. Preserve them with the owning session when moving or archiving a workspace; another machine must recover the exact bytes before it can validate a drifted historical record. Never substitute a new hash, fabricate source content or restore an obsolete strategy to bypass validation.
+
+The sibling `.approval.json` may also carry `merge_authorization`, the standing merge authorization recorded by `groom-session.js approve`. It is `granted` by default, `declined` with `--merge manual` or when the project's PM instructions say `Merge: manual`, and binds the Groom run, proposal ID, revision and content hash, approver and approval time. Its `record_sha256` participates in the decision digest. Dev copies it into `session.json` at routing. It authorizes only a merge that `dev-session merge-check` allows at the merge commit. Approvals without it are valid and keep today's merge confirmation.
