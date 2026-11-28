@@ -383,14 +383,22 @@ function surfacesHtml(surfaces) {
   return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
 }
 
-// Each path is a line of its own. It wraps after a slash; a segment that
-// fits the line stays whole, and only one wider than the line breaks, at the
-// line edge. The browser decides what fits, so no length rule is needed.
+// Each path is a line of its own, built from one box per segment. A segment
+// that fits moves to the next line whole. A segment wider than the line
+// breaks only between its pieces: just after a slash, which ends the previous
+// piece, or just before a hyphen, which starts the next. So no line starts
+// with a slash or ends with a hyphen, and print text keeps every character.
+// Only a single piece wider than the line breaks inside itself.
 function surfacePathHtml(pattern) {
-  const segments = pattern
-    .split("/")
-    .map((segment) => `<span class="surface-path-segment">${h(segment)}</span>`);
-  return `<code class="surface-path">${segments.join("/<wbr>")}</code>`;
+  const parts = pattern.split("/");
+  const segments = parts.map((segment, index) => {
+    const slash = index < parts.length - 1 ? "/" : "";
+    const pieces = segment.split(/(?=-)/);
+    pieces[pieces.length - 1] += slash;
+    const html = pieces.map((piece) => `<span class="surface-path-piece">${h(piece)}</span>`);
+    return `<span class="surface-path-segment">${html.join("")}</span>`;
+  });
+  return `<code class="surface-path">${segments.join("")}</code>`;
 }
 
 function surfacesMarkdown(surfaces) {

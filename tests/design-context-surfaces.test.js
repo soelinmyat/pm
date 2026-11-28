@@ -173,39 +173,63 @@ function renderedPaths(html) {
   );
 }
 
-test("surface paths wrap only after a slash, never inside a segment that fits", () => {
+test("surface paths break only after a slash or before a hyphen, never mid-word", () => {
   const proposal = strongProposal();
-  const long =
-    "apps/web/src/organisation-level-payment-preferences/recurring-invoice-export.module.css";
+  const longSegment =
+    "organisation-level-payment-preferences-recurring-invoice-export-schedule-editor-components";
+  const long = `apps/web/src/${longSegment}/index.ts`;
   proposal.design_context.surfaces = [{ name: "Payment preferences", paths: [long] }];
   const rendered = renderProposal(proposal, { version: "test" });
 
   assert.deepEqual(renderedPaths(rendered.html), [long]);
   const code = rendered.html.match(/<code class="surface-path">([\s\S]*?)<\/code>/)[1];
-  // Every segment is one span, whatever its length; the browser, not a
-  // character count, decides whether it fits.
-  const segments = [...code.matchAll(/<span class="surface-path-segment">([^<]*)<\/span>/g)].map(
+  // One box per segment; inside it, one piece per hyphen part. A slash ends
+  // its segment's last piece, so no line ever starts with a slash, and a
+  // hyphen starts its piece, so no line ever ends with one.
+  const segments = [
+    ...code.matchAll(/<span class="surface-path-segment">([\s\S]*?)<\/span><\/span>/g),
+  ];
+  assert.equal(segments.length, long.split("/").length);
+  const pieces = [...code.matchAll(/<span class="surface-path-piece">([^<]*)<\/span>/g)].map(
     (match) => match[1]
   );
-  assert.deepEqual(segments, long.split("/"));
-  assert.doesNotMatch(code, /surface-path-long/);
-  assert.equal((code.match(/<wbr>/g) || []).length, long.split("/").length - 1);
-  assert.match(code, /^<span class="surface-path-segment">apps<\/span>\/<wbr>/);
-  // A segment that fits moves to the next line as one unit; only a segment
-  // wider than the whole line breaks, at the line edge rather than at its
-  // hyphens, so print text tools cannot drop a line-end hyphen.
+  assert.deepEqual(pieces.slice(0, 3), ["apps/", "web/", "src/"]);
+  assert.equal(pieces.at(-1), "index.ts");
+  assert.equal(pieces.at(-2), "-components/");
+  assert.ok(
+    pieces.every((piece) => !piece.endsWith("-")),
+    "no piece ends with a hyphen"
+  );
+  assert.ok(
+    pieces.slice(1).every((piece) => !piece.startsWith("/")),
+    "no piece starts with a slash"
+  );
+  assert.equal(pieces.join(""), long);
+  // A segment that fits moves to the next line whole; one wider than the line
+  // breaks between its pieces; only a piece wider than the line breaks inside.
   const segmentRule = rendered.html.match(/\.surface-path-segment\s*\{([^}]*)\}/)[1];
   assert.match(segmentRule, /display:\s*inline-block/);
   assert.match(segmentRule, /max-width:\s*100%/);
-  assert.match(segmentRule, /overflow-wrap:\s*anywhere/);
-  assert.match(segmentRule, /word-break:\s*break-all/);
-  assert.doesNotMatch(segmentRule, /white-space:\s*nowrap/);
-  // Each path is its own unshaded line, so a wrapped segment cannot leave an
-  // empty shaded band behind it.
+  const pieceRule = rendered.html.match(/\.surface-path-piece\s*\{([^}]*)\}/)[1];
+  assert.match(pieceRule, /display:\s*inline-block/);
+  assert.match(pieceRule, /max-width:\s*100%/);
+  assert.match(pieceRule, /overflow-wrap:\s*anywhere/);
   const pathRule = rendered.html.match(/code\.surface-path\s*\{([^}]*)\}/)[1];
   assert.match(pathRule, /display:\s*block/);
   assert.match(pathRule, /background:\s*(?:none|transparent)/);
   assert.doesNotMatch(rendered.html, /<\/code>, <code class="surface-path">/);
+});
+
+test("short surface paths render as single pieces per segment", () => {
+  const proposal = strongProposal();
+  proposal.design_context.surfaces = [{ name: "Invoice list", paths: ["apps/web/list/**"] }];
+  const code = renderProposal(proposal, { version: "test" }).html.match(
+    /<code class="surface-path">([\s\S]*?)<\/code>/
+  )[1];
+  const pieces = [...code.matchAll(/<span class="surface-path-piece">([^<]*)<\/span>/g)].map(
+    (match) => match[1]
+  );
+  assert.deepEqual(pieces, ["apps/", "web/", "list/", "**"]);
 });
 
 test("proposals without surfaces render no surfaces section", () => {
