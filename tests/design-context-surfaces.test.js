@@ -196,6 +196,10 @@ test("surface paths wrap only after a slash, never inside a segment", () => {
   assert.match(segmentRule, /max-width:\s*100%/);
   assert.match(segmentRule, /overflow-wrap:\s*anywhere/);
   assert.doesNotMatch(segmentRule, /white-space:\s*nowrap/);
+  // A segment longer than the line breaks at the line edge, between any two
+  // characters, so its break rarely falls on a hyphen that print text tools
+  // would drop when the path is copied.
+  assert.match(segmentRule, /word-break:\s*break-all/);
   assert.match(rendered.html, /code\.surface-path\s*\{[^}]*overflow-wrap:\s*normal/);
 });
 
