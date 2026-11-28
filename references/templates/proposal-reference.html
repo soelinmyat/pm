@@ -354,9 +354,8 @@
     word-break: normal;
   }
   th, td, dd, p, li { overflow-wrap: anywhere; word-break: normal; }
-  code.surface-path { display: block; width: fit-content; max-width: 100%; margin-top: var(--space-1, 0.25em); overflow-wrap: normal; word-break: normal; hyphens: manual; }
-  .surface-path-segment { white-space: nowrap; }
-  .surface-path-long { white-space: normal; word-break: break-all; }
+  code.surface-path { display: block; max-width: 100%; margin-top: var(--space-1, 0.25em); padding: 0; background: none; overflow-wrap: normal; word-break: normal; hyphens: manual; }
+  .surface-path-segment { display: inline-block; max-width: 100%; overflow-wrap: anywhere; word-break: break-all; }
 
   em { font-style: italic; }
   strong { font-weight: 600; }

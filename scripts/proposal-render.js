@@ -383,18 +383,13 @@ function surfacesHtml(surfaces) {
   return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
 }
 
-// A segment longer than this can be wider than a 320px column, which holds
-// about 33 characters of code text; shorter segments always fit.
-const LONG_SURFACE_SEGMENT = 24;
-
-// Each path is a block on its own line. It wraps after a slash, and a
-// segment that fits never splits, so hyphens and file extensions stay whole.
-// Only a segment too long to fit may break inside, at the line edge.
+// Each path is a line of its own. It wraps after a slash; a segment that
+// fits the line stays whole, and only one wider than the line breaks, at the
+// line edge. The browser decides what fits, so no length rule is needed.
 function surfacePathHtml(pattern) {
-  const segments = pattern.split("/").map((segment) => {
-    const long = segment.length > LONG_SURFACE_SEGMENT ? " surface-path-long" : "";
-    return `<span class="surface-path-segment${long}">${h(segment)}</span>`;
-  });
+  const segments = pattern
+    .split("/")
+    .map((segment) => `<span class="surface-path-segment">${h(segment)}</span>`);
   return `<code class="surface-path">${segments.join("/<wbr>")}</code>`;
 }
 
