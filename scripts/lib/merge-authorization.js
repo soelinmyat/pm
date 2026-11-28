@@ -50,7 +50,6 @@ const DECISION_FIELDS = ["decided_at", "commit", "decision", "reasons", "evidenc
 const DECISIONS = ["merge", "refuse", "manual"];
 const MAX_DECISIONS = 50;
 // Every merge grant written from a standing authorization starts with this.
-// dev-gate-check keeps its own copy of the prefix; keep the two equal.
 const GRANT_REASON_PREFIX = "standing-merge-authorization:";
 const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
 const OBSERVATION_MAX_FUTURE_MS = 30 * 1000;
@@ -75,6 +74,7 @@ const MANUAL_REASONS = new Set([
   "no-standing-authorization",
   "authorization-declined",
   "authorization-revoked",
+  "authorization-revocation-unreadable",
   "project-merge-manual",
 ]);
 
@@ -362,7 +362,14 @@ function reason(code, message) {
 }
 
 // Whether a standing authorization applies at all, before any merge condition.
-function authorizationReasons({ session, projectSetting, approval, approvalError }) {
+function authorizationReasons({
+  session,
+  projectSetting,
+  approval,
+  approvalError,
+  revocations,
+  revocationError,
+}) {
   const reasons = [];
   const ledger = session?.merge_authorization;
   if (!isObject(ledger)) {
@@ -403,6 +410,13 @@ function authorizationReasons({ session, projectSetting, approval, approvalError
         `revoked at ${ledger.revoked.revoked_at}: ${ledger.revoked.reason}`
       )
     );
+  else {
+    const durable = durableRevocation(ledger, {
+      value: revocations ?? null,
+      error: revocationError || null,
+    });
+    if (durable) reasons.push(reason(durable.code, durable.message));
+  }
   if (projectSetting?.mode === "manual")
     reasons.push(
       reason(
@@ -570,12 +584,64 @@ function gateReasons({ session, commit, gates, gateCheck, directorCheck, mechani
   return reasons;
 }
 
-function prReasons({ session, commit, observation, deliveryContract, releaseTransaction, now }) {
+// Mergeable states in which GitHub would merge without an override. "unstable"
+// means only checks that are not required are failing.
+const MERGEABLE_STATES = new Set(["clean", "has_hooks", "unstable"]);
+
+function prReasons({
+  session,
+  commit,
+  observation,
+  observationSource,
+  observationError,
+  deliveryContract,
+  releaseTransaction,
+  now,
+}) {
   const reasons = [];
+  if (isObject(observationError) && text(observationError.code)) {
+    reasons.push(
+      reason(observationError.code, observationError.message || "GitHub could not be read")
+    );
+    return { reasons, ci: null };
+  }
   if (!isObject(observation)) {
     reasons.push(reason("observation-missing", "no PR and CI observation was supplied"));
     return { reasons, ci: null };
   }
+  // Only state merge-check read from GitHub itself can allow a merge. An
+  // observation file is accepted for diagnosis and always refuses.
+  if (observationSource !== "github")
+    reasons.push(
+      reason(
+        "observation-not-from-github",
+        "the PR and CI state were not read from GitHub by merge-check; an observation file never allows a merge"
+      )
+    );
+  const protection = isObject(observation.protection) ? observation.protection : {};
+  const requiredList = Array.isArray(observation.checks?.required)
+    ? observation.checks.required
+    : [];
+  if (protection.required_checks_enforcement === "non_admins")
+    reasons.push(
+      reason(
+        "required-checks-admins-exempt",
+        "branch protection exempts administrators from the required status checks"
+      )
+    );
+  else if (
+    protection.protected !== true ||
+    protection.required_checks_enforcement !== "everyone" ||
+    requiredList.length === 0
+  )
+    reasons.push(
+      reason(
+        "required-checks-not-enforced",
+        `the base branch has no enforced required status checks (protected ${
+          protection.protected === true
+        }, enforcement ${protection.required_checks_enforcement || "unknown"}, ${requiredList.length} required)`
+      )
+    );
   const observedAt = Date.parse(observation.observed_at);
   const at = Date.parse(now);
   if (
@@ -603,9 +669,20 @@ function prReasons({ session, commit, observation, deliveryContract, releaseTran
         }`
       )
     );
-  if (observation.mergeable !== "MERGEABLE")
+  if (
+    observation.mergeable !== "MERGEABLE" ||
+    (observation.mergeable_state !== undefined &&
+      !MERGEABLE_STATES.has(observation.mergeable_state))
+  )
     reasons.push(
-      reason("pr-not-mergeable", `GitHub reports mergeable ${observation.mergeable || "unknown"}`)
+      reason(
+        "pr-not-mergeable",
+        `GitHub reports mergeable ${observation.mergeable || "unknown"}${
+          observation.mergeable_state !== undefined
+            ? ` (${observation.mergeable_state || "unknown"})`
+            : ""
+        }`
+      )
     );
   if (observation.head_oid !== commit)
     reasons.push(
@@ -619,7 +696,10 @@ function prReasons({ session, commit, observation, deliveryContract, releaseTran
   else {
     if (
       deliveryContract.github_name_with_owner !== observation.repository ||
-      deliveryContract.head_branch !== session?.source?.branch
+      deliveryContract.head_branch !== session?.source?.branch ||
+      (observation.head_ref !== undefined && observation.head_ref !== session?.source?.branch) ||
+      (observation.head_repository !== undefined &&
+        observation.head_repository !== observation.repository)
     )
       reasons.push(
         reason("pr-repository-mismatch", "the PR is not the contracted repository and branch")
@@ -740,6 +820,10 @@ function evaluateAutoMerge(input = {}) {
             observed_at: input.observation.observed_at ?? null,
           }
         : null,
+      observation_source:
+        input.observationSource === "github" || input.observationSource === "file"
+          ? input.observationSource
+          : null,
       ci: pr.ci,
     },
   };
@@ -768,7 +852,7 @@ function recordMergeDecision(session, result, grantAuthority) {
 }
 
 // Whether every merge grant in the session came from a standing authorization.
-// dev-gate-check keeps its own copy of this rule.
+// dev-gate-check requires this function; there is no second copy.
 function standingMergeOnly(session) {
   const grants = (Array.isArray(session?.authority_log) ? session.authority_log : []).filter(
     (entry) => Array.isArray(entry?.actions) && entry.actions.includes("merge")
@@ -799,6 +883,157 @@ function revokeMergeAuthorization(session, reasonText, now = new Date().toISOStr
   return next;
 }
 
+// ---------------------------------------------------------------------------
+// The durable revocation record. A revocation recorded in a session would end
+// with it; a new Dev session routed from the same approval would carry the
+// authorization again. The record sits beside the proposal's approval audit,
+// at {pm_dir}/backlog/proposals/{slug}.merge-revocation.json, and binds the
+// exact approval it revokes: proposal ID, revision, content hash and decision.
+// Routing and merge-check both read it. A record for another revision, content
+// or decision does not apply. A record that cannot be read revokes.
+
+const REVOCATIONS_KIND = "standing-merge-authorization-revocations";
+const REVOCATION_DOCUMENT_FIELDS = ["schema_version", "kind", "revocations"];
+const REVOCATION_FIELDS = [
+  "proposal_id",
+  "revision",
+  "content_sha256",
+  "decision_id",
+  "record_sha256",
+  "revoked_at",
+  "reason",
+  "revoked_in_run",
+];
+const REVOCATION_MATCH = ["proposal_id", "revision", "content_sha256", "decision_id"];
+const MAX_REVOCATIONS = 100;
+const MAX_REVOCATION_BYTES = 256 * 1024;
+
+function revocationPathForProposal(proposalPath) {
+  if (!text(proposalPath) || !/\.json$/.test(proposalPath)) return null;
+  return proposalPath.replace(/\.json$/, ".merge-revocation.json");
+}
+
+function revocationDocumentIssues(document) {
+  const at = "merge_revocation";
+  if (!isObject(document)) return [`${at} must be an object`];
+  const issues = closedIssues(document, REVOCATION_DOCUMENT_FIELDS, at);
+  if (document.schema_version !== 1) issues.push(`${at}.schema_version must equal 1`);
+  if (document.kind !== REVOCATIONS_KIND) issues.push(`${at}.kind must equal ${REVOCATIONS_KIND}`);
+  if (!Array.isArray(document.revocations)) {
+    issues.push(`${at}.revocations must be an array`);
+    return issues;
+  }
+  if (document.revocations.length > MAX_REVOCATIONS)
+    issues.push(`${at}.revocations keeps at most ${MAX_REVOCATIONS} entries`);
+  document.revocations.forEach((entry, index) => {
+    const where = `${at}.revocations[${index}]`;
+    if (!isObject(entry)) {
+      issues.push(`${where} must be an object`);
+      return;
+    }
+    issues.push(...closedIssues(entry, REVOCATION_FIELDS, where));
+    for (const field of ["proposal_id", "decision_id", "reason", "revoked_in_run"])
+      if (!text(entry[field])) issues.push(`${where}.${field} is required`);
+    if (!Number.isInteger(entry.revision) || entry.revision < 1)
+      issues.push(`${where}.revision must be a positive integer`);
+    for (const field of ["content_sha256", "record_sha256"])
+      if (!SHA256.test(entry[field] || "")) issues.push(`${where}.${field} must be sha256`);
+    if (!isIso(entry.revoked_at)) issues.push(`${where}.revoked_at must be an ISO-8601 UTC time`);
+  });
+  return issues;
+}
+
+// Missing is not an error: no record means nothing was revoked durably.
+function readMergeRevocations(proposalPath) {
+  const file = revocationPathForProposal(proposalPath);
+  if (!file) return { value: null, error: "the proposal path does not name a JSON proposal", file };
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) return { value: null, error: "is not a regular file", file };
+    if (stat.size > MAX_REVOCATION_BYTES) return { value: null, error: "is too large", file };
+    return { value: JSON.parse(fs.readFileSync(file, "utf8")), error: null, file };
+  } catch (error) {
+    if (error.code === "ENOENT") return { value: null, error: null, file };
+    return { value: null, error: error.message, file };
+  }
+}
+
+function findRevocation(document, proposal) {
+  if (!isObject(document) || !Array.isArray(document.revocations) || !isObject(proposal))
+    return null;
+  return (
+    document.revocations.find(
+      (entry) =>
+        isObject(entry) && REVOCATION_MATCH.every((field) => entry[field] === proposal[field])
+    ) || null
+  );
+}
+
+// Returns the next document and whether it differs from the one read.
+function addRevocation(document, ledger, reasonText, now, runId) {
+  if (document !== null && revocationDocumentIssues(document).length)
+    throw new Error(`the revocation record is malformed: ${revocationDocumentIssues(document)[0]}`);
+  if (findRevocation(document, ledger.proposal)) return { document, changed: false };
+  const next = {
+    schema_version: 1,
+    kind: REVOCATIONS_KIND,
+    revocations: [
+      ...(document?.revocations || []),
+      {
+        proposal_id: ledger.proposal.proposal_id,
+        revision: ledger.proposal.revision,
+        content_sha256: ledger.proposal.content_sha256,
+        decision_id: ledger.proposal.decision_id,
+        record_sha256: ledger.record.record_sha256,
+        revoked_at: now,
+        reason: reasonText.trim(),
+        revoked_in_run: runId,
+      },
+    ].slice(-MAX_REVOCATIONS),
+  };
+  const issues = revocationDocumentIssues(next);
+  if (issues.length) throw new Error(`invalid revocation record: ${issues.join("; ")}`);
+  return { document: next, changed: true };
+}
+
+// Why a durable record revokes this ledger, or null when none applies.
+function durableRevocation(ledger, read) {
+  if (!isObject(read)) return null;
+  if (read.error)
+    return {
+      code: "authorization-revocation-unreadable",
+      message: `the merge revocation record cannot be read: ${read.error}`,
+    };
+  if (read.value === null || read.value === undefined) return null;
+  const issues = revocationDocumentIssues(read.value);
+  if (issues.length)
+    return {
+      code: "authorization-revocation-unreadable",
+      message: `the merge revocation record is malformed: ${issues[0]}`,
+    };
+  const entry = findRevocation(read.value, ledger?.proposal);
+  if (!entry) return null;
+  return {
+    code: "authorization-revoked",
+    message: `revoked at ${entry.revoked_at} for proposal ${entry.proposal_id} r${entry.revision}: ${entry.reason}`,
+    entry,
+  };
+}
+
+// Dev routing: a new ledger starts revoked when the approval it copies was
+// revoked durably, or when the record cannot be read.
+function applyRevocationRecord(ledger, read, now = new Date().toISOString()) {
+  if (!isObject(ledger) || ledger.revoked) return ledger;
+  const found = durableRevocation(ledger, read);
+  if (!found) return ledger;
+  return {
+    ...ledger,
+    revoked: found.entry
+      ? { revoked_at: found.entry.revoked_at, reason: found.entry.reason }
+      : { revoked_at: now, reason: found.message },
+  };
+}
+
 // The merge decision dev-gate-check requires when a session's only merge
 // grant came from a standing authorization.
 function latestDecision(session) {
@@ -808,6 +1043,7 @@ function latestDecision(session) {
 
 module.exports = {
   GRANT_REASON_PREFIX,
+  REVOCATIONS_KIND,
   MANUAL_REASONS,
   RECORD_KIND,
   RECORD_SCOPE,
@@ -815,14 +1051,19 @@ module.exports = {
   authorizationReasons,
   buildMergeAuthorization,
   buildSessionLedger,
+  addRevocation,
+  applyRevocationRecord,
   canonical,
   evaluateAutoMerge,
   latestDecision,
   ledgerIssues,
   mergeAuthorizationIssues,
   pmDirForProposal,
+  readMergeRevocations,
   readProjectMergeSetting,
   recordMergeDecision,
+  revocationDocumentIssues,
+  revocationPathForProposal,
   revokeMergeAuthorization,
   standingDeliveryReason,
   standingGrantReason,

@@ -25,7 +25,12 @@ const {
 const { isRfc3339DateTime } = require("./iso-time");
 const { validateResources } = require("./dev-session-resources");
 const { validateFollowUps } = require("./design-director-follow-ups");
-const { buildSessionLedger, validateSessionMergeAuthorization } = require("./merge-authorization");
+const {
+  applyRevocationRecord,
+  buildSessionLedger,
+  readMergeRevocations,
+  validateSessionMergeAuthorization,
+} = require("./merge-authorization");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
   appendTransition,
@@ -2432,7 +2437,9 @@ function standingMergeLedger({
     if (facts.merge_authorization_proposal_path !== undefined)
       throw new Error("merge_authorization_proposal_path applies only to an RFC route");
     if (!proposalApproval?.merge_authorization) return null;
-    return buildSessionLedger(proposalApproval.merge_authorization, proposalIdentity);
+    return withDurableRevocation(
+      buildSessionLedger(proposalApproval.merge_authorization, proposalIdentity)
+    );
   }
   const named = facts.merge_authorization_proposal_path;
   if (named === undefined || named === null) return null;
@@ -2452,7 +2459,7 @@ function standingMergeLedger({
   if (canonicalJson(canonical.contract.design_context ?? null) !== canonicalJson(designContext))
     throw new Error("the merge authorization proposal's design context differs from the RFC's");
   if (!canonical.approval.merge_authorization) return null;
-  return buildSessionLedger(canonical.approval.merge_authorization, {
+  const ledger = buildSessionLedger(canonical.approval.merge_authorization, {
     path: proposalPath,
     proposal_id: canonical.contract.proposal_id,
     slug: canonical.contract.slug,
@@ -2460,6 +2467,13 @@ function standingMergeLedger({
     content_sha256: canonical.contract.content_sha256,
     decision_id: canonical.approval.decision_id,
   });
+  return withDurableRevocation(ledger);
+}
+
+// A revocation recorded against this exact approval in an earlier session
+// carries into the new session's ledger.
+function withDurableRevocation(ledger) {
+  return applyRevocationRecord(ledger, readMergeRevocations(ledger.proposal.path));
 }
 
 function applyRouting(session, facts, options = {}) {

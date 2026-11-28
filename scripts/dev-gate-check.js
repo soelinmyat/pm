@@ -23,6 +23,8 @@ const { checkQaReport } = require("./lib/qa-report-schema");
 const { currentEvidenceRecords } = require("./lib/workflow-runtime/records");
 const { sessionUsesFocusedUiQa } = require("./lib/dev-risk");
 const { checkMcpCoverage } = require("./lib/mcp-coverage");
+// One rule for which merge grants came only from a standing authorization.
+const { standingMergeOnly } = require("./lib/merge-authorization");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -1139,24 +1141,6 @@ function usage() {
     `Default skip-allowed gates: ${DEFAULT_ALLOW_SKIPPED_GATES.join(", ")}`,
     "Default review evidence mode: enforce (inspect is migration-only and cannot authorize delivery)",
   ].join("\n");
-}
-
-// Keep equal to GRANT_REASON_PREFIX in scripts/lib/merge-authorization.js. It
-// is copied, not required, because the pre-push hook runs this file alone, and
-// standingMergeOnly below mirrors the function of the same name there.
-const STANDING_MERGE_REASON_PREFIX = "standing-merge-authorization:";
-
-function standingMergeOnly(session) {
-  const grants = (session.authority_log || []).filter(
-    (entry) => Array.isArray(entry?.actions) && entry.actions.includes("merge")
-  );
-  return (
-    grants.length > 0 &&
-    grants.every(
-      (entry) =>
-        typeof entry.reason === "string" && entry.reason.startsWith(STANDING_MERGE_REASON_PREFIX)
-    )
-  );
 }
 
 // These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js

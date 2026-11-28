@@ -259,6 +259,10 @@ function buildContext({ session, sessionPath, cwd = process.cwd(), protectedTarg
   const repoRoot = realOrNull(session.source?.repo_root);
   const worktrees = listWorktrees(repoRoot);
   const mainWorktree = worktrees.find((item) => item.main)?.path || repoRoot;
+  // Teardowns are read from, and run in, the repository's main worktree only.
+  // The session's own worktree may have any branch checked out, and a branch
+  // can commit a teardown declaration or replace the script one names.
+  const configRoot = worktrees.find((item) => item.main)?.path || null;
   const sessionDir = realOrNull(path.dirname(sessionPath)) || path.dirname(sessionPath);
   const roots = tempRoots(home);
   const worktreeRoots = [
@@ -272,6 +276,7 @@ function buildContext({ session, sessionPath, cwd = process.cwd(), protectedTarg
   return {
     home,
     repoRoot,
+    configRoot,
     worktrees,
     sessionDir,
     stateDir: repoRoot
@@ -708,7 +713,13 @@ function closeProjectResource(entry, ctx, dryRun) {
   );
   if (inUse)
     return { outcome: "preserved", reason: `is in use by active session ${inUse.slug}`, bytes: 0 };
-  const teardown = declaredTeardown(ctx.repoRoot, entry);
+  if (!ctx.configRoot)
+    return {
+      outcome: "refused",
+      reason: "the repository's main worktree cannot be found, so no teardown can be read",
+      bytes: 0,
+    };
+  const teardown = declaredTeardown(ctx.configRoot, entry);
   if (teardown.missing)
     return {
       outcome: "no-teardown",
@@ -719,7 +730,7 @@ function closeProjectResource(entry, ctx, dryRun) {
   if (dryRun)
     return { outcome: "would-remove", reason: `would run ${teardown.argv.join(" ")}`, bytes: 0 };
   const run = spawnSync(teardown.argv[0], teardown.argv.slice(1), {
-    cwd: ctx.repoRoot,
+    cwd: ctx.configRoot,
     encoding: "utf8",
     timeout: teardown.timeout,
     shell: false,
@@ -802,25 +813,30 @@ function closeLedger(resources, ctx, { dryRun = false, now = new Date().toISOStr
 // ---------------------------------------------------------------------------
 // Session discovery for the sweep and for active-session protection
 
-function discoverSessions(repoRoot) {
+// Real session state is untracked local state. A session file Git tracks came
+// from a branch, which anyone can write, so it is left out of discovery and,
+// when the caller passes `ignored`, reported there. When Git cannot say, the
+// session is kept as unreadable, which counts as active: nothing it lists is
+// removed and everything it lists is protected.
+function discoverSessions(repoRoot, { ignored } = {}) {
   const roots = new Set([repoRoot, ...listWorktrees(repoRoot).map((item) => item.path)]);
   const found = [];
   for (const root of roots) {
     const sessionsDir = path.join(root, ".pm", "dev-sessions");
     for (const slug of safeList(sessionsDir)) {
       if (slug === "completed") continue;
-      found.push(path.join(sessionsDir, slug, "session.json"));
+      found.push({ root, sessionPath: path.join(sessionsDir, slug, "session.json") });
     }
     const completed = path.join(sessionsDir, "completed");
     for (const slug of safeList(completed)) {
       for (const run of safeList(path.join(completed, slug))) {
-        found.push(path.join(completed, slug, run, "session.json"));
+        found.push({ root, sessionPath: path.join(completed, slug, run, "session.json") });
       }
     }
   }
   const sessions = [];
   const seen = new Set();
-  for (const sessionPath of found) {
+  for (const { root, sessionPath } of found) {
     let stat;
     try {
       stat = fs.lstatSync(sessionPath);
@@ -831,17 +847,44 @@ function discoverSessions(repoRoot) {
     const key = realOrNull(sessionPath) || sessionPath;
     if (seen.has(key)) continue;
     seen.add(key);
+    const tracked = trackedByGit(root, sessionPath);
+    if (tracked.tracked) {
+      if (Array.isArray(ignored))
+        ignored.push({
+          session_path: sessionPath,
+          reason:
+            "the session file is tracked by Git, so it came from a branch rather than a local Dev run; its resources are not touched",
+        });
+      continue;
+    }
     let raw = null;
-    let error = null;
-    try {
-      raw = readBoundedJsonFile(sessionPath, MAX_SESSION_BYTES);
-      if (!isPlainObject(raw)) throw new Error("session is not an object");
-    } catch (readError) {
-      error = readError.message;
+    let error = tracked.error;
+    if (!error) {
+      try {
+        raw = readBoundedJsonFile(sessionPath, MAX_SESSION_BYTES);
+        if (!isPlainObject(raw)) throw new Error("session is not an object");
+      } catch (readError) {
+        error = readError.message;
+      }
     }
     sessions.push({ sessionPath, key, raw, error });
   }
   return sessions;
+}
+
+function trackedByGit(root, sessionPath) {
+  const listed = git(root, [
+    "ls-files",
+    "--error-unmatch",
+    "--",
+    path.relative(root, sessionPath).split(path.sep).join("/"),
+  ]);
+  if (listed.ok) return { tracked: true, error: null };
+  if (/did not match any file/i.test(listed.stderr)) return { tracked: false, error: null };
+  return {
+    tracked: false,
+    error: `cannot tell whether Git tracks the session file: ${listed.stderr || "git failed"}`,
+  };
 }
 
 function safeList(directory) {

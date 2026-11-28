@@ -11,6 +11,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const auth = require("../scripts/lib/merge-authorization");
+const githubReader = require("../scripts/lib/github-merge-observation");
 
 const COMMIT = "a".repeat(40);
 const OTHER = "b".repeat(40);
@@ -104,6 +105,7 @@ function observation(overrides = {}) {
     head_oid: COMMIT,
     mergeable: "MERGEABLE",
     observed_at: "2026-11-27T09:59:00.000Z",
+    protection: { protected: true, required_checks_enforcement: "everyone" },
     checks: {
       requirements_known: true,
       observation_complete: true,
@@ -128,6 +130,7 @@ function input(overrides = {}) {
     directorReport: ".pm/dev-sessions/unit/design-critique/director/run-1/review-1/report.json",
     mechanical: { ok: true, issues: [] },
     observation: observation(),
+    observationSource: "github",
     deliveryContract: {
       github_name_with_owner: "acme/widget",
       head_branch: "feature/unit",
@@ -385,12 +388,16 @@ test("CI must be green on the PR head that equals the checked commit", () => {
     ["missing", ci([])],
     ["old head", ci(run("completed", "success", OTHER))],
     ["no policy", ci(run("completed", "success"), { requirements_known: false })],
-    ["none required", ci(run("completed", "success"), { required: [] })],
   ]) {
     const result = auth.evaluateAutoMerge(input({ observation: obs }));
     assert.equal(result.decision, "refuse", label);
     assert.deepEqual(codes(result), ["ci-not-green"], label);
   }
+  const none = auth.evaluateAutoMerge(
+    input({ observation: ci(run("completed", "success"), { required: [] }) })
+  );
+  assert.equal(none.decision, "refuse");
+  assert.deepEqual(codes(none), ["required-checks-not-enforced", "ci-not-green"]);
 });
 
 test("the PR must be open, ready, mergeable and target the default branch at the checked head", () => {
@@ -587,4 +594,382 @@ test("a PM directory that cannot be determined reads as Merge: manual", () => {
   const manual = reasons.find((item) => item.code === "project-merge-manual");
   assert.ok(manual, JSON.stringify(reasons));
   assert.match(manual.message, /PM directory/);
+});
+
+test("a durable revocation record revokes the same approved revision in any session", () => {
+  const s = session();
+  const ledger = s.merge_authorization;
+  assert.equal(
+    auth.revocationPathForProposal("/repo/pm/backlog/proposals/unit.json"),
+    "/repo/pm/backlog/proposals/unit.merge-revocation.json"
+  );
+  const added = auth.addRevocation(null, ledger, "owner wants to read it", NOW, "dev_run_1");
+  assert.equal(added.changed, true);
+  assert.deepEqual(auth.revocationDocumentIssues(added.document), []);
+  assert.deepEqual(added.document.revocations[0], {
+    proposal_id: "proposal-1",
+    revision: 2,
+    content_sha256: CONTENT,
+    decision_id: "groom-approval:groom_abc123",
+    record_sha256: ledger.record.record_sha256,
+    revoked_at: NOW,
+    reason: "owner wants to read it",
+    revoked_in_run: "dev_run_1",
+  });
+  // Adding the same revocation again changes nothing.
+  assert.equal(
+    auth.addRevocation(added.document, ledger, "again", NOW, "dev_run_2").changed,
+    false
+  );
+
+  // A session whose own ledger is not revoked is revoked by the record.
+  let result = auth.evaluateAutoMerge(input({ revocations: added.document }));
+  assert.equal(result.decision, "manual");
+  assert.deepEqual(codes(result), ["authorization-revoked"]);
+
+  // A record for another revision, content or decision does not apply.
+  for (const change of [
+    { revision: 3 },
+    { content_sha256: `sha256:${"f".repeat(64)}` },
+    { decision_id: "groom-approval:groom_other" },
+    { proposal_id: "proposal-2" },
+  ]) {
+    const other = structuredClone(added.document);
+    Object.assign(other.revocations[0], change);
+    result = auth.evaluateAutoMerge(input({ revocations: other }));
+    assert.equal(result.decision, "merge", JSON.stringify(change));
+  }
+
+  // An unreadable or malformed record never allows a merge.
+  result = auth.evaluateAutoMerge(input({ revocationError: "EACCES" }));
+  assert.equal(result.decision, "manual");
+  assert.deepEqual(codes(result), ["authorization-revocation-unreadable"]);
+  result = auth.evaluateAutoMerge(input({ revocations: { schema_version: 1 } }));
+  assert.equal(result.decision, "manual");
+  assert.deepEqual(codes(result), ["authorization-revocation-unreadable"]);
+
+  // Routing copies a matching record into the new session's ledger.
+  const routed = auth.applyRevocationRecord(structuredClone(ledger), {
+    value: added.document,
+    error: null,
+  });
+  assert.equal(routed.revoked.revoked_at, NOW);
+  assert.match(routed.revoked.reason, /owner wants to read it/);
+  assert.deepEqual(auth.ledgerIssues(routed), []);
+  const untouched = auth.applyRevocationRecord(structuredClone(ledger), {
+    value: null,
+    error: null,
+  });
+  assert.equal(untouched.revoked, null);
+  const unreadable = auth.applyRevocationRecord(structuredClone(ledger), {
+    value: null,
+    error: "EACCES",
+  });
+  assert.notEqual(unreadable.revoked, null, "an unreadable record revokes, failing closed");
+});
+
+// ---------------------------------------------------------------------------
+// The PR and CI state come from GitHub through an injected `gh` runner. No
+// test reaches the network.
+
+const APP = 15368;
+
+function githubState(head = COMMIT) {
+  return {
+    "repos/acme/widget": { full_name: "acme/widget", default_branch: "main" },
+    "repos/acme/widget/pulls/42": {
+      number: 42,
+      state: "open",
+      merged: false,
+      draft: false,
+      base: { ref: "main", repo: { full_name: "acme/widget" } },
+      head: { sha: head, ref: "feature/unit", repo: { full_name: "acme/widget" } },
+      mergeable: true,
+      mergeable_state: "clean",
+    },
+    "repos/acme/widget/branches/main": {
+      name: "main",
+      protected: true,
+      protection: {
+        enabled: true,
+        required_status_checks: {
+          enforcement_level: "everyone",
+          contexts: ["test"],
+          checks: [{ context: "test", app_id: APP }],
+        },
+      },
+    },
+    [`repos/acme/widget/commits/${head}/check-runs?per_page=100`]: {
+      total_count: 1,
+      check_runs: [
+        {
+          name: "test",
+          app: { id: APP },
+          head_sha: head,
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    },
+    [`repos/acme/widget/commits/${head}/status?per_page=100`]: {
+      total_count: 0,
+      statuses: [],
+    },
+  };
+}
+
+function fakeGh(state, failure) {
+  const calls = [];
+  const runGh = (args) => {
+    calls.push(args);
+    if (failure) return failure;
+    if (args[0] !== "api") return { status: 1, stdout: "", stderr: "only gh api is stubbed" };
+    const body = state[args[1]];
+    if (body === undefined) return { status: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" };
+    return { status: 0, stdout: JSON.stringify(body), stderr: "" };
+  };
+  return { runGh, calls };
+}
+
+function decideFromGithub(state, { failure, extra = {} } = {}) {
+  const gh = fakeGh(state, failure);
+  const read = githubReader.readGithubMergeObservation({
+    repository: "acme/widget",
+    prNumber: 42,
+    runGh: gh.runGh,
+    now: () => "2026-11-27T09:59:30.000Z",
+    sleep: () => {},
+  });
+  const result = auth.evaluateAutoMerge(
+    input({
+      observation: read.observation,
+      observationError: read.error,
+      observationSource: read.source,
+      ...extra,
+    })
+  );
+  return { result, read, calls: gh.calls };
+}
+
+test("merge-check reads the PR, protection and checks from GitHub and merges on green", () => {
+  const { result, read, calls } = decideFromGithub(githubState());
+  assert.equal(read.source, "github");
+  assert.equal(result.decision, "merge", JSON.stringify(result.reasons));
+  assert.equal(result.evidence.observation_source, "github");
+  assert.equal(result.evidence.ci.status, "passed");
+  assert.deepEqual(
+    calls.map((args) => args.join(" ")),
+    [
+      "api repos/acme/widget",
+      "api repos/acme/widget/pulls/42",
+      "api repos/acme/widget/branches/main",
+      `api repos/acme/widget/commits/${COMMIT}/check-runs?per_page=100`,
+      `api repos/acme/widget/commits/${COMMIT}/status?per_page=100`,
+    ]
+  );
+  // A required status context reported as a commit status also counts.
+  const state = githubState();
+  state["repos/acme/widget/branches/main"].protection.required_status_checks.checks = [
+    { context: "lint", app_id: null },
+  ];
+  state[`repos/acme/widget/commits/${COMMIT}/status?per_page=100`] = {
+    total_count: 1,
+    statuses: [{ context: "lint", state: "success" }],
+  };
+  assert.equal(decideFromGithub(state).result.decision, "merge");
+});
+
+test("GitHub-read pending, failed or missing required checks refuse the merge", () => {
+  const runs = (status, conclusion) => {
+    const state = githubState();
+    state[`repos/acme/widget/commits/${COMMIT}/check-runs?per_page=100`].check_runs[0] = {
+      name: "test",
+      app: { id: APP },
+      head_sha: COMMIT,
+      status,
+      conclusion,
+    };
+    return state;
+  };
+  for (const [label, state, ci] of [
+    ["pending", runs("in_progress", null), "pending"],
+    ["failed", runs("completed", "failure"), "failed"],
+  ]) {
+    const { result } = decideFromGithub(state);
+    assert.equal(result.decision, "refuse", label);
+    assert.deepEqual(codes(result), ["ci-not-green"], label);
+    assert.equal(result.evidence.ci.status, ci, label);
+  }
+  // A check run from another app does not satisfy a required check bound to one.
+  const spoofed = runs("completed", "success");
+  spoofed[`repos/acme/widget/commits/${COMMIT}/check-runs?per_page=100`].check_runs[0].app.id = 1;
+  assert.deepEqual(codes(decideFromGithub(spoofed).result), ["ci-not-green"]);
+  // More check runs than one page returned is an incomplete observation.
+  const paged = githubState();
+  paged[`repos/acme/widget/commits/${COMMIT}/check-runs?per_page=100`].total_count = 101;
+  assert.deepEqual(codes(decideFromGithub(paged).result), ["ci-not-green"]);
+});
+
+test("a base branch without enforced required checks refuses the merge", () => {
+  const unprotected = githubState();
+  unprotected["repos/acme/widget/branches/main"] = { name: "main", protected: false };
+  const none = githubState();
+  none["repos/acme/widget/branches/main"].protection.required_status_checks = {
+    enforcement_level: "everyone",
+    contexts: [],
+    checks: [],
+  };
+  const off = githubState();
+  off["repos/acme/widget/branches/main"].protection.required_status_checks.enforcement_level =
+    "off";
+  for (const [label, state] of [
+    ["unprotected", unprotected],
+    ["none required", none],
+    ["enforcement off", off],
+  ]) {
+    const { result } = decideFromGithub(state);
+    assert.equal(result.decision, "refuse", label);
+    assert.ok(codes(result).includes("required-checks-not-enforced"), `${label}: ${codes(result)}`);
+  }
+  const admins = githubState();
+  admins["repos/acme/widget/branches/main"].protection.required_status_checks.enforcement_level =
+    "non_admins";
+  const { result } = decideFromGithub(admins);
+  assert.equal(result.decision, "refuse");
+  assert.deepEqual(codes(result), ["required-checks-admins-exempt"]);
+});
+
+test("a GitHub-read PR that moved, is a draft or is not mergeable refuses the merge", () => {
+  const moved = githubState(OTHER);
+  moved["repos/acme/widget/pulls/42"].head.sha = OTHER;
+  let { result } = decideFromGithub(moved);
+  assert.equal(result.decision, "refuse");
+  assert.ok(codes(result).includes("pr-head-moved"));
+  assert.ok(codes(result).includes("ci-not-green"));
+
+  const draft = githubState();
+  draft["repos/acme/widget/pulls/42"].draft = true;
+  draft["repos/acme/widget/pulls/42"].mergeable_state = "draft";
+  ({ result } = decideFromGithub(draft));
+  assert.equal(result.decision, "refuse");
+  assert.ok(codes(result).includes("pr-draft"));
+
+  for (const [mergeable, mergeableState] of [
+    [false, "dirty"],
+    [null, "unknown"],
+    [true, "blocked"],
+    [true, "behind"],
+  ]) {
+    const state = githubState();
+    state["repos/acme/widget/pulls/42"].mergeable = mergeable;
+    state["repos/acme/widget/pulls/42"].mergeable_state = mergeableState;
+    ({ result } = decideFromGithub(state));
+    assert.equal(result.decision, "refuse", mergeableState);
+    assert.deepEqual(codes(result), ["pr-not-mergeable"], mergeableState);
+  }
+
+  const closed = githubState();
+  closed["repos/acme/widget/pulls/42"].state = "closed";
+  ({ result } = decideFromGithub(closed));
+  assert.ok(codes(result).includes("pr-not-open"));
+
+  const fork = githubState();
+  fork["repos/acme/widget/pulls/42"].head.repo.full_name = "fork/widget";
+  ({ result } = decideFromGithub(fork));
+  assert.deepEqual(codes(result), ["pr-repository-mismatch"]);
+});
+
+test("gh missing, signed out, rate-limited or failing refuses with its own reason", () => {
+  for (const [label, failure, code] of [
+    [
+      "missing",
+      {
+        status: null,
+        stdout: "",
+        stderr: "",
+        error: Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }),
+      },
+      "gh-unavailable",
+    ],
+    [
+      "signed out",
+      {
+        status: 4,
+        stdout: "",
+        stderr: "To get started with GitHub CLI, please run:  gh auth login",
+      },
+      "gh-unauthenticated",
+    ],
+    [
+      "bad token",
+      { status: 1, stdout: "", stderr: "gh: Bad credentials (HTTP 401)" },
+      "gh-unauthenticated",
+    ],
+    [
+      "rate limited",
+      { status: 1, stdout: "", stderr: "gh: API rate limit exceeded for user ID 1. (HTTP 403)" },
+      "gh-rate-limited",
+    ],
+    [
+      "server error",
+      { status: 1, stdout: "", stderr: "gh: Server Error (HTTP 502)" },
+      "github-read-failed",
+    ],
+    ["not json", { status: 0, stdout: "<html>", stderr: "" }, "github-read-failed"],
+  ]) {
+    const { result, read } = decideFromGithub(githubState(), { failure });
+    assert.equal(read.observation, null, label);
+    assert.equal(result.decision, "refuse", label);
+    assert.deepEqual(codes(result), [code], label);
+  }
+  // The reader refuses to build a request from an unchecked repository or PR.
+  const bad = githubReader.readGithubMergeObservation({
+    repository: "acme/widget/../x",
+    prNumber: 42,
+    runGh: () => assert.fail("must not call gh"),
+  });
+  assert.equal(bad.error.code, "pr-unknown");
+});
+
+test("an observation file never grants a merge, whatever it claims", () => {
+  const claimed = observation({ source: "github" });
+  const result = auth.evaluateAutoMerge(input({ observation: claimed, observationSource: "file" }));
+  assert.equal(result.decision, "refuse");
+  assert.deepEqual(codes(result), ["observation-not-from-github"]);
+  assert.equal(result.evidence.observation_source, "file");
+  // A caller that names no source is treated the same way.
+  const unnamed = auth.evaluateAutoMerge(input({ observationSource: undefined }));
+  assert.deepEqual(codes(unnamed), ["observation-not-from-github"]);
+  assert.equal(unnamed.evidence.observation_source, null);
+});
+
+test("the reader asks GitHub again while it is still computing mergeable", () => {
+  const state = githubState();
+  state["repos/acme/widget/pulls/42"].mergeable = null;
+  state["repos/acme/widget/pulls/42"].mergeable_state = "unknown";
+  const pulls = "repos/acme/widget/pulls/42";
+  let reads = 0;
+  const waits = [];
+  const runGh = (args) => {
+    if (args[1] === pulls && ++reads === 2) {
+      state[pulls].mergeable = true;
+      state[pulls].mergeable_state = "clean";
+    }
+    return { status: 0, stdout: JSON.stringify(state[args[1]]), stderr: "" };
+  };
+  const read = githubReader.readGithubMergeObservation({
+    repository: "acme/widget",
+    prNumber: 42,
+    runGh,
+    now: () => "2026-11-27T09:59:30.000Z",
+    sleep: (ms) => waits.push(ms),
+  });
+  assert.equal(reads, 2);
+  assert.deepEqual(waits, [2000]);
+  assert.equal(read.observation.mergeable, "MERGEABLE");
+  assert.equal(
+    auth.evaluateAutoMerge(input({ observation: read.observation, observationSource: "github" }))
+      .decision,
+    "merge"
+  );
 });

@@ -22,33 +22,11 @@ Run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" merge-authorization --session
 
 Exit 0 means the grooming approval authorized this merge, provided `merge-check` passes. Do not ask the user. Then:
 
-1. Read the PR through the contracted repository API and save `.pm/dev-sessions/{slug}/ship/observations/merge-check.json`, with `observed_at` taken when the response is read:
-
-   ```json
-   {
-     "repository": "acme/widget",
-     "pr_number": 42,
-     "state": "OPEN",
-     "draft": false,
-     "base": "main",
-     "default_branch": "main",
-     "head_oid": "{40-hex head}",
-     "mergeable": "MERGEABLE",
-     "observed_at": "2026-11-27T10:00:00.000Z",
-     "checks": {
-       "requirements_known": true,
-       "observation_complete": true,
-       "required": [{ "name": "test", "app_id": null }],
-       "runs": [{ "name": "test", "app_id": null, "head_sha": "{head}", "status": "completed", "conclusion": "success" }]
-     }
-   }
-   ```
-
-   `default_branch` comes from the repository API, `mergeable` from the PR, `required` from branch protection and `runs` from the check runs on the head. Use the same observations as Step 06; never fill a field from memory.
-2. Run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" merge-check --session "{session_path}" --observation ".pm/dev-sessions/{slug}/ship/observations/merge-check.json" --commit "$remote_tip" --record --json` from the source worktree. It checks the authorization, the session, every routed gate at the commit, the director report and mechanical checks, `dev-gate-check`, CI, the PR and the release transaction, and records its decision in `session.json`.
-3. **Exit 0:** the decision is recorded and `authority.merge` is granted with the authorization as the reason. Copy that boolean into the delivery contract's `authorization.merge` and `recorded_at` through the explicit grant path in `delivery-contract.md`, then continue below. Do not arm GitHub auto-merge on this path: take the manual merge path in `merge-loop.md` with exactly `gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --match-head-commit "$remote_tip" --delete-branch`, where `$remote_tip` is the commit `merge-check` passed at. Never add `--admin` or `--auto`. `merge-check` reads an observation you wrote, so the command hands the final check to GitHub: `--match-head-commit` makes it refuse the merge if the head moved, and branch protection still enforces the required checks (`merge-check` already refuses when none are required). If GitHub refuses, do not retry with other flags; re-observe and run `merge-check` again, or park.
+1. Run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" merge-check --session "{session_path}" --commit "$remote_tip" --record --json` from the source worktree. Do not write a PR or CI observation for it, and do not pass `--observation`: `merge-check` reads the PR, its head, base, draft flag and mergeable state, the base branch's required status checks and the check runs and statuses at the head from GitHub itself with read-only `gh api` calls. It finds the repository in the delivery contract and the PR number in the verified Create PR receipt. A decision made from `--observation` is diagnosis only and always refuses. It also checks the authorization, the session, every routed gate at the commit, the director report and mechanical checks, `dev-gate-check` and the release transaction, and records its decision in `session.json`. `gh` must be installed and signed in; `gh-unavailable`, `gh-unauthenticated`, `gh-rate-limited` and `github-read-failed` are refusals.
+2. Refusals that only GitHub's settings can clear: `required-checks-not-enforced` (the base branch has no protected, enforced required status checks) and `required-checks-admins-exempt` (protection does not apply to administrators). Report them; do not change repository settings to get a pass.
+3. **Exit 0:** the decision is recorded and `authority.merge` is granted with the authorization as the reason. Copy that boolean into the delivery contract's `authorization.merge` and `recorded_at` through the explicit grant path in `delivery-contract.md`, then continue below. Do not arm GitHub auto-merge on this path: take the manual merge path in `merge-loop.md` with exactly `gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --match-head-commit "$remote_tip" --delete-branch`, where `$remote_tip` is the commit `merge-check` passed at. Never add `--admin` or `--auto`. The command keeps GitHub in charge at the merge itself: `--match-head-commit` makes it refuse the merge if the head moved after the check, and branch protection still enforces the required checks. If GitHub refuses, do not retry with other flags; run `merge-check` again, or park.
 4. **Exit 8:** the decision could not be written to `session.json`, so nothing was granted. Treat it as blocked: do not merge, do not read it as manual, and report the error.
-5. **Exit 1:** park. Do not merge. Leave the PR open with the reports, and tell the user every reason code and message from the output. Do not force-push, use `--admin`, bypass branch protection or required reviews, or delete the branch. Do not rerun with a changed observation, gate set or commit to get a pass. A new commit needs the full recertification protocol and a new `merge-check`. Then run close-out and stop.
+5. **Exit 1:** park. Do not merge. Leave the PR open with the reports, and tell the user every reason code and message from the output. Do not force-push, use `--admin`, bypass branch protection or required reviews, or delete the branch. Do not rerun with an observation file, a changed gate set or commit to get a pass. A new commit needs the full recertification protocol and a new `merge-check`. Then run close-out and stop.
 6. **Exit 3 at this step** means the authorization was revoked or turned off since Step 05; stop at the green PR as when merge authority is missing.
 
 Any commit after the check, including a fix in the merge loop, invalidates the decision: `dev-gate-check --require-authority merge` fails until a new `merge-check` passes at the new head.

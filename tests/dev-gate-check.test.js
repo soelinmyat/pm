@@ -2901,7 +2901,7 @@ test("delivery accepts policy-valid UI skips without inventing passing phase evi
 });
 
 test("a merge grant from a standing authorization needs a recorded merge decision at the commit", () => {
-  // The checker keeps its own copy of the prefix; this binds the two.
+  // The checker requires the prefix rule from merge-authorization.
   const { GRANT_REASON_PREFIX } = require("../scripts/lib/merge-authorization");
   const standing = `${GRANT_REASON_PREFIX} sha256:x approved by owner; merge-check passed`;
   const session = (log, decisions) => ({
@@ -2985,4 +2985,16 @@ test("a revoked standing authorization no longer satisfies a merge requirement",
   // A human's own merge grant is not withdrawn by revoking the standing one.
   const human = [...grant, { actions: ["merge"], reason: "User requested: merge it" }];
   assert.equal(check(session(human, revoked)).ok, true);
+});
+
+test("the checker takes the standing-merge rule from merge-authorization, not a copy", () => {
+  // .githooks/pre-push archives the whole scripts/ tree from the pushed commit,
+  // so scripts/lib/merge-authorization.js is loadable wherever the checker runs.
+  const hook = fs.readFileSync(path.join(__dirname, "../.githooks/pre-push"), "utf8");
+  assert.match(hook, /git archive --format=tar[^\n]*\\\n\s+scripts \\\n/);
+  const source = fs.readFileSync(path.join(__dirname, "../scripts/dev-gate-check.js"), "utf8");
+  assert.match(source, /require\("\.\/lib\/merge-authorization"\)/);
+  assert.doesNotMatch(source, /function standingMergeOnly/);
+  assert.doesNotMatch(source, /"standing-merge-authorization:"/);
+  assert.doesNotMatch(source, /pre-push hook runs this file alone/);
 });

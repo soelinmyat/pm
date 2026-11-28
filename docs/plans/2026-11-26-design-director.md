@@ -379,8 +379,11 @@ and binds it into the decision hash; the approval audit carries it and Dev
 routing copies it into `session.json`. `--merge manual` declines it for one
 proposal and a line `Merge: manual` in the project's PM instructions turns it
 off. `dev-session.js merge-check` decides each merge from the session, the gate
-rows and `dev-gate-check`, the director report and mechanical checks, an
-injected PR and CI observation and the release transaction. Only a pass grants
+rows and `dev-gate-check`, the director report and mechanical checks, the PR,
+branch protection and required checks it reads from GitHub itself through `gh`,
+and the release transaction; an observation file never allows a merge. A revoke
+is recorded next to the approval audit, so it also holds for later sessions of
+the same revision. Only a pass grants
 `merge`, and `dev-gate-check` holds that grant to the checked commit. A refusal
 records its reasons and leaves the PR open. Work without an approved groomed
 proposal keeps today's confirmation. Loop `merge_pr: true` now also requires a

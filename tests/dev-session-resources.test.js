@@ -1092,3 +1092,115 @@ test("sweep --remove discovers the repository's sessions once, not once per swep
     repo.cleanup();
   }
 });
+
+// A branch can commit anything, including files under .pm/ and a teardown
+// declaration. Cleanup must not act on either.
+function sideWorktree(repo, branch = "side") {
+  const worktree = path.join(repo.scratch("pm-res-side-"), branch);
+  git(repo.root, ["worktree", "add", "-q", worktree, "-b", branch]);
+  return fs.realpathSync(worktree);
+}
+
+function teardownScript(repo, marker, label) {
+  const script = path.join(repo.scratch("pm-res-teardown-"), `${label}.js`);
+  fs.writeFileSync(
+    script,
+    `require('node:fs').appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(label)} + ' ' + process.argv.slice(2).join(' ') + '\\n');\n`
+  );
+  return script;
+}
+
+test("cleanup reads teardowns only from the main worktree, never from a branch's checkout", () => {
+  const repo = makeRepo();
+  try {
+    const side = sideWorktree(repo);
+    const marker = path.join(repo.scratch("pm-res-marker-"), "calls.txt");
+    // The side branch commits its own teardown for the name its session uses.
+    const planted = teardownScript(repo, marker, "branch");
+    fs.writeFileSync(
+      path.join(side, "pm.config.json"),
+      JSON.stringify({
+        dev: {
+          teardown: {
+            "drop-db": { kind: "database", command: [process.execPath, planted, "{id}"] },
+          },
+        },
+      })
+    );
+    git(side, ["add", "pm.config.json"]);
+    git(side, ["commit", "-q", "-m", "declare a teardown"]);
+
+    const init = repo.run(["init", "--slug", "side", "--source-dir", side, "--json"]);
+    assert.equal(init.status, 0, init.stderr);
+    const sessionPath = JSON.parse(init.stdout).session_path;
+    assert.ok(sessionPath.startsWith(side), sessionPath);
+    addOk(repo, sessionPath, [
+      "--kind",
+      "database",
+      "--identifier",
+      "app_side",
+      "--teardown",
+      "drop-db",
+    ]);
+
+    let closed = close(repo, sessionPath);
+    assert.equal(closed.report.entries[0].outcome, "no-teardown", closed.stdout + closed.stderr);
+    assert.equal(fs.existsSync(marker), false, "the branch's teardown never runs");
+
+    // The main worktree's own declaration is the one that runs.
+    const owned = teardownScript(repo, marker, "main");
+    fs.mkdirSync(path.join(repo.root, ".pm"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo.root, ".pm", "config.json"),
+      JSON.stringify({
+        dev: {
+          teardown: { "drop-db": { kind: "database", command: [process.execPath, owned, "{id}"] } },
+        },
+      })
+    );
+    closed = close(repo, sessionPath);
+    assert.equal(closed.report.entries[0].outcome, "removed", closed.stdout + closed.stderr);
+    assert.equal(fs.readFileSync(marker, "utf8"), "main app_side\n");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("the sweep ignores and reports a session file that Git tracks", () => {
+  const repo = makeRepo();
+  try {
+    const side = sideWorktree(repo, "crafted");
+    // A real finished session supplies a valid ledger for the crafted copy.
+    const realPath = repo.init("template-run");
+    const victim = repo.scratch("pm-res-victim-");
+    fs.writeFileSync(path.join(victim, "keep.txt"), "user data\n");
+    addOk(repo, realPath, ["--kind", "directory", "--path", victim]);
+    const finished = completeSession(repo, realPath);
+    const crafted = readJson(finished.session_path);
+    fs.rmSync(path.join(repo.root, ".pm"), { recursive: true, force: true });
+
+    const committed = path.join(side, ".pm", "dev-sessions", "crafted", "session.json");
+    fs.mkdirSync(path.dirname(committed), { recursive: true });
+    fs.writeFileSync(committed, JSON.stringify({ ...crafted, slug: "crafted" }));
+    git(side, ["add", "-f", ".pm/dev-sessions/crafted/session.json"]);
+    git(side, ["commit", "-q", "-m", "commit a session file"]);
+
+    const dry = repo.run(["sweep", "--source-dir", repo.root, "--json"]);
+    assert.equal(dry.status, 0, dry.stderr);
+    const report = JSON.parse(dry.stdout);
+    assert.deepEqual(report.sessions, [], JSON.stringify(report.sessions));
+    assert.deepEqual(
+      report.ignored.map((item) => item.session_path),
+      [committed]
+    );
+    assert.match(report.ignored[0].reason, /tracked by Git/);
+
+    const removed = repo.run(["sweep", "--source-dir", repo.root, "--remove", "--json"]);
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.ok(fs.existsSync(path.join(victim, "keep.txt")), "a committed ledger removes nothing");
+    assert.match(removed.stdout, /tracked by Git/);
+    assert.equal(readJson(committed).resources[0].status, "registered");
+  } finally {
+    repo.cleanup();
+  }
+});

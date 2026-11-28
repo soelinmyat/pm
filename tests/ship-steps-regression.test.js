@@ -418,8 +418,8 @@ test("comprehensive requested drafts have an explicit ready-before-merge procedu
 });
 
 test("an automatic merge under a standing authorization lets GitHub enforce the checked head", () => {
-  // merge-check trusts the agent-written PR and CI observation, so the merge
-  // command itself must bind the head and leave branch protection in force.
+  // merge-check reads GitHub at the check; the merge command itself must still
+  // bind the head and leave branch protection in force.
   const step = read("skills/ship/steps/07-merge-loop.md");
   const shared = read("references/merge-loop.md");
   const contract = read("skills/ship/references/delivery-contract.md");

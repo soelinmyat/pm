@@ -9,7 +9,10 @@ const mergeAuthorization = require("./lib/merge-authorization");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
+const {
+  writeJsonAtomic: writeJsonFileAtomic,
+  writeTextAtomic: writeAtomicText,
+} = require("./lib/atomic-file");
 const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { parseCliArgs } = require("./loop-args");
 const { recordSessionTelemetry } = require("./lib/telemetry");
@@ -1747,13 +1750,25 @@ function mergeAuthorizationState(session) {
     mergeAuthorization.pmDirForProposal(ledger?.proposal?.path || session.task?.proposal?.path)
   );
   const approval = readProposalApproval(ledger);
+  const revocations = ledger?.proposal?.path
+    ? mergeAuthorization.readMergeRevocations(ledger.proposal.path)
+    : { value: null, error: null };
   const reasons = mergeAuthorization.authorizationReasons({
     session,
     projectSetting,
     approval: approval.value,
     approvalError: approval.error,
+    revocations: revocations.value,
+    revocationError: revocations.error,
   });
-  return { ledger, projectSetting, approval, reasons, applies: reasons.length === 0 };
+  return {
+    ledger,
+    projectSetting,
+    approval,
+    revocations,
+    reasons,
+    applies: reasons.length === 0,
+  };
 }
 
 function mergeAuthorizationCommand(options) {
@@ -1808,9 +1823,34 @@ function mergeAuthorizationRevokeCommand(options) {
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
+  // The session is revoked first, so a failure below still leaves it revoked.
+  // The record beside the approval audit makes the revocation outlive the
+  // session: routing and merge-check read it for every later Dev session.
+  const ledger = updated.merge_authorization;
+  const current = mergeAuthorization.readMergeRevocations(ledger.proposal.path);
+  try {
+    if (current.error) throw new Error(`cannot read ${current.file}: ${current.error}`);
+    const next = mergeAuthorization.addRevocation(
+      current.value,
+      ledger,
+      ledger.revoked.reason,
+      ledger.revoked.revoked_at,
+      updated.run_id
+    );
+    if (next.changed) writeJsonFileAtomic(current.file, next.document, { fileMode: 0o600 });
+  } catch (error) {
+    throw cliError(
+      `this session is revoked, but the durable revocation record was not written, so a new session from the same approval would not be: ${error.message}`,
+      EXIT.RECORD_FAILED
+    );
+  }
   emit(
     options,
-    { session_path: sessionPath, revoked: updated.merge_authorization.revoked },
+    {
+      session_path: sessionPath,
+      revoked: updated.merge_authorization.revoked,
+      revocation_record: current.file,
+    },
     `Standing merge authorization revoked: ${updated.merge_authorization.revoked.reason}\n${
       updated.merge_authorization.revoked.cleared_authority
         ? "The merge authority it granted is withdrawn; merging needs the user's own confirmation.\n"
@@ -1822,8 +1862,12 @@ function mergeAuthorizationRevokeCommand(options) {
 
 // Decides whether the merge may proceed automatically and, with --record,
 // writes the decision to the session. Only a merge decision grants the merge
-// authority Ship's transaction requires. The PR and CI state come from an
-// observation file Ship reads through the contracted repository API.
+// authority Ship's transaction requires. The PR, its protection and its
+// required checks are read from GitHub through `gh api`; the repository comes
+// from the delivery contract and the PR number from the release transaction's
+// verified Create PR receipt. `--observation <file>` replaces that read for
+// diagnosis only: a decision made from a file is recorded with observation
+// source `file` and never allows a merge.
 function mergeCheckCommand(options) {
   requireOnlyOptions(options, [
     "session",
@@ -1834,7 +1878,7 @@ function mergeCheckCommand(options) {
     "record",
     "json",
   ]);
-  requireOptions(options, ["session", "observation", "commit"]);
+  requireOptions(options, ["session", "commit"]);
   const sessionPath = path.resolve(options.session);
   const session = readSession(sessionPath);
   const root = path.resolve(options.root || session.source.worktree || session.source.repo_root);
@@ -1842,12 +1886,23 @@ function mergeCheckCommand(options) {
     options.gates || path.join(root, ".pm", "dev-sessions", session.slug, "gates.json")
   );
   const shipDir = path.join(path.dirname(gatesPath), "ship");
-  const observation = readOptionalJson(path.resolve(options.observation));
-  if (observation.error)
-    throw cliError(`cannot read observation: ${observation.error}`, EXIT.INVALID);
+  let fileObservation = null;
+  if (options.observation !== undefined) {
+    fileObservation = readOptionalJson(path.resolve(options.observation));
+    if (fileObservation.error)
+      throw cliError(`cannot read observation: ${fileObservation.error}`, EXIT.INVALID);
+  }
   const gates = readOptionalJson(gatesPath).value;
   const state = mergeAuthorizationState(session);
   const commit = options.commit;
+  const deliveryContract = readOptionalJson(path.join(shipDir, "delivery-contract.json")).value;
+  const releaseTransaction = readOptionalJson(path.join(shipDir, "release-transaction.json")).value;
+  const observed = observePullRequest({
+    fileObservation,
+    state,
+    deliveryContract,
+    releaseTransaction,
+  });
   const gateCheck = gates ? fullGateCheck({ root, session, gates, gatesPath, commit }) : null;
   const director = directorEvidence({ root, session, gates, commit });
   const result = mergeAuthorization.evaluateAutoMerge({
@@ -1856,14 +1911,18 @@ function mergeCheckCommand(options) {
     projectSetting: state.projectSetting,
     approval: state.approval.value,
     approvalError: state.approval.error,
+    revocations: state.revocations.value,
+    revocationError: state.revocations.error,
     gates,
     gateCheck,
     directorCheck: director.check,
     directorReport: director.report,
     mechanical: director.mechanical,
-    observation: observation.value,
-    deliveryContract: readOptionalJson(path.join(shipDir, "delivery-contract.json")).value,
-    releaseTransaction: readOptionalJson(path.join(shipDir, "release-transaction.json")).value,
+    observation: observed.observation,
+    observationSource: observed.source,
+    observationError: observed.error,
+    deliveryContract,
+    releaseTransaction,
   });
   let recorded = false;
   if (options.record && session.merge_authorization) {
@@ -1893,6 +1952,31 @@ function mergeCheckCommand(options) {
           .join("; ")}\n`
   );
   return MERGE_CHECK_EXIT[result.decision];
+}
+
+function verifiedPrNumber(releaseTransaction) {
+  const receipt = releaseTransaction?.effects?.["create-pr"]?.verified_receipt?.receipt;
+  const number = receipt?.pr_number ?? receipt?.number;
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+// GitHub is read only when a standing authorization applies; otherwise the
+// decision is manual whatever the PR shows.
+function observePullRequest({ fileObservation, state, deliveryContract, releaseTransaction }) {
+  if (fileObservation) return { observation: fileObservation.value, source: "file", error: null };
+  if (!state.applies)
+    return {
+      observation: null,
+      source: null,
+      error: {
+        code: "observation-not-read",
+        message: "GitHub was not read because the standing authorization does not apply",
+      },
+    };
+  return require("./lib/github-merge-observation").readGithubMergeObservation({
+    repository: deliveryContract?.github_name_with_owner,
+    prNumber: verifiedPrNumber(releaseTransaction),
+  });
 }
 
 function fullGateCheck({ root, session, gates, gatesPath, commit }) {
@@ -1969,10 +2053,12 @@ function sweepCommand(options) {
   }
   repoRoot = resources.realOrNull(repoRoot);
   if (!repoRoot) throw cliError("cannot find the repository to sweep", EXIT.PRECONDITION);
-  const sessions = resources.discoverSessions(repoRoot);
+  const ignored = [];
+  const sessions = resources.discoverSessions(repoRoot, { ignored });
   const report = {
     repo_root: repoRoot,
     dry_run: !remove,
+    ignored,
     sessions: [],
     bytes_freed: 0,
     bytes_to_free: 0,
@@ -2106,7 +2192,10 @@ function formatCloseReport(report) {
 }
 
 function formatSweepReport(report) {
-  if (!report.sessions.length) return "No orphaned resources.\n";
+  const ignored = (report.ignored || [])
+    .map((item) => `Ignored ${item.session_path}: ${item.reason}\n`)
+    .join("");
+  if (!report.sessions.length) return `${ignored}No orphaned resources.\n`;
   const body = report.sessions
     .map(
       (item) => `${item.slug} (${item.state}: ${item.reason})\n${formatEntryLines(item.entries)}`
@@ -2115,7 +2204,7 @@ function formatSweepReport(report) {
   const summary = report.dry_run
     ? `Would free ${formatBytes(report.bytes_to_free)}. Rerun with --remove to remove orphans.\n`
     : `Freed ${formatBytes(report.bytes_freed)}; ${report.remaining.length} resource(s) remain.\n`;
-  return body + summary;
+  return ignored + body + summary;
 }
 
 function writeTextAtomic(filePath, text) {
@@ -2181,7 +2270,9 @@ function helpText() {
     "  sweep (--session <path> | --source-dir <path>) [--remove] [--json]",
     "  merge-authorization --session <path> [--apply] [--json]",
     "  merge-authorization-revoke --session <path> --reason <text> [--json]",
-    "  merge-check --session <path> --observation <pr-ci.json> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]",
+    "  merge-check --session <path> --commit <sha> [--gates <gates.json>] [--root <worktree>] [--record] [--json]",
+    "      reads the PR, branch protection and required checks from GitHub with gh api;",
+    "      [--observation <pr-ci.json>] replaces that read for diagnosis and never allows a merge",
     "      exit 0 merge, 1 refuse, 3 manual (no standing authorization applies), 2 bad input,",
     "      8 the decision could not be recorded (nothing granted; treat as blocked)",
     "  next --session <path> [--json]",
