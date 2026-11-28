@@ -183,9 +183,9 @@ test("surface paths wrap only after a slash, never inside a segment", () => {
   assert.deepEqual(renderedPaths(rendered.html), [long]);
   const code = rendered.html.match(/<code class="surface-path">([\s\S]*?)<\/code>/)[1];
   // Each segment is one span and the only preferred break is after a slash.
-  const segments = [...code.matchAll(/<span class="surface-path-segment">([^<]*)<\/span>/g)].map(
-    (match) => match[1]
-  );
+  const segments = [
+    ...code.matchAll(/<span class="surface-path-segment(?: surface-path-long)?">([^<]*)<\/span>/g),
+  ].map((match) => match[1]);
   assert.deepEqual(segments, long.split("/"));
   assert.equal((code.match(/<wbr>/g) || []).length, long.split("/").length - 1);
   assert.match(code, /^<span class="surface-path-segment">apps<\/span>\/<wbr>/);
@@ -197,6 +197,30 @@ test("surface paths wrap only after a slash, never inside a segment", () => {
   const pathRule = rendered.html.match(/code\.surface-path\s*\{([^}]*)\}/)[1];
   assert.match(pathRule, /display:\s*block/);
   assert.doesNotMatch(rendered.html, /<\/code>, <code class="surface-path">/);
+});
+
+test("only segments that fit a 320px column stay unbroken", () => {
+  // At 320px a code line holds about 33 characters; a 24-character segment
+  // always fits, so only longer segments may break inside.
+  const proposal = strongProposal();
+  const fits = "a".repeat(24);
+  const tooLong = "b".repeat(25);
+  const phoneWide = "recurring-invoice-export-schedule-editor";
+  proposal.design_context.surfaces = [
+    { name: "Boundary", paths: [`src/${fits}/${tooLong}/${phoneWide}`] },
+  ];
+  const code = renderProposal(proposal, { version: "test" }).html.match(
+    /<code class="surface-path">([\s\S]*?)<\/code>/
+  )[1];
+  assert.match(code, new RegExp(`<span class="surface-path-segment">${fits}</span>`));
+  assert.match(
+    code,
+    new RegExp(`<span class="surface-path-segment surface-path-long">${tooLong}</span>`)
+  );
+  assert.match(
+    code,
+    new RegExp(`<span class="surface-path-segment surface-path-long">${phoneWide}</span>`)
+  );
 });
 
 test("a path segment longer than the line breaks at the line edge, not at its hyphens", () => {

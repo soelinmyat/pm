@@ -383,8 +383,9 @@ function surfacesHtml(surfaces) {
   return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
 }
 
-// A segment longer than this can be wider than a narrow column.
-const LONG_SURFACE_SEGMENT = 40;
+// A segment longer than this can be wider than a 320px column, which holds
+// about 33 characters of code text; shorter segments always fit.
+const LONG_SURFACE_SEGMENT = 24;
 
 // Each path is a block on its own line. It wraps after a slash, and a
 // segment that fits never splits, so hyphens and file extensions stay whole.
