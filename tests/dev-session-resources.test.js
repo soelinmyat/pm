@@ -548,6 +548,40 @@ test("close removes clean worktrees, preserves dirty ones and never deletes a br
   }
 });
 
+test("close keeps a clean worktree that holds another checkout in an ignored folder", () => {
+  const repo = makeRepo();
+  try {
+    const sessionPath = repo.init("close-nested-checkout");
+    const target = path.join(repo.root, ".worktrees", "nested");
+    git(repo.root, ["worktree", "add", "-q", target, "-b", "feat/nested"]);
+    const worktree = fs.realpathSync(target);
+    // An ignored folder holding a separate clone with an unpushed commit: the
+    // worktree itself is clean, so only a checkout scan can see the work.
+    fs.writeFileSync(path.join(worktree, ".git", "..", ".gitignore"), "vendor/\n");
+    git(worktree, ["add", ".gitignore"]);
+    git(worktree, ["commit", "-qm", "ignore vendor"]);
+    git(repo.root, ["branch", "-f", "pushed/nested", "feat/nested"]);
+    const clone = path.join(worktree, "vendor", "lib");
+    fs.mkdirSync(path.dirname(clone), { recursive: true });
+    git(worktree, ["init", "-q", clone]);
+    git(clone, ["config", "user.email", "test@example.com"]);
+    git(clone, ["config", "user.name", "Test User"]);
+    fs.writeFileSync(path.join(clone, "work.txt"), "unpushed\n");
+    git(clone, ["add", "work.txt"]);
+    git(clone, ["commit", "-qm", "unpushed work"]);
+
+    addOk(repo, sessionPath, ["--kind", "worktree", "--path", worktree]);
+    const closed = close(repo, sessionPath);
+    assert.equal(closed.status, 7, closed.stderr);
+    const entry = closed.report.entries.find((item) => item.target === worktree);
+    assert.ok(["preserved", "refused"].includes(entry.outcome), entry.outcome);
+    assert.match(entry.reason, /checkout/);
+    assert.ok(fs.existsSync(path.join(clone, "work.txt")), "the nested clone is kept");
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("close signals only the registered process and treats a reused or stale pid as gone", () => {
   if (process.platform === "win32") return;
   const repo = makeRepo();

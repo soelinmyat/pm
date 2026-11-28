@@ -86,8 +86,10 @@ function measureBytes(root) {
 // The first `.git` file or directory under root, as a path relative to root,
 // or null. A `.git` entry marks a checkout or linked worktree whose
 // uncommitted work a recursive removal would destroy. Symlinks are not
-// followed. A folder that cannot be read counts as holding one.
-function gitCheckoutWithin(root) {
+// followed. A folder that cannot be read counts as holding one. With
+// ignoreRootGit, the root's own `.git` (a linked worktree's file) is skipped
+// and only checkouts nested below it count.
+function gitCheckoutWithin(root, { ignoreRootGit = false } = {}) {
   const pending = [""];
   while (pending.length) {
     const relative = pending.pop();
@@ -100,7 +102,10 @@ function gitCheckoutWithin(root) {
     }
     for (const entry of entries) {
       const child = path.join(relative, entry.name);
-      if (entry.name === ".git") return child;
+      if (entry.name === ".git") {
+        if (ignoreRootGit && relative === "") continue;
+        return child;
+      }
       if (entry.isDirectory()) pending.push(child);
     }
   }

@@ -660,6 +660,11 @@ function unsavedWork(real, ctx) {
   // usually ignored, so a worktree holding it is kept.
   if (holdsFiles(path.join(real, ".pm")))
     return "holds PM state in .pm; keep the evidence you need, then remove it";
+  // A separate clone or worktree in an ignored folder is invisible to git
+  // status here and would be deleted with its own unsaved work.
+  const checkout = gitCheckoutWithin(real, { ignoreRootGit: true });
+  if (checkout)
+    return `contains another git checkout, or a folder that cannot be checked for one, at ${path.join(real, checkout)}`;
   return null;
 }
 
