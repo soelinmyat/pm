@@ -378,17 +378,22 @@ function designContextHtml(proposal) {
 function surfacesHtml(surfaces) {
   if (!surfaces) return "";
   const rows = surfaces.map(
-    (surface) => `<li>${h(surface.name)}: ${surface.paths.map(surfacePathHtml).join(", ")}</li>`
+    (surface) => `<li>${h(surface.name)}${surface.paths.map(surfacePathHtml).join("")}</li>`
   );
   return `\n<h3>Surfaces in scope</h3><ul>${rows.join("")}</ul>`;
 }
 
-// A path wraps only after a slash. Each segment is unbreakable, so hyphens
-// and file extensions never split and the copied text stays exact.
+// A segment longer than this can be wider than a narrow column.
+const LONG_SURFACE_SEGMENT = 40;
+
+// Each path is a block on its own line. It wraps after a slash, and a
+// segment that fits never splits, so hyphens and file extensions stay whole.
+// Only a segment too long to fit may break inside, at the line edge.
 function surfacePathHtml(pattern) {
-  const segments = pattern
-    .split("/")
-    .map((segment) => `<span class="surface-path-segment">${h(segment)}</span>`);
+  const segments = pattern.split("/").map((segment) => {
+    const long = segment.length > LONG_SURFACE_SEGMENT ? " surface-path-long" : "";
+    return `<span class="surface-path-segment${long}">${h(segment)}</span>`;
+  });
   return `<code class="surface-path">${segments.join("/<wbr>")}</code>`;
 }
 

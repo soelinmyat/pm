@@ -182,25 +182,43 @@ test("surface paths wrap only after a slash, never inside a segment", () => {
 
   assert.deepEqual(renderedPaths(rendered.html), [long]);
   const code = rendered.html.match(/<code class="surface-path">([\s\S]*?)<\/code>/)[1];
-  // Each segment is one unbreakable span; the only break opportunity is after a slash.
+  // Each segment is one span and the only preferred break is after a slash.
   const segments = [...code.matchAll(/<span class="surface-path-segment">([^<]*)<\/span>/g)].map(
     (match) => match[1]
   );
   assert.deepEqual(segments, long.split("/"));
   assert.equal((code.match(/<wbr>/g) || []).length, long.split("/").length - 1);
   assert.match(code, /^<span class="surface-path-segment">apps<\/span>\/<wbr>/);
-  // A segment that fits stays whole and moves to the next line as one unit;
-  // only a segment longer than the line itself may break inside.
+  // A segment that fits never breaks inside itself.
   const segmentRule = rendered.html.match(/\.surface-path-segment\s*\{([^}]*)\}/)[1];
-  assert.match(segmentRule, /display:\s*inline-block/);
-  assert.match(segmentRule, /max-width:\s*100%/);
-  assert.match(segmentRule, /overflow-wrap:\s*anywhere/);
-  assert.doesNotMatch(segmentRule, /white-space:\s*nowrap/);
-  // A segment longer than the line breaks at the line edge, between any two
-  // characters, so its break rarely falls on a hyphen that print text tools
-  // would drop when the path is copied.
-  assert.match(segmentRule, /word-break:\s*break-all/);
-  assert.match(rendered.html, /code\.surface-path\s*\{[^}]*overflow-wrap:\s*normal/);
+  assert.match(segmentRule, /white-space:\s*nowrap/);
+  // Each path is its own block on its own line, so a wrapped path stays in one
+  // box instead of leaving a shaded band behind a broken chip.
+  const pathRule = rendered.html.match(/code\.surface-path\s*\{([^}]*)\}/)[1];
+  assert.match(pathRule, /display:\s*block/);
+  assert.doesNotMatch(rendered.html, /<\/code>, <code class="surface-path">/);
+});
+
+test("a path segment longer than the line breaks at the line edge, not at its hyphens", () => {
+  const proposal = strongProposal();
+  const longSegment =
+    "organisation-level-payment-preferences-recurring-invoice-export-schedule-editor-components";
+  const long = `apps/web/src/${longSegment}/index.ts`;
+  proposal.design_context.surfaces = [{ name: "Payment preferences", paths: [long] }];
+  const rendered = renderProposal(proposal, { version: "test" });
+
+  assert.deepEqual(renderedPaths(rendered.html), [long]);
+  const code = rendered.html.match(/<code class="surface-path">([\s\S]*?)<\/code>/)[1];
+  // Only the over-long segment may break inside, between any two characters,
+  // so its break rarely falls on a hyphen that print text tools would drop.
+  assert.match(
+    code,
+    new RegExp(`<span class="surface-path-segment surface-path-long">${longSegment}</span>`)
+  );
+  assert.match(code, /<span class="surface-path-segment">index\.ts<\/span>/);
+  const longRule = rendered.html.match(/\.surface-path-long\s*\{([^}]*)\}/)[1];
+  assert.match(longRule, /white-space:\s*normal/);
+  assert.match(longRule, /word-break:\s*break-all/);
 });
 
 test("dependencies and constraints are labelled separately", () => {
