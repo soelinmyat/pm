@@ -38,7 +38,7 @@ async function fixture(
       if (req.url === '/slow') { /* Genuine pending response, closed during cleanup. */ return; }
       res.setHeader('content-type','text/html');
       res.end(${JSON.stringify(`<!doctype html><html lang="en"><head><title>Loading test</title><link rel="icon" href="data:,"></head><body><main id="content" data-pm-state="${state}" aria-busy="${busy}"><h1>Saved checklists</h1><p>Loading saved submissions</p>${groupPreview ? '<div role="group" aria-label="Recorded signature" aria-busy="true" style="display:inline-flex"><button id="preview" aria-label="View saved signature">View signature</button></div>' : ""}</main><script>${type === "image" ? `${afterLoad ? "window.addEventListener('load',()=>setTimeout(()=>{" : ""}const image=new Image(); image.alt='Saved signature'; image.width=128; image.height=40; image.src='${external ? "http://127.0.0.1:1/blocked" : "/slow"}'; ${groupPreview ? "document.getElementById('preview')" : "document.body"}.append(image);${afterLoad ? "},0));" : ""}` : `fetch('${external ? "http://127.0.0.1:1/blocked" : "/slow"}', {method: '${method}'}).then(() => {const el=document.getElementById('content'); el.setAttribute('aria-busy','false'); el.setAttribute('data-pm-state','primary'); el.textContent='Loaded';});`}</script></body></html>`)});
-    }); server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+    }); server.listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port)));
   `,
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
